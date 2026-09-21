@@ -501,6 +501,9 @@ def test_openai_compatible_adapter_retries_transient_http_429(monkeypatch) -> No
 
     assert response.content == "OK"
     assert response.metadata["transport"]["attempts"] == 2
+    assert response.metadata["transport"]["retry_events"] == [
+        {"kind": "http", "status": 429, "delay_seconds": 0.0}
+    ]
     assert response.metadata["transport"]["client_wall_seconds"] >= 0
     assert calls == 2
     assert sleeps == []
