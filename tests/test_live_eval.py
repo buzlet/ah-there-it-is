@@ -86,9 +86,37 @@ def test_offline_live_eval_plumbing_can_move_without_touching_external_state(mon
     assert result["status"] == "completed"
     assert result["checks_passed"] is True
     assert len(result["turns"]) == 1
+    assert result["turns"][0]["tool_trace"]
+    assert result["turns"][0]["llm_model"] == "heuristic-v1"
 
 
 def test_fixture_seed_creates_history_events(session) -> None:
     seed_inventory_fixture(session)
     count = session.scalar(select(func.count(Event.id)))
     assert count == 8
+
+
+def test_case_without_automated_checks_is_not_reported_as_passed(monkeypatch) -> None:
+    from ah_there_it_is.eval_corpus import EvaluationCase
+    from ah_there_it_is.config import get_settings
+
+    monkeypatch.setenv("AH_THERE_IT_IS_LLM_PROVIDER", "heuristic")
+    get_settings.cache_clear()
+    try:
+        result = run_case(
+            EvaluationCase(
+                id="manual-only",
+                group="manual",
+                turns=["Где GTX 1070?"],
+                focus="Manual-only case.",
+            ),
+            prompt="test",
+            prompt_version="test",
+            allow_heuristic=True,
+        )
+    finally:
+        get_settings.cache_clear()
+
+    assert result["status"] == "completed"
+    assert result["checks"] == []
+    assert result["checks_passed"] is None
