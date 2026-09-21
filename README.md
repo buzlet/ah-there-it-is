@@ -5,18 +5,20 @@ Local-first inventory memory for finding physical things using natural-language 
 ## MVP architecture
 
 - FastAPI web application
-- SQLAlchemy + SQLite persistence (added in Stage 1)
-- Pydantic schemas
+- SQLAlchemy 2 + SQLite persistence
+- Alembic migrations
+- deterministic exact/normalized/FTS5 candidate search
+- provider-neutral bounded LLM tool loop
+- Pydantic tool schemas
 - Jinja2/HTMX-oriented web UI
-- Small in-process LLM tool loop (added later)
 
-The LLM is not a database client. Domain services own all validation, identity, history, and mutations.
+The LLM is not a database client. Domain services own validation, identity, history, and mutations. The agent can mutate only stable IDs that the backend has resolved from prior tool results.
 
 ## Sandbox development
 
-Stage 0 is intentionally compatible with the packages already present in the OpenAI sandbox. No network access is required.
+The project is kept compatible with packages already present in the OpenAI sandbox; no network dependency is introduced merely for development.
 
-Verified environment while bootstrapping:
+Verified baseline:
 
 - Python 3.13.5
 - FastAPI 0.128.2
@@ -30,28 +32,26 @@ Verified environment while bootstrapping:
 
 `ruff` and `mypy` are not assumed because they are not currently available in the sandbox.
 
-## Run
+## Repeated commands
 
-From the repository root:
-
-```bash
-PYTHONPATH=src uvicorn ah_there_it_is.app:app --host 127.0.0.1 --port 8000
-```
-
-Then open `http://127.0.0.1:8000/`.
-
-Health check:
+`Justfile` is the canonical interface:
 
 ```bash
-curl http://127.0.0.1:8000/health
+just test
+just test-agent
+just compile
+just check
+just migrate
+just migration-check
+just serve
 ```
 
-## Test
+If `just` is unavailable in a constrained sandbox, execute the exact underlying recipe command rather than adding a network dependency to install it.
 
-```bash
-PYTHONPATH=src pytest
-```
+## Offline agent development
+
+`ScriptedLLMClient` drives deterministic tool-loop tests. `HeuristicLLMClient` can smoke-test only a deliberately small subset (`Где X?`, `Положил/переложил X в Y`) without any external model. It is not intended to replace a real LLM provider.
 
 ## Current scope
 
-Stage 0 contains only the project skeleton, application configuration, health endpoint, initial web shell, and smoke tests. Database/domain behavior begins in Stage 1.
+Stages 0–3 are complete: project bootstrap, inventory/domain persistence, deterministic search, and the bounded provider-neutral agent/tool layer. Stage 4 connects that core to the first usable text-only web chat and read-only inventory views.

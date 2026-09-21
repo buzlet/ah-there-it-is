@@ -238,6 +238,12 @@ class InventoryService:
     def get_item(self, item_id: int) -> Item:
         return self._get_required(Item, item_id, "item")
 
+    def get_location(self, location_id: int) -> Location:
+        return self._get_required(Location, location_id, "location")
+
+    def get_category(self, category_id: int) -> Category:
+        return self._get_required(Category, category_id, "category")
+
     def get_item_history(self, item_id: int) -> list[Event]:
         self.get_item(item_id)
         stmt = (

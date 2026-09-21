@@ -29,6 +29,8 @@ def test_initial_migration_round_trip(tmp_path: Path) -> None:
             "items",
             "locations",
             "tags",
+            "conversations",
+            "messages",
         } <= tables
         with engine.connect() as connection:
             assert connection.scalar(text("PRAGMA foreign_keys")) == 1
