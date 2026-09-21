@@ -173,7 +173,11 @@ def run_case(
                 "error": error,
                 "turns": turns,
                 "checks": checks,
-                "checks_passed": (all(check["ok"] for check in checks) if checks else None),
+                "checks_passed": (
+                    status == "completed" and all(check["ok"] for check in checks)
+                    if checks
+                    else None
+                ),
             }
     finally:
         engine.dispose()
