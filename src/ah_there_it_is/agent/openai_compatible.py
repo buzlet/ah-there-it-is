@@ -97,7 +97,11 @@ class OpenAICompatibleLLMClient:
             body.update(self.config.extra_body)
 
         payload = json.dumps(body, ensure_ascii=False).encode("utf-8")
-        headers = {"Content-Type": "application/json"}
+        headers = {
+            "Content-Type": "application/json",
+            "Accept": "application/json",
+            "User-Agent": "ah-there-it-is/0.2 (+https://github.com/buzlet/ah-there-it-is)",
+        }
         if self.config.api_key:
             headers["Authorization"] = f"Bearer {self.config.api_key}"
         raw = self._post_with_retry(payload, headers)
