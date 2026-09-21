@@ -11,8 +11,9 @@ from sqlalchemy.orm import Session
 
 from ah_there_it_is.agent.errors import AgentLoopLimitError
 from ah_there_it_is.agent.protocol import AgentMessage, LLMClient
-from ah_there_it_is.agent.tools import ToolDispatcher
+from ah_there_it_is.agent.tools import ToolDispatcher, ToolRunState
 from ah_there_it_is.db.models import AgentRunLog, ExperimentRun
+from ah_there_it_is.domain.names import normalize_search_text
 from ah_there_it_is.services.experiments import ExperimentService
 
 
@@ -65,6 +66,76 @@ class CapturedEvidenceReplay:
         return json.dumps(value, ensure_ascii=False, sort_keys=True, separators=(",", ":"))
 
 
+    @staticmethod
+    def observe_capabilities(
+        state: ToolRunState,
+        name: str,
+        arguments: dict[str, Any],
+        result: dict[str, Any],
+    ) -> None:
+        """Rebuild tool capability state from captured evidence only."""
+        if not result.get("ok"):
+            return
+        payload = result.get("result")
+        search_types = {
+            "search_items": "item",
+            "search_locations": "location",
+            "search_categories": "category",
+            "search_tags": "tag",
+        }
+        entity_type = search_types.get(name)
+        if entity_type is not None:
+            query = normalize_search_text(str(arguments.get("query") or ""))
+            if query:
+                state.searches[entity_type].add(query)
+            candidates = payload if isinstance(payload, list) else []
+            ids = [
+                int(candidate["id"])
+                for candidate in candidates
+                if isinstance(candidate, dict) and isinstance(candidate.get("id"), int)
+            ]
+            state.seen[entity_type].update(ids)
+            if not candidates:
+                if query:
+                    state.empty_searches[entity_type].add(query)
+                return
+            if len(candidates) == 1:
+                state.resolved[entity_type].add(ids[0])
+                return
+            first = candidates[0] if isinstance(candidates[0], dict) else {}
+            second = candidates[1] if isinstance(candidates[1], dict) else {}
+            first_score = first.get("score")
+            second_score = second.get("score")
+            if (
+                ids
+                and isinstance(first_score, (int, float))
+                and isinstance(second_score, (int, float))
+                and first_score - second_score >= 50
+            ):
+                state.resolved[entity_type].add(ids[0])
+            return
+
+        created_types = {
+            "create_item": "item",
+            "create_location": "location",
+            "create_category": "category",
+        }
+        entity_type = created_types.get(name)
+        if entity_type is not None and isinstance(payload, dict):
+            entity_id = payload.get("id")
+            if isinstance(entity_id, int):
+                state.seen[entity_type].add(entity_id)
+                state.resolved[entity_type].add(entity_id)
+            return
+
+        if name == "list_location" and isinstance(payload, list):
+            state.seen["item"].update(
+                int(item["id"])
+                for item in payload
+                if isinstance(item, dict) and isinstance(item.get("id"), int)
+            )
+
+
 class ExperimentRunner:
     """Run a variant model/prompt without mutating inventory or conversation history."""
 
@@ -86,7 +157,8 @@ class ExperimentRunner:
     ) -> ExperimentRunResult:
         input_messages = self._variant_input(source.input_messages, system_prompt)
         messages = [AgentMessage.model_validate(message) for message in input_messages]
-        definitions = ToolDispatcher(self.session).definitions()
+        capability_state = ToolRunState()
+        dispatcher = ToolDispatcher(self.session, state=capability_state)
         evidence = CapturedEvidenceReplay(source.tool_trace)
         tool_trace: list[dict[str, Any]] = []
         rounds = 0
@@ -94,9 +166,11 @@ class ExperimentRunner:
         try:
             for round_number in range(1, self.max_rounds + 1):
                 rounds = round_number
+                definitions = dispatcher.definitions()
                 response = self.llm.complete(messages, definitions)
                 round_trace: dict[str, Any] = {
                     "round": round_number,
+                    "available_tools": [tool.name for tool in definitions],
                     "assistant": {
                         "content": response.content,
                         "tool_calls": [call.model_dump(mode="json") for call in response.tool_calls],
@@ -158,6 +232,12 @@ class ExperimentRunner:
                             "result": result,
                             "source": "captured_evidence",
                         }
+                    )
+                    evidence.observe_capabilities(
+                        capability_state,
+                        call.name,
+                        call.arguments,
+                        result,
                     )
                     messages.append(
                         AgentMessage(
