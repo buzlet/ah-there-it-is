@@ -195,6 +195,19 @@ def test_fts_table_is_trigger_maintained(session: Session) -> None:
     assert "repair" in row.tags
 
 
+def test_long_fts_query_filters_single_token_noise(session: Session) -> None:
+    inventory = InventoryService(session)
+    search = SearchService(session)
+    target = inventory.create_item("Gigabyte GTX 1070")
+    inventory.create_item("ASUS GTX 750 Ti")
+    inventory.create_item("USB programmer", description="USB device for BIOS")
+
+    results = search.search_items("GeForce GTX 1070")
+    assert [result.id for result in results] == [target.id]
+
+    assert search.search_items("USB-C hub Anker 7-в-1") == []
+
+
 def test_search_handles_fts_operator_punctuation_as_plain_text(session: Session) -> None:
     inventory = InventoryService(session)
     search = SearchService(session)
