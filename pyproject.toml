@@ -1,0 +1,41 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "ah-there-it-is"
+version = "0.0.0"
+description = "Local-first LLM-assisted inventory memory"
+readme = "README.md"
+requires-python = ">=3.12"
+dependencies = [
+    "fastapi>=0.128,<0.129",
+    "pydantic>=2.13,<3",
+    "sqlalchemy>=2.0,<2.1",
+    "alembic>=1.18,<1.19",
+    "jinja2>=3.1,<4",
+    "uvicorn>=0.48,<0.49",
+]
+
+[project.optional-dependencies]
+test = [
+    "pytest>=9,<10",
+    "httpx>=0.28,<0.29",
+]
+
+[tool.setuptools]
+package-dir = {"" = "src"}
+include-package-data = true
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.setuptools.package-data]
+ah_there_it_is = [
+    "web/templates/*.html",
+    "web/static/*",
+]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-q"
