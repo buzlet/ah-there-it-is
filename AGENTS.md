@@ -62,14 +62,32 @@
 - Domain behavior covered by isolated SQLite tests.
 - `Justfile` introduced as the canonical interface for repeated developer operations.
 
-### Stage 2 — next
+### Stage 2 — complete
 
-Build deterministic candidate search before adding an LLM:
+- Deterministic candidate retrieval added before any LLM reasoning.
+- Separate retrieval normalization handles punctuation/separator variants without changing Stage 1 identity/deduplication rules.
+- Typed Pydantic candidate DTOs return stable entity IDs, match type, deterministic score, and relevant context.
+- Item ranking is explicit: exact name > exact alias > exact structured attribute > retrieval-normalized name/alias > exact tag > substring > FTS5.
+- Location/category search returns full ancestry paths so duplicate leaf names remain distinguishable.
+- SQLite FTS5 indexes item name, aliases, description, tags, and structured attributes.
+- FTS5 content is maintained automatically by SQLite triggers across item, alias, and tag mutations.
+- Stage 2 migration backfills FTS data for an already-populated Stage 1 database.
+- Alembic autogenerate explicitly ignores FTS5 virtual/shadow tables because they are owned by hand-written migrations.
+- FTS5 is a schema requirement; missing migrations must fail visibly rather than silently degrade retrieval.
+- Ambiguity, duplicate names, path disambiguation, punctuation safety, ranking, trigger synchronization, and migration backfill are covered by tests.
+- Embeddings remain intentionally deferred; no measured Stage 2 case requires them yet.
 
-1. Add exact and normalized-name lookup for items, aliases, locations, categories, and tags.
-2. Add path-aware location/category results so duplicate leaf names can be disambiguated by ancestry.
-3. Add SQLite FTS5 indexes for item names, aliases, descriptions, and selected structured text.
-4. Define small typed search-result DTOs suitable for later LLM tools; return stable IDs rather than mutation-ready free text.
-5. Add ranking rules for exact alias/model/name hits versus FTS candidates.
-6. Add ambiguity-focused tests using realistic inventory phrases and duplicate names such as multiple drawers, boxes, cables, and meters.
-7. Keep embeddings out of Stage 2 unless measured test cases demonstrate a concrete retrieval gap.
+### Stage 3 — next
+
+Build the bounded LLM tool loop on top of deterministic search, still without a production external model dependency in the sandbox:
+
+1. Define a small provider-neutral `LLMClient`/response protocol so model vendors remain replaceable.
+2. Define typed tool schemas for search/read first, then explicit ID-based mutations (`create_*`, `update_item`, `move_item`).
+3. Add an agent/tool dispatcher that never exposes a database session or arbitrary SQL to the model.
+4. Implement a bounded tool loop with a hard maximum number of rounds and explicit handling for malformed/unknown tool calls.
+5. Require search/resolution before mutations that target existing entities; mutation tools accept stable IDs, not free-text entity names.
+6. Make ambiguity a first-class outcome: close/multiple candidates must produce a user clarification request rather than an invented choice.
+7. Add conversation/message persistence only to the extent needed to continue a clarification across turns.
+8. Test the whole agent loop with a deterministic fake/scripted model; no Internet/API access is required for correctness tests.
+9. Keep actual model-provider adapters thin and add one only when it can be exercised in the active environment.
+10. Leave the web chat integration for the following stage after the tool loop is independently proven.

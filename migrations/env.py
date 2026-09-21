@@ -20,6 +20,13 @@ config.set_main_option("sqlalchemy.url", database_url)
 target_metadata = Base.metadata
 
 
+def include_object(object_, name: str | None, type_: str, reflected: bool, compare_to: object) -> bool:
+    """Ignore FTS5 virtual/shadow tables; they are owned by explicit migrations."""
+    if type_ == "table" and name and name.startswith("item_search_fts"):
+        return False
+    return True
+
+
 def run_migrations_offline() -> None:
     context.configure(
         url=config.get_main_option("sqlalchemy.url"),
@@ -27,6 +34,7 @@ def run_migrations_offline() -> None:
         literal_binds=True,
         dialect_opts={"paramstyle": "named"},
         compare_type=True,
+        include_object=include_object,
     )
     with context.begin_transaction():
         context.run_migrations()
@@ -35,7 +43,12 @@ def run_migrations_offline() -> None:
 def run_migrations_online() -> None:
     connectable = create_db_engine(config.get_main_option("sqlalchemy.url"))
     with connectable.connect() as connection:
-        context.configure(connection=connection, target_metadata=target_metadata, compare_type=True)
+        context.configure(
+            connection=connection,
+            target_metadata=target_metadata,
+            compare_type=True,
+            include_object=include_object,
+        )
         with context.begin_transaction():
             context.run_migrations()
 
