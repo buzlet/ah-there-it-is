@@ -157,3 +157,35 @@ def test_experiment_review_and_summary(session: Session) -> None:
     assert summary.variant_average_rating == 5.0
     assert summary.variant_wins == 1
     assert summary.clarification_rate == 1.0
+
+
+def test_experiment_summary_separates_provider_configs(session: Session) -> None:
+    inventory = InventoryService(session)
+    inventory.create_item("CH341A")
+    source = _source_search_run(session)
+    service = ExperimentService(session)
+
+    common = dict(
+        source_run_id=source.id,
+        experiment_name="config-compare",
+        prompt_version="v2",
+        prompt_hash="a" * 64,
+        system_prompt="variant",
+        llm_provider="groq",
+        llm_model="qwen",
+        input_messages=[],
+        tool_trace=[],
+        final_content="ok",
+        rounds=1,
+        status="completed",
+    )
+    service.record_run(llm_config={"temperature": 0.0}, **common)
+    service.record_run(llm_config={"temperature": 0.6}, **common)
+
+    summaries = [
+        summary
+        for summary in service.summaries()
+        if summary.experiment_name == "config-compare"
+    ]
+    assert len(summaries) == 2
+    assert len({summary.llm_config_hash for summary in summaries}) == 2
