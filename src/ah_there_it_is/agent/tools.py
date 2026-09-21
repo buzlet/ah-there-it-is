@@ -103,6 +103,8 @@ class ToolDispatcher:
         self._round_searches = None
 
     def definitions(self) -> tuple[ToolDefinition, ...]:
+        """Return only tools whose preconditions can be useful in current state."""
+        available = self._available_tool_names()
         return tuple(
             ToolDefinition(
                 name=name,
@@ -110,7 +112,33 @@ class ToolDispatcher:
                 input_schema=spec.input_model.model_json_schema(),
             )
             for name, spec in self._specs.items()
+            if name in available
         )
+
+    def _available_tool_names(self) -> set[str]:
+        names = {
+            "search_items",
+            "search_locations",
+            "search_categories",
+            "search_tags",
+        }
+        if self.state.seen["item"]:
+            names.update({"get_item", "get_item_history"})
+        if self.state.seen["location"]:
+            names.update({"get_location", "list_location"})
+        if self.state.seen["category"]:
+            names.add("get_category")
+
+        if self.state.searches["item"]:
+            names.add("create_item")
+        if self.state.searches["location"]:
+            names.add("create_location")
+        if self.state.searches["category"]:
+            names.add("create_category")
+
+        if self.state.resolved["item"]:
+            names.update({"update_item", "move_item"})
+        return names
 
     def execute(self, name: str, arguments: dict[str, Any]) -> dict[str, Any]:
         spec = self._specs.get(name)
