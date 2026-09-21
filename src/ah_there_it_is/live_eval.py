@@ -279,10 +279,11 @@ def main() -> None:
         if args.output:
             _write_report(args.output, report)
         rounds = sum(turn.get("rounds", 0) for turn in result["turns"])
+        error_suffix = f" error={result['error']}" if result["error"] else ""
         print(
             f"[live-eval] case {index}/{total} done {case.id} "
             f"status={result['status']} rounds={rounds} "
-            f"wall={result['wall_seconds']:.3f}s",
+            f"wall={result['wall_seconds']:.3f}s{error_suffix}",
             flush=True,
         )
 
