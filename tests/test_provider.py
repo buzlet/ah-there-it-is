@@ -2,6 +2,8 @@ from __future__ import annotations
 
 import json
 import threading
+
+import httpx
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
 import pytest
@@ -451,59 +453,55 @@ def test_gemini_adapter_retries_timeout(monkeypatch) -> None:
 
 
 def test_openai_compatible_adapter_retries_transient_http_429(monkeypatch) -> None:
-    import io
-    from urllib.error import HTTPError
-
-    import ah_there_it_is.agent.openai_compatible as provider_module
-
     calls = 0
     sleeps: list[float] = []
 
-    class _Response:
-        def __enter__(self):
-            return self
-
-        def __exit__(self, exc_type, exc, tb):
-            return False
-
-        def read(self):
-            return json.dumps(
-                {
-                    "id": "ok",
-                    "choices": [
-                        {
-                            "finish_reason": "stop",
-                            "message": {"role": "assistant", "content": "OK"},
-                        }
-                    ],
-                }
-            ).encode()
-
-    def fake_urlopen(request, timeout):
+    def handler(request: httpx.Request) -> httpx.Response:
         nonlocal calls
         calls += 1
         if calls == 1:
-            raise HTTPError(
-                request.full_url,
+            return httpx.Response(
                 429,
-                "rate limit",
-                hdrs={"Retry-After": "0"},
-                fp=io.BytesIO(b"{\"error\":\"rate limit\"}"),
+                headers={"Retry-After": "0"},
+                json={"error": "rate limit"},
+                request=request,
             )
-        return _Response()
+        return httpx.Response(
+            200,
+            json={
+                "id": "ok",
+                "choices": [
+                    {
+                        "finish_reason": "stop",
+                        "message": {"role": "assistant", "content": "OK"},
+                    }
+                ],
+            },
+            request=request,
+        )
 
-    monkeypatch.setattr(provider_module, "urlopen", fake_urlopen)
+    transport = httpx.MockTransport(handler)
+    http_client = httpx.Client(transport=transport)
+    import ah_there_it_is.agent.openai_compatible as provider_module
+
     monkeypatch.setattr(provider_module.time, "sleep", sleeps.append)
-
     client = OpenAICompatibleLLMClient(
         OpenAICompatibleConfig(
             base_url="https://api.example/v1",
             model="test-model",
             max_retries=1,
             retry_backoff_seconds=0,
-        )
+        ),
+        client=http_client,
     )
-    assert client.complete([AgentMessage(role="user", content="x")], []).content == "OK"
+    try:
+        response = client.complete([AgentMessage(role="user", content="x")], [])
+    finally:
+        http_client.close()
+
+    assert response.content == "OK"
+    assert response.metadata["transport"]["attempts"] == 2
+    assert response.metadata["transport"]["client_wall_seconds"] >= 0
     assert calls == 2
     assert sleeps == []
 
@@ -577,3 +575,47 @@ def test_openai_compatible_adapter_sends_api_client_headers() -> None:
 
     assert user_agent.startswith("ah-there-it-is/")
     assert accept == "application/json"
+
+
+def test_openai_compatible_adapter_reports_provider_and_client_timing() -> None:
+    def handler(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(
+            200,
+            json={
+                "id": "timed",
+                "choices": [
+                    {
+                        "finish_reason": "stop",
+                        "message": {"role": "assistant", "content": "OK"},
+                    }
+                ],
+                "usage": {
+                    "prompt_tokens": 3,
+                    "completion_tokens": 1,
+                    "total_tokens": 4,
+                    "total_time": 0.01,
+                },
+            },
+            request=request,
+        )
+
+    http_client = httpx.Client(transport=httpx.MockTransport(handler))
+    client = OpenAICompatibleLLMClient(
+        OpenAICompatibleConfig(
+            base_url="https://api.example/v1",
+            model="test-model",
+        ),
+        client=http_client,
+    )
+    try:
+        first = client.complete([AgentMessage(role="user", content="one")], [])
+        second = client.complete([AgentMessage(role="user", content="two")], [])
+    finally:
+        http_client.close()
+
+    assert first.metadata["provider_server_seconds"] == 0.01
+    assert first.metadata["transport"]["attempts"] == 1
+    assert first.metadata["transport"]["client_wall_seconds"] >= 0
+    assert first.metadata["client_minus_provider_seconds"] >= 0
+    assert second.metadata["transport"]["attempts"] == 1
+    assert client.info.config["transport"] == "httpx-persistent"
