@@ -381,10 +381,22 @@ class ToolDispatcher:
     def _require_prior_search(self, entity_type: str, name: str) -> None:
         key = normalize_search_text(name)
         visible = self._round_searches or self.state.searches
-        if key not in visible[entity_type]:
-            raise ToolPreconditionError(
-                f"search_{entity_type}s must be called for {name!r} before creation"
-            )
+        prior = visible[entity_type]
+        if key in prior:
+            return
+        signature = self._search_name_signature(key)
+        if signature and any(
+            self._search_name_signature(candidate) == signature
+            for candidate in prior
+        ):
+            return
+        raise ToolPreconditionError(
+            f"search_{entity_type}s must be called for {name!r} before creation"
+        )
+
+    @staticmethod
+    def _search_name_signature(value: str) -> tuple[str, ...]:
+        return tuple(sorted(value.split()))
 
     def _remember_search(self, entity_type: str, query: str) -> None:
         key = normalize_search_text(query)
