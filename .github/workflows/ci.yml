@@ -16,6 +16,14 @@ permissions:
         options:
           - groq
           - gemini
+      suite:
+        description: Live evaluation suite
+        required: true
+        default: smoke
+        type: choice
+        options:
+          - smoke
+          - representative
 
 jobs:
   test:
@@ -62,10 +70,20 @@ jobs:
             echo "Live Gemini evaluation skipped: configure GEMINI_API_KEY in environment live-llm-test."
             exit 0
           fi
+          if [ "${{ inputs.suite }}" = "representative" ]; then
+            CASES=(
+              --case find-01
+              --case move-01
+              --case create-01
+              --case ambiguity-01
+              --case history-01
+            )
+          else
+            CASES=(--case find-01 --case move-01)
+          fi
           python -m ah_there_it_is.live_eval \
             --corpus eval/corpus-v1.json \
-            --case find-01 \
-            --case move-01 \
+            "${CASES[@]}" \
             --output live-eval.json
       - name: Upload live evaluation report
         if: ${{ always() && github.event_name == 'workflow_dispatch' }}
@@ -103,10 +121,20 @@ jobs:
             echo "Live Groq evaluation skipped: configure GROQ_API_KEY in environment live-llm-test."
             exit 0
           fi
+          if [ "${{ inputs.suite }}" = "representative" ]; then
+            CASES=(
+              --case find-01
+              --case move-01
+              --case create-01
+              --case ambiguity-01
+              --case history-01
+            )
+          else
+            CASES=(--case find-01 --case move-01)
+          fi
           python -m ah_there_it_is.live_eval \
             --corpus eval/corpus-v1.json \
-            --case find-01 \
-            --case move-01 \
+            "${CASES[@]}" \
             --output live-eval.json
       - name: Upload live evaluation report
         if: ${{ always() && github.event_name == 'workflow_dispatch' }}

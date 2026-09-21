@@ -113,7 +113,7 @@ The `/experiments` UI shows aggregate completion/divergence/failure metrics, rou
 - `GROQ_API_KEY` as an **Environment secret**;
 - `GROQ_MODEL=qwen/qwen3.8-27b` and `GROQ_BASE_URL=https://api.groq.com/openai/v1` as Environment variables.
 
-Normal CI jobs never receive provider secrets. Manual `workflow_dispatch` selects `groq` or `gemini`; only the selected provider job runs and receives its own secret. Both smoke jobs run the same two fixture-backed cases (`find-01`, `move-01`) so provider comparisons start from identical state. Groq/Qwen is pinned to temperature 0.6, top_p 0.95, max_completion_tokens 2048, reasoning_effort default, and hidden reasoning; these settings are captured in run metadata.
+Normal CI jobs never receive provider secrets. Manual `workflow_dispatch` selects `groq` or `gemini` plus a `smoke` or `representative` suite; only the selected provider job runs and receives its own secret. `smoke` runs `find-01` + `move-01`; `representative` adds `create-01`, `ambiguity-01`, and `history-01`. Groq/Qwen is pinned to temperature 0.6, top_p 0.95, max_completion_tokens 2048, reasoning_effort default, and hidden reasoning; these settings are captured in run metadata.
 
 ## Current scope
 
