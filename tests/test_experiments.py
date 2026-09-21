@@ -110,6 +110,17 @@ def test_replaying_mutation_does_not_mutate_live_inventory(session: Session) -> 
 
     assert result.status == "completed"
     assert after == before
+    first_tools = {tool.name for tool in variant.calls[0][1]}
+    second_tools = {tool.name for tool in variant.calls[1][1]}
+    third_tools = {tool.name for tool in variant.calls[2][1]}
+    assert first_tools == {
+        "search_items",
+        "search_locations",
+        "search_categories",
+        "search_tags",
+    }
+    assert "move_item" in second_tools
+    assert "move_item" in third_tools
 
 
 def test_experiment_review_and_summary(session: Session) -> None:
