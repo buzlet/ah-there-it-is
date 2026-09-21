@@ -18,11 +18,13 @@ class _Handler(BaseHTTPRequestHandler):
     response_payload: dict = {}
     request_payload: dict | None = None
     authorization: str | None = None
+    headers_seen: dict[str, str] = {}
 
     def do_POST(self):  # noqa: N802 - stdlib callback name
         length = int(self.headers["Content-Length"])
         type(self).request_payload = json.loads(self.rfile.read(length))
         type(self).authorization = self.headers.get("Authorization")
+        type(self).headers_seen = dict(self.headers.items())
         payload = json.dumps(type(self).response_payload).encode()
         self.send_response(200)
         self.send_header("Content-Type", "application/json")
@@ -38,6 +40,7 @@ def _server(payload: dict):
     _Handler.response_payload = payload
     _Handler.request_payload = None
     _Handler.authorization = None
+    _Handler.headers_seen = {}
     server = ThreadingHTTPServer(("127.0.0.1", 0), _Handler)
     thread = threading.Thread(target=server.serve_forever, daemon=True)
     thread.start()
@@ -544,3 +547,33 @@ def test_openai_compatible_adapter_sends_groq_style_extra_body() -> None:
     assert request["top_p"] == 0.95
     assert request["reasoning_effort"] == "default"
     assert request["reasoning_format"] == "hidden"
+
+def test_openai_compatible_adapter_sends_api_client_headers() -> None:
+    server, thread = _server(
+        {
+            "id": "resp-headers",
+            "choices": [
+                {
+                    "finish_reason": "stop",
+                    "message": {"role": "assistant", "content": "OK"},
+                }
+            ],
+        }
+    )
+    try:
+        client = OpenAICompatibleLLMClient(
+            OpenAICompatibleConfig(
+                base_url=f"http://127.0.0.1:{server.server_port}/v1",
+                model="test-model",
+            )
+        )
+        client.complete([AgentMessage(role="user", content="x")], [])
+        user_agent = _Handler.headers_seen.get("User-Agent")
+        accept = _Handler.headers_seen.get("Accept")
+    finally:
+        server.shutdown()
+        thread.join(timeout=2)
+        server.server_close()
+
+    assert user_agent.startswith("ah-there-it-is/")
+    assert accept == "application/json"
