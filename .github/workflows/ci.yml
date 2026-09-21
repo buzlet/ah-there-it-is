@@ -94,7 +94,7 @@ jobs:
           if-no-files-found: ignore
 
   live-groq-smoke:
-    if: ${{ github.event_name == 'workflow_dispatch' && inputs.provider == 'groq' }}
+    if: ${{ (github.event_name == 'workflow_dispatch' && inputs.provider == 'groq') || github.ref == 'refs/heads/feat/httpx-transport-observability' }}
     environment: live-llm-test
     runs-on: ubuntu-24.04
     timeout-minutes: 6
@@ -137,7 +137,7 @@ jobs:
             "${CASES[@]}" \
             --output live-eval.json
       - name: Upload live evaluation report
-        if: ${{ always() && github.event_name == 'workflow_dispatch' }}
+        if: ${{ always() && (github.event_name == 'workflow_dispatch' || github.ref == 'refs/heads/feat/httpx-transport-observability') }}
         uses: actions/upload-artifact@v4
         with:
           name: live-eval-report-groq
