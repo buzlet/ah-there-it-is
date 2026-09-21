@@ -150,14 +150,16 @@ Preparation and first live-provider validation are complete:
 - Transport/rate-limit investigation replaced per-request `urllib` with persistent `httpx.Client` for OpenAI-compatible providers. A measured Groq round took 0.284 s client wall for 0.156 s provider server time, confirming the model is fast when not rate-limited. Provider metadata now separates client wall time, provider server time, attempts, and retry events.
 - Groq exposed 7000 ITPM and 1000 OTPM limits. Live Qwen config now uses `reasoning_effort=none` and `max_completion_tokens=256`; 2048 was rejected because the expected output budget exceeded OTPM. Tool schemas are compacted and capability-gated so the first round exposes only search tools and later rounds expose only operations whose backend preconditions are reachable.
 - Real `move-01` evidence exposed a deterministic retrieval miss for `search_locations("средний ящик стола")`. Tree search now preserves all original exact/path rules first, then uses reverse leaf-in-natural-phrase containment only as a zero-result fallback. The final Groq smoke completed `find-01` in 3 rounds / 1.374 s and `move-01` in 3 rounds / 10.294 s; the mutation was correct and the remaining ~9 s delay was one successful 429 `Retry-After`, not model inference.
+- A five-case representative Groq run then completed find, move, ambiguity, and history correctly but exposed `create-01`: broad OR-based FTS produced unrelated single-token matches, the model explored unnecessary taxonomy, and exact string-order matching forced a redundant search before creation. Long multi-token FTS queries now filter candidates sharing fewer than two tokens; create tool descriptions forbid invented optional metadata/taxonomy; prior creation search accepts the same normalized token multiset in a different word order. A targeted real rerun completed `create-01` in 3 rounds / 1.362 s with no retries, correct location, `state=unknown`, and no invented category/tags/description.
+- Controlled replay now rebuilds dynamic tool capability state from captured evidence instead of freezing round-1 definitions. This preserves Stage 5 replay safety while remaining compatible with Stage 6 capability-gated tools; replay still never executes live mutations.
+- Evaluation and experiment summaries now include a SHA-256 fingerprint of canonical provider config and group by exact config as well as prompt/provider/model. Historical runs with different temperature/reasoning/token settings are therefore no longer silently mixed.
 
 Remaining Stage 6 work requires usable provider quota:
 
-1. Run the five-case representative Groq subset (find, create, move, ambiguity, history) with the quota-conscious transport/tool configuration and inspect partial artifacts even when rate limits occur.
-2. Expand toward all 40 cases only after representative traces show no recurring deterministic retrieval/tool-contract issue; provider minute/day limits make blind bulk execution wasteful.
-3. Rate real interactions 1–5 with comments, including failures and awkward clarification, rather than curating only successes.
-4. Run the same corpus with `inventory-v1` and `inventory-v2-strict`; record side-by-side pairwise decisions before changing prompts again.
-5. Add/report exact prompt-hash + provider/model/config comparison metrics and inspect divergences.
-6. Change prompt/tool descriptions or deterministic retrieval only where the real corpus shows a recurring error pattern.
-7. Reconsider embeddings only if real descriptive queries fail after sensible model reformulation.
-8. Keep voice, Telegram, images, QR, MCP, PWA, and multi-user support out of scope until the live text workflow reaches a stable evaluation baseline.
+1. Rate the representative real interactions 1–5 with comments, including the failed pre-fix create trace and awkward clarification/rate-limit cases rather than curating only successes.
+2. Run the same representative cases with `inventory-v1` and `inventory-v2-strict`; record side-by-side pairwise decisions before changing prompts again.
+3. Expand the corpus in small quota-aware batches toward all 40 cases. Stop and fix recurring deterministic retrieval/tool-contract errors before spending calls on the next batch.
+4. Use exact prompt hash + provider/model/config fingerprint for every comparison and inspect divergences rather than aggregating unlike runs.
+5. Change prompt/tool descriptions or deterministic retrieval only where the real corpus shows a recurring error pattern.
+6. Reconsider embeddings only if real descriptive queries fail after sensible model reformulation.
+7. Keep voice, Telegram, images, QR, MCP, PWA, and multi-user support out of scope until the live text workflow reaches a stable evaluation baseline.
