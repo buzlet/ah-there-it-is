@@ -120,3 +120,36 @@ def test_case_without_automated_checks_is_not_reported_as_passed(monkeypatch) ->
     assert result["status"] == "completed"
     assert result["checks"] == []
     assert result["checks_passed"] is None
+
+
+def test_failed_live_case_never_counts_automatic_checks_as_passed(monkeypatch) -> None:
+    from ah_there_it_is.agent.runner import AgentRunner
+    from ah_there_it_is.config import get_settings
+    from ah_there_it_is.eval_corpus import EvaluationCase, ExpectedCheck
+
+    monkeypatch.setenv("AH_THERE_IT_IS_LLM_PROVIDER", "heuristic")
+    monkeypatch.setattr(
+        AgentRunner,
+        "run",
+        lambda *args, **kwargs: (_ for _ in ()).throw(RuntimeError("provider failed")),
+    )
+    get_settings.cache_clear()
+    try:
+        result = run_case(
+            EvaluationCase(
+                id="failed-provider",
+                group="plumbing",
+                turns=["where GTX 1070"],
+                focus="Failure accounting.",
+                checks=[ExpectedCheck(kind="no_mutation")],
+            ),
+            prompt="test",
+            prompt_version="test",
+            allow_heuristic=True,
+        )
+    finally:
+        get_settings.cache_clear()
+
+    assert result["status"] == "failed"
+    assert result["checks"][0]["ok"] is True
+    assert result["checks_passed"] is False

@@ -314,3 +314,64 @@ def test_factory_builds_native_gemini_client() -> None:
     assert client.info.provider == "google-gemini"
     assert client.info.model == "gemini-flash-latest"
     assert "secret" not in json.dumps(client.info.model_dump())
+
+
+def test_gemini_adapter_retries_transient_http_errors(monkeypatch) -> None:
+    import io
+    from urllib.error import HTTPError
+
+    import ah_there_it_is.agent.gemini as gemini_module
+    from ah_there_it_is.agent.gemini import GeminiConfig, GeminiLLMClient
+
+    calls = 0
+    sleeps: list[float] = []
+
+    class _Response:
+        def __enter__(self):
+            return self
+
+        def __exit__(self, exc_type, exc, tb):
+            return False
+
+        def read(self):
+            return json.dumps(
+                {
+                    "candidates": [
+                        {
+                            "finishReason": "STOP",
+                            "content": {"role": "model", "parts": [{"text": "OK"}]},
+                        }
+                    ]
+                }
+            ).encode()
+
+    def fake_urlopen(request, timeout):
+        nonlocal calls
+        calls += 1
+        if calls < 3:
+            raise HTTPError(
+                request.full_url,
+                503,
+                "high demand",
+                hdrs={},
+                fp=io.BytesIO(b'{"error":"high demand"}'),
+            )
+        return _Response()
+
+    monkeypatch.setattr(gemini_module, "urlopen", fake_urlopen)
+    monkeypatch.setattr(gemini_module.time, "sleep", sleeps.append)
+
+    client = GeminiLLMClient(
+        GeminiConfig(
+            model="gemini-test",
+            max_retries=2,
+            retry_backoff_seconds=0.5,
+        )
+    )
+    response = client.complete([AgentMessage(role="user", content="OK?")], [])
+
+    assert response.content == "OK"
+    assert calls == 3
+    assert sleeps == [0.5, 1.0]
+    assert client.info.config["max_retries"] == 2
+    assert client.info.config["retry_backoff_seconds"] == 0.5

@@ -24,6 +24,8 @@ class Settings(BaseModel):
     llm_api_key: str | None = None
     llm_model: str | None = None
     llm_timeout_seconds: float = Field(default=60.0, gt=0, le=600)
+    llm_max_retries: int = Field(default=2, ge=0, le=10)
+    llm_retry_backoff_seconds: float = Field(default=1.0, ge=0, le=60)
     llm_temperature: float | None = None
     llm_extra_body: dict[str, Any] = Field(default_factory=dict)
     agent_max_rounds: int = Field(default=8, ge=1, le=32)
@@ -46,6 +48,10 @@ def get_settings() -> Settings:
         llm_api_key=os.getenv("AH_THERE_IT_IS_LLM_API_KEY") or None,
         llm_model=os.getenv("AH_THERE_IT_IS_LLM_MODEL") or None,
         llm_timeout_seconds=float(os.getenv("AH_THERE_IT_IS_LLM_TIMEOUT_SECONDS", "60")),
+        llm_max_retries=int(os.getenv("AH_THERE_IT_IS_LLM_MAX_RETRIES", "2")),
+        llm_retry_backoff_seconds=float(
+            os.getenv("AH_THERE_IT_IS_LLM_RETRY_BACKOFF_SECONDS", "1")
+        ),
         llm_temperature=_optional_float(os.getenv("AH_THERE_IT_IS_LLM_TEMPERATURE")),
         llm_extra_body=_json_object(os.getenv("AH_THERE_IT_IS_LLM_EXTRA_BODY_JSON")),
         agent_max_rounds=int(os.getenv("AH_THERE_IT_IS_AGENT_MAX_ROUNDS", "8")),

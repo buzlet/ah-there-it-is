@@ -29,6 +29,8 @@ def build_llm_factory(settings: Settings) -> Callable[[], LLMClient]:
             provider_name=settings.llm_provider_name or "gemini",
             timeout_seconds=settings.llm_timeout_seconds,
             temperature=settings.llm_temperature,
+            max_retries=settings.llm_max_retries,
+            retry_backoff_seconds=settings.llm_retry_backoff_seconds,
             extra_body=settings.llm_extra_body,
         )
         return lambda: GeminiLLMClient(config)
