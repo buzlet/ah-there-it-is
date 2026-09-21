@@ -42,3 +42,9 @@ migration message:
 
 serve:
     python -m uvicorn ah_there_it_is.app:app --reload
+
+corpus-check corpus="eval/corpus-v1.json":
+    python -m ah_there_it_is.corpus_check "{{corpus}}"
+
+live-eval corpus="eval/corpus-v1.json" limit="5" output="live-eval.json":
+    python -m ah_there_it_is.live_eval --corpus "{{corpus}}" --limit "{{limit}}" --output "{{output}}"
