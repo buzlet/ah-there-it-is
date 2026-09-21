@@ -8,6 +8,7 @@ from collections.abc import Sequence
 
 from ah_there_it_is.agent.protocol import (
     AgentMessage,
+    LLMClientInfo,
     LLMResponse,
     ToolCall,
     ToolDefinition,
@@ -30,6 +31,10 @@ class HeuristicLLMClient:
 
     def __init__(self) -> None:
         self._next_call_id = 1
+
+    @property
+    def info(self) -> LLMClientInfo:
+        return LLMClientInfo(provider="offline", model="heuristic-v1")
 
     def complete(
         self,

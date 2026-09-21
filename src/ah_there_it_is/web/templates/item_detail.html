@@ -1,0 +1,38 @@
+{% extends "base.html" %}
+{% block title %}{{ item.name }} · {{ app_name }}{% endblock %}
+{% block content %}
+<div class="section-head"><div><a href="/items">← Items</a><h1>{{ item.name }}</h1></div></div>
+<div class="two-col">
+  <section class="card">
+    <h2>Details</h2>
+    <form id="item-edit-form" data-item-id="{{ item.id }}">
+      <label>Name<input name="name" value="{{ item.name }}" required maxlength="300"></label>
+      <label>Description<textarea name="description" rows="5" maxlength="20000">{{ item.description or "" }}</textarea></label>
+      <label>State<select name="state">
+        {% for state in ["unknown","new","working","used","broken","needs_test","for_parts","for_sale","discarded"] %}
+          <option value="{{ state }}" {% if item.state == state %}selected{% endif %}>{{ state }}</option>
+        {% endfor %}
+      </select></label>
+      <label>Quantity<input name="quantity" type="number" min="1" value="{{ item.quantity }}"></label>
+      <label>Category<select name="category_id"><option value="">— none —</option>{% for category in categories %}<option value="{{ category.id }}" {% if item.category_id == category.id %}selected{% endif %}>{{ category.path }}</option>{% endfor %}</select></label>
+      <label>Location<select name="location_id"><option value="">— unknown / taken —</option>{% for location in locations %}<option value="{{ location.id }}" {% if item.location_id == location.id %}selected{% endif %}>{{ location.path }}</option>{% endfor %}</select></label>
+      <button type="submit">Save corrections</button><span id="item-save-status" class="muted"></span>
+    </form>
+  </section>
+  <section class="card">
+    <h2>Structured data</h2>
+    <dl>
+      <dt>Aliases</dt><dd>{{ item.aliases|join(", ") or "—" }}</dd>
+      <dt>Tags</dt><dd>{{ item.tags|join(", ") or "—" }}</dd>
+      <dt>Category</dt><dd>{{ item.category_path or "—" }}</dd>
+      <dt>Location</dt><dd>{{ item.location_path or "—" }}</dd>
+      <dt>Attributes</dt><dd><pre>{{ item.attributes }}</pre></dd>
+    </dl>
+  </section>
+</div>
+<section class="card">
+  <h2>History</h2>
+  {% if item.history %}<ol class="history">{% for event in item.history %}<li><strong>{{ event.event_type }}</strong> · {{ event.created_at }}<br>{% if event.from_location or event.to_location %}<span class="muted">{{ event.from_location or "—" }} → {{ event.to_location or "—" }}</span><br>{% endif %}{% if event.original_text %}<q>{{ event.original_text }}</q>{% endif %}</li>{% endfor %}</ol>{% else %}<p class="muted">No history.</p>{% endif %}
+</section>
+{% endblock %}
+{% block scripts %}<script src="/static/item.js" defer></script>{% endblock %}

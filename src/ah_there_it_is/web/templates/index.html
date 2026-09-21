@@ -1,27 +1,21 @@
-<!doctype html>
-<html lang="en">
-<head>
-  <meta charset="utf-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>{{ app_name }}</title>
-  <style>
-    :root { color-scheme: light dark; font-family: system-ui, sans-serif; }
-    body { margin: 0; min-height: 100vh; display: grid; place-items: center; }
-    main { width: min(44rem, calc(100% - 2rem)); }
-    form { display: flex; gap: .5rem; }
-    input { flex: 1; padding: .8rem; font: inherit; }
-    button { padding: .8rem 1rem; font: inherit; }
-    .muted { opacity: .65; }
-  </style>
-</head>
-<body>
-  <main>
-    <h1>{{ app_name }}</h1>
-    <p class="muted">Stage 0 web shell. Message handling arrives with the MVP agent layer.</p>
-    <form onsubmit="return false">
-      <input type="text" aria-label="Message" placeholder="Where did I put…?" disabled>
-      <button type="submit" disabled>Send</button>
-    </form>
-  </main>
-</body>
-</html>
+{% extends "base.html" %}
+{% block title %}Chat · {{ app_name }}{% endblock %}
+{% block content %}
+<section class="chat-shell">
+  <div class="section-head">
+    <div>
+      <h1>Inventory chat</h1>
+      <p class="muted">Text-only MVP. The current offline model understands a deliberately small command subset.</p>
+    </div>
+    <button id="new-conversation" class="secondary" type="button">New conversation</button>
+  </div>
+  <div id="chat-log" class="chat-log" aria-live="polite"></div>
+  <form id="chat-form" class="chat-form">
+    <label class="sr-only" for="message">Message</label>
+    <textarea id="message" rows="2" maxlength="10000" placeholder="Положил USB тестер в правый ящик" required></textarea>
+    <button type="submit">Send</button>
+  </form>
+  <p id="chat-status" class="muted status"></p>
+</section>
+{% endblock %}
+{% block scripts %}<script src="/static/chat.js" defer></script>{% endblock %}

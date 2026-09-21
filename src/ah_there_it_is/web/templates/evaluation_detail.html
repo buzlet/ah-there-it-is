@@ -1,0 +1,20 @@
+{% extends "base.html" %}
+{% block title %}Run #{{ run.id }} · {{ app_name }}{% endblock %}
+{% block content %}
+<a href="/evaluations">← Evaluations</a>
+<h1>Agent run #{{ run.id }}</h1>
+<dl class="run-meta">
+  <dt>Status</dt><dd>{{ run.status }}</dd>
+  <dt>Prompt</dt><dd>{{ run.prompt_version }} / <code>{{ run.prompt_hash }}</code></dd>
+  <dt>Provider/model</dt><dd>{{ run.llm_provider }} / {{ run.llm_model }}</dd>
+  <dt>Rounds</dt><dd>{{ run.rounds }}</dd>
+  <dt>Rating</dt><dd>{{ run.feedback.rating if run.feedback else "—" }}</dd>
+  <dt>Comment</dt><dd>{{ run.feedback.comment if run.feedback and run.feedback.comment else "—" }}</dd>
+  <dt>Response</dt><dd>{{ run.final_content or "—" }}</dd>
+  <dt>Error</dt><dd>{{ run.error or "—" }}</dd>
+</dl>
+<details><summary>System prompt</summary><pre>{{ run.system_prompt }}</pre></details>
+<details><summary>LLM config</summary><pre>{{ config_json }}</pre></details>
+<details open><summary>Input messages</summary><pre>{{ input_json }}</pre></details>
+<details open><summary>Tool trace</summary><pre>{{ trace_json }}</pre></details>
+{% endblock %}

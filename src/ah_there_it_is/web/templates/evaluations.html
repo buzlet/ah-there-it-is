@@ -1,0 +1,16 @@
+{% extends "base.html" %}
+{% block title %}Evaluations · {{ app_name }}{% endblock %}
+{% block content %}
+<h1>Evaluations</h1>
+<p class="muted">Ratings are tied to exact prompt hashes, provider/model metadata, and stored execution traces.</p>
+<h2>Variants</h2>
+{% if summaries %}<div class="table-wrap"><table>
+<thead><tr><th>Prompt</th><th>Hash</th><th>Provider / model</th><th>Runs</th><th>Rated</th><th>Avg.</th></tr></thead>
+<tbody>{% for s in summaries %}<tr><td>{{ s.prompt_version }}</td><td><code>{{ s.prompt_hash[:10] }}</code></td><td>{{ s.llm_provider }} / {{ s.llm_model }}</td><td>{{ s.runs }}</td><td>{{ s.rated_runs }}</td><td>{{ "%.2f"|format(s.average_rating) if s.average_rating is not none else "—" }}</td></tr>{% endfor %}</tbody>
+</table></div>{% else %}<p class="muted">No runs yet.</p>{% endif %}
+<h2>Recent runs</h2>
+{% if runs %}<div class="table-wrap"><table>
+<thead><tr><th>Run</th><th>Status</th><th>Prompt</th><th>Model</th><th>Rounds</th><th>Rating</th><th>Response</th></tr></thead>
+<tbody>{% for run in runs %}<tr><td><a href="/evaluations/{{ run.id }}">#{{ run.id }}</a></td><td>{{ run.status }}</td><td>{{ run.prompt_version }} <code>{{ run.prompt_hash[:8] }}</code></td><td>{{ run.llm_provider }}/{{ run.llm_model }}</td><td>{{ run.rounds }}</td><td>{{ run.feedback.rating if run.feedback else "—" }}</td><td class="truncate">{{ run.final_content or run.error or "—" }}</td></tr>{% endfor %}</tbody>
+</table></div>{% endif %}
+{% endblock %}

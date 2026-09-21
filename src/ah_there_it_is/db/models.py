@@ -7,6 +7,7 @@ from typing import Any
 
 from sqlalchemy import (
     JSON,
+    CheckConstraint,
     DateTime,
     ForeignKey,
     Index,
@@ -199,6 +200,9 @@ class Conversation(Base):
         DateTime(timezone=True), default=utc_now, onupdate=utc_now, nullable=False
     )
 
+    runs: Mapped[list["AgentRunLog"]] = relationship(
+        back_populates="conversation", cascade="all, delete-orphan"
+    )
     messages: Mapped[list["Message"]] = relationship(
         back_populates="conversation",
         cascade="all, delete-orphan",
@@ -220,3 +224,65 @@ class Message(Base):
     )
 
     conversation: Mapped[Conversation] = relationship(back_populates="messages")
+
+
+class AgentRunLog(Base):
+    """Replay-oriented log of one user->agent execution."""
+
+    __tablename__ = "agent_run_logs"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    conversation_id: Mapped[int] = mapped_column(
+        ForeignKey("conversations.id", ondelete="CASCADE"), nullable=False, index=True
+    )
+    user_message_id: Mapped[int | None] = mapped_column(
+        ForeignKey("messages.id", ondelete="SET NULL"), nullable=True, index=True
+    )
+    assistant_message_id: Mapped[int | None] = mapped_column(
+        ForeignKey("messages.id", ondelete="SET NULL"), nullable=True, unique=True, index=True
+    )
+    prompt_version: Mapped[str] = mapped_column(String(100), nullable=False, index=True)
+    prompt_hash: Mapped[str] = mapped_column(String(64), nullable=False, index=True)
+    system_prompt: Mapped[str] = mapped_column(Text, nullable=False)
+    llm_provider: Mapped[str] = mapped_column(String(100), nullable=False, index=True)
+    llm_model: Mapped[str] = mapped_column(String(200), nullable=False, index=True)
+    llm_config: Mapped[dict[str, Any]] = mapped_column(JSON, default=dict, nullable=False)
+    input_messages: Mapped[list[dict[str, Any]]] = mapped_column(JSON, default=list, nullable=False)
+    tool_trace: Mapped[list[dict[str, Any]]] = mapped_column(JSON, default=list, nullable=False)
+    final_content: Mapped[str | None] = mapped_column(Text, nullable=True)
+    rounds: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
+    status: Mapped[str] = mapped_column(String(20), nullable=False, index=True)
+    error: Mapped[str | None] = mapped_column(Text, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=utc_now, nullable=False, index=True
+    )
+
+    conversation: Mapped[Conversation] = relationship(back_populates="runs")
+    feedback: Mapped["AgentFeedback | None"] = relationship(
+        back_populates="run", cascade="all, delete-orphan", uselist=False
+    )
+
+
+class AgentFeedback(Base):
+    __tablename__ = "agent_feedback"
+    __table_args__ = (
+        CheckConstraint("rating >= 1 AND rating <= 5", name="ck_agent_feedback_rating"),
+    )
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    agent_run_id: Mapped[int] = mapped_column(
+        ForeignKey("agent_run_logs.id", ondelete="CASCADE"),
+        nullable=False,
+        unique=True,
+        index=True,
+    )
+    rating: Mapped[int] = mapped_column(Integer, nullable=False)
+    comment: Mapped[str | None] = mapped_column(Text, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=utc_now, nullable=False
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=utc_now, onupdate=utc_now, nullable=False
+    )
+
+    run: Mapped[AgentRunLog] = relationship(back_populates="feedback")

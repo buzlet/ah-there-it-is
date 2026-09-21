@@ -4,7 +4,12 @@ from __future__ import annotations
 
 from collections.abc import Iterable, Sequence
 
-from ah_there_it_is.agent.protocol import AgentMessage, LLMResponse, ToolDefinition
+from ah_there_it_is.agent.protocol import (
+    AgentMessage,
+    LLMClientInfo,
+    LLMResponse,
+    ToolDefinition,
+)
 
 
 class ScriptedLLMClient:
@@ -17,6 +22,10 @@ class ScriptedLLMClient:
     def __init__(self, responses: Iterable[LLMResponse]) -> None:
         self._responses = list(responses)
         self.calls: list[tuple[tuple[AgentMessage, ...], tuple[ToolDefinition, ...]]] = []
+
+    @property
+    def info(self) -> LLMClientInfo:
+        return LLMClientInfo(provider="test", model="scripted-v1")
 
     def complete(
         self,
