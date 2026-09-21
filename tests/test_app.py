@@ -2,8 +2,10 @@ from __future__ import annotations
 
 from fastapi.testclient import TestClient
 
-from ah_there_it_is.agent import HeuristicLLMClient
+from ah_there_it_is.agent import HeuristicLLMClient, LLMResponse, ScriptedLLMClient, ToolCall
+from ah_there_it_is.agent.experiments import ExperimentRunner
 from ah_there_it_is.app import create_app
+from ah_there_it_is.agent.runner import AgentRunner
 from ah_there_it_is.config import Settings
 from ah_there_it_is.db.models import Base
 from ah_there_it_is.db.search_schema import install_fts_schema
@@ -224,5 +226,57 @@ def test_prompt_file_is_loaded_as_exact_experiment_prompt(tmp_path) -> None:
             llm_factory=HeuristicLLMClient,
         )
         assert app.state.system_prompt == "experimental prompt\n"
+    finally:
+        engine.dispose()
+
+
+def test_experiment_pages_show_side_by_side_and_accept_review() -> None:
+    app, factory, engine = build_test_app()
+    try:
+        with factory() as session:
+            inventory = InventoryService(session)
+            balcony = inventory.create_location("Балкон")
+            inventory.create_item("CH341A", location_id=balcony.id)
+            source_result = AgentRunner(
+                session,
+                ScriptedLLMClient(
+                    [
+                        LLMResponse(tool_calls=(ToolCall(id="1", name="search_items", arguments={"query": "CH341A"}),)),
+                        LLMResponse(content="На балконе."),
+                    ]
+                ),
+            ).run("Где CH341A?")
+            EvaluationService(session).set_feedback(source_result.run_id, rating=4)
+            source = EvaluationService(session).get_run(source_result.run_id)
+            experiment = ExperimentRunner(
+                session,
+                ScriptedLLMClient(
+                    [
+                        LLMResponse(tool_calls=(ToolCall(id="2", name="search_items", arguments={"query": "CH341A"}),)),
+                        LLMResponse(content="CH341A: Балкон."),
+                    ]
+                ),
+            ).run(
+                source,
+                experiment_name="strict-v2",
+                system_prompt="variant prompt",
+                prompt_version="v2",
+            )
+
+        with TestClient(app) as client:
+            listing = client.get("/experiments")
+            detail = client.get(f"/experiments/{experiment.experiment_run_id}")
+            review = client.post(
+                f"/api/experiments/{experiment.experiment_run_id}/review",
+                json={"choice": "variant", "variant_rating": 5, "comment": "лучше"},
+            )
+
+        assert listing.status_code == 200
+        assert "strict-v2" in listing.text
+        assert detail.status_code == 200
+        assert "Baseline" in detail.text and "Variant" in detail.text
+        assert review.status_code == 200
+        assert review.json()["choice"] == "variant"
+        assert review.json()["variant_rating"] == 5
     finally:
         engine.dispose()

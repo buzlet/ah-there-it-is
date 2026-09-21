@@ -12,7 +12,10 @@ test-agent:
     python -m pytest tests/test_agent.py
 
 test-web:
-    python -m pytest tests/test_app.py tests/test_evaluation.py
+    python -m pytest tests/test_app.py tests/test_evaluation.py tests/test_experiments.py
+
+test-provider:
+    python -m pytest tests/test_provider.py
 
 compile:
     python -m compileall -q src tests migrations
@@ -27,6 +30,12 @@ migration-check:
 
 eval-export file="evaluation-cases.json":
     python -m ah_there_it_is.evaluation_export > "{{file}}"
+
+experiment-replay name prompt version limit="50":
+    python -m ah_there_it_is.experiment_replay --name "{{name}}" --prompt "{{prompt}}" --version "{{version}}" --limit "{{limit}}"
+
+provider-smoke:
+    python -m ah_there_it_is.provider_smoke
 
 migration message:
     python -m alembic revision --autogenerate -m "{{message}}"

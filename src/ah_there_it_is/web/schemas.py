@@ -70,3 +70,16 @@ class ConversationMessageResponse(BaseModel):
 class ConversationResponse(BaseModel):
     id: int
     messages: list[ConversationMessageResponse]
+
+
+class ExperimentReviewRequest(BaseModel):
+    choice: str = Field(pattern="^(baseline|variant|tie|both_bad)$")
+    variant_rating: int | None = Field(default=None, ge=1, le=5)
+    comment: str | None = Field(default=None, max_length=2_000)
+
+
+class ExperimentReviewResponse(BaseModel):
+    experiment_run_id: int
+    choice: str
+    variant_rating: int | None
+    comment: str | None

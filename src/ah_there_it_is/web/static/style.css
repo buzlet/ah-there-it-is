@@ -37,3 +37,14 @@ pre { white-space: pre-wrap; overflow-wrap: anywhere; background: color-mix(in s
 .history li { margin-bottom: .8rem; }
 .sr-only { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0,0,0,0); }
 @media (max-width: 700px) { .site-header { align-items: flex-start; flex-direction: column; } .two-col { grid-template-columns: 1fr; } .chat-form { grid-template-columns: 1fr; } .message { max-width: 96%; } dl { grid-template-columns: 1fr; } }
+
+.comparison-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+  gap: 1rem;
+}
+.comparison-grid section {
+  border: 1px solid #ddd;
+  border-radius: 8px;
+  padding: 1rem;
+}

@@ -111,17 +111,32 @@
 - A real Uvicorn smoke flow was exercised offline: chat mutation -> persisted item -> 1–5 feedback -> conversation restore -> evaluation summary -> rated-run export.
 - `Justfile` remains canonical and now includes `test-web` and `eval-export`.
 
-### Stage 5 — next
+### Stage 5 — complete
 
-Connect a real replaceable model provider and turn the Stage 4 evaluation data into an experiment/replay workflow:
+- Added a replaceable synchronous OpenAI-compatible Chat Completions adapter using only the Python standard library; no provider SDK or agent framework was introduced.
+- Provider configuration is explicit: endpoint, provider label, model, timeout, temperature, and provider-specific extra request fields. API keys are never written to evaluation metadata.
+- Provider responses now preserve non-sensitive response metadata such as response ID, finish reason, and usage in the per-round run trace.
+- The adapter serializes existing typed tool definitions to OpenAI-compatible function tools and parses/validates returned JSON tool arguments before the normal backend dispatcher sees them.
+- Local HTTP contract tests exercise request/response/tool-call behavior without Internet access. The live external endpoint itself is not claimed as tested from the network-isolated sandbox.
+- Added `ExperimentRun` and `ExperimentReview` persistence plus an Alembic migration. Experiment runs are separate from live `AgentRunLog` history and never overwrite source runs.
+- Added conservative controlled replay: a variant receives the original input context with a replacement system prompt and may consume only captured source tool results in their exact original order. Different/extra tool requests are marked `diverged`; replay never executes live inventory mutations.
+- Added experiment aggregate metrics: completed/diverged/failed counts, average rounds, source/variant human ratings, pairwise baseline/variant/tie/both-bad review counts, a clearly-labelled clarification heuristic, general tool-error rate, and mutation-error rate.
+- Added `/experiments` and `/experiments/{id}` side-by-side review UI plus API persistence for pairwise choice, optional 1–5 variant rating, and comments.
+- Added versioned prompt files under `prompts/`; a test guarantees `inventory-v1.txt` remains byte-for-byte equal to the built-in default prompt. `inventory-v2-strict.txt` is the first reviewable variant.
+- Added `experiment-replay` CLI/Just recipe for rated historical runs and `provider-smoke` for a real configured endpoint.
+- Added GitHub Actions CI on Ubuntu 24.04 / Python 3.12 and 3.13 using the canonical `just` commands, plus a manual live-provider smoke job gated by repository variables/secrets.
+- Stage 5 application/package version is `0.2.0`.
 
-1. Add the first real LLM adapter only in an environment where its API can actually be exercised; prefer a small OpenAI-compatible/provider-neutral HTTP boundary rather than introducing an agent framework.
-2. Keep provider/model/temperature/reasoning/tool settings in explicit adapter metadata so every run remains attributable and comparable.
-3. Add a prompt experiment runner that selects rated historical runs, applies a named prompt variant, and stores results as separate experiment runs without overwriting production history.
-4. Start with replay against captured input/tool evidence and explicitly mark divergence when a variant requests a tool/result not present in the recorded trace; do not pretend this is an exact historical DB snapshot.
-5. Add side-by-side baseline/variant comparison and aggregate metrics: average human rating, completion/failure rate, tool rounds, ambiguity/clarification rate, and mutation-error rate.
-6. Add a compact review UI for choosing which variant response is better; keep human ratings authoritative rather than deriving a fake quality score from model self-evaluation.
-7. Add prompt files under a versioned project directory and make prompt changes reviewable in git.
-8. Expand the heuristic/offline tests only for protocol behavior; do not grow the heuristic parser into a shadow production NLP implementation.
-9. Once a real model is connected, build a representative 30–50 query evaluation corpus from actual inventory usage before tuning prompts or adding embeddings.
-10. Keep voice, Telegram, images, MCP, QR, and PWA out of scope until the real text workflow and evaluation loop are stable.
+### Stage 6 — next
+
+Validate the real text workflow against actual model traffic and build the first trustworthy evaluation corpus:
+
+1. Run the new provider adapter against at least one real OpenAI-compatible model on U24 or the manual GitHub Actions smoke job; capture provider/model/config exactly and do not broaden provider-specific support until a real incompatibility appears.
+2. Exercise full tool calling, not only connectivity: find an existing item, create a new item after search, move an item, resolve an ambiguous candidate, and answer a history/location query.
+3. Collect 30–50 representative real inventory requests with human 1–5 ratings and comments; include successes, ambiguous wording, corrections, multiple items, nested locations, and failed/awkward interactions rather than a polished synthetic-only corpus.
+4. Replay the corpus with `inventory-v1` and `inventory-v2-strict`; review side-by-side cases and record pairwise decisions before changing prompts again.
+5. Add an experiment report/export that compares exact prompt hash + provider/model/config combinations and highlights divergence cases for manual inspection.
+6. Improve prompt/tool descriptions only where evaluation evidence shows recurring errors. Do not add generic prompt complexity pre-emptively.
+7. If controlled replay divergence becomes the main blocker, design a reproducible inventory-state fixture/snapshot mechanism for experiments instead of weakening replay safety.
+8. Reconsider embeddings only after the corpus exposes semantic-search misses that deterministic aliases/FTS cannot solve.
+9. Keep voice, Telegram, images, QR, MCP, PWA, and multi-user support out of scope until the live text workflow reaches a stable evaluation baseline.

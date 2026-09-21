@@ -96,6 +96,17 @@ class EvaluationService:
         self._commit(feedback)
         return feedback
 
+    def rated_runs(self, *, limit: int = 100) -> list[AgentRunLog]:
+        stmt = (
+            select(AgentRunLog)
+            .join(AgentFeedback, AgentFeedback.agent_run_id == AgentRunLog.id)
+            .options(selectinload(AgentRunLog.feedback))
+            .where(AgentRunLog.status == "completed")
+            .order_by(AgentRunLog.id.desc())
+            .limit(limit)
+        )
+        return list(self.session.scalars(stmt))
+
     def recent_runs(self, *, limit: int = 100) -> list[AgentRunLog]:
         stmt = (
             select(AgentRunLog)

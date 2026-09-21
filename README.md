@@ -12,12 +12,13 @@ Local-first inventory memory for finding physical things using natural-language 
 - Pydantic tool schemas
 - Jinja2 + vanilla JavaScript text UI
 - replay-oriented agent run logs and 1–5 human evaluation feedback
+- controlled prompt/model replay against captured tool evidence
 
-The LLM is not a database client. Domain services own validation, identity, history, and mutations. The agent can mutate only stable IDs that the backend has resolved from prior tool results.
+The LLM is not a database client. Domain services own validation, identity, history, and mutations. The live agent can mutate only stable IDs that the backend has resolved from prior tool results. Experiment replay never executes mutations against the live inventory database.
 
 ## Sandbox development
 
-The project is kept compatible with packages already present in the OpenAI sandbox; no network dependency is introduced merely for development.
+The project remains compatible with packages already present in the OpenAI sandbox; no network dependency is introduced merely for development. The real provider adapter deliberately uses Python's standard-library HTTP client rather than adding a provider SDK.
 
 Verified baseline:
 
@@ -41,45 +42,66 @@ Verified baseline:
 just test
 just test-agent
 just test-web
+just test-provider
 just compile
 just check
 just migrate
 just migration-check
 just serve
 just eval-export evaluation-cases.json
+just experiment-replay strict-v2 prompts/inventory-v2-strict.txt inventory-v2 50
+just provider-smoke
 ```
 
 If `just` is unavailable in a constrained sandbox, execute the exact underlying recipe command rather than adding a network dependency to install it.
 
-## Offline web MVP
+## LLM providers
 
-Stage 4 defaults to the deliberately tiny `HeuristicLLMClient`, so the whole browser -> agent -> tools -> SQLite path can be exercised without an external API. It understands only the small smoke subset documented in the agent code and must not be mistaken for production NLP.
-
-Run migrations before starting the app:
+Offline development still defaults to `HeuristicLLMClient`. For a real hosted or local model, configure the OpenAI-compatible Chat Completions adapter:
 
 ```bash
-just migrate
-just serve
+export AH_THERE_IT_IS_LLM_PROVIDER=openai-compatible
+export AH_THERE_IT_IS_LLM_PROVIDER_NAME=my-provider
+export AH_THERE_IT_IS_LLM_BASE_URL=https://provider.example/v1
+export AH_THERE_IT_IS_LLM_MODEL=model-name
+export AH_THERE_IT_IS_LLM_API_KEY=secret
 ```
 
-The web UI provides chat, inventory/item views, location/category views, manual item corrections, and evaluation views.
+`AH_THERE_IT_IS_LLM_API_KEY` is used only for the Authorization header and is never written to run metadata. Optional request settings include `AH_THERE_IT_IS_LLM_TEMPERATURE`, timeout, and `AH_THERE_IT_IS_LLM_EXTRA_BODY_JSON`. The Stage 5 adapter targets standard non-streaming Chat Completions tool calling; provider-specific reasoning/thinking protocols are not assumed.
 
 ## Prompt/model evaluation
 
-Every agent run stores:
+Every live agent run stores:
 
 - prompt version and exact SHA-256 prompt hash
 - full system prompt
 - provider/model/config metadata
 - initial message context
-- per-round tool calls and returned results
+- per-round tool calls, model response metadata, and returned tool results
 - completion/failure status and final response
 - optional human rating from 1 to 5 plus a comment
 
-An alternate prompt can be loaded from a file with `AH_THERE_IT_IS_PROMPT_FILE`; set `AH_THERE_IT_IS_PROMPT_VERSION` to a meaningful experiment label. Rated runs can be exported with `just eval-export` for later replay/experiment tooling.
+Versioned prompts live under `prompts/`. `inventory-v1.txt` is tested to remain byte-for-byte identical to the built-in default prompt.
 
-The captured trace is evidence, not a full historical database snapshot. Exact historical-state replay is therefore not claimed; Stage 5 will make replay divergence explicit.
+### Controlled replay
+
+`just experiment-replay` selects rated historical runs unless explicit source run IDs are supplied. A prompt/model variant receives the original input messages with the new system prompt and may consume only the source run's captured tool results in their exact original order.
+
+If the variant asks for a different search, arguments, tool order, or extra tool call, the experiment is marked `diverged`. No live inventory mutation is executed during replay. This is intentionally conservative: captured traces are evidence, not historical database snapshots.
+
+The `/experiments` UI shows aggregate completion/divergence/failure metrics, rounds, human ratings, pairwise review counts, a simple clarification heuristic, and tool/mutation error rates. `/experiments/{id}` provides baseline-versus-variant review with `baseline`, `variant`, `tie`, or `both_bad` plus an optional 1–5 variant rating.
+
+## CI and external verification
+
+`.github/workflows/ci.yml` runs the canonical `just` checks on Ubuntu 24.04 with Python 3.12 and 3.13. A manual `live-provider-smoke` job is also included. It performs a real API call only when these repository variables/secrets are configured:
+
+- `AH_THERE_IT_IS_TEST_PROVIDER_NAME` (variable)
+- `AH_THERE_IT_IS_TEST_BASE_URL` (variable)
+- `AH_THERE_IT_IS_TEST_MODEL` (variable)
+- `AH_THERE_IT_IS_TEST_API_KEY` (secret)
+
+Without them, the live smoke job explicitly reports that it was skipped.
 
 ## Current scope
 
-Stages 0–4 are complete: project bootstrap, domain persistence, deterministic search, bounded agent/tool layer, and the first text-only web/evaluation MVP. Stage 5 connects a real LLM provider and adds controlled prompt/model experiments over the accumulated evaluation corpus.
+Stages 0–5 are implemented: project bootstrap, domain persistence, deterministic search, bounded agent/tool layer, text-only web/evaluation MVP, replaceable OpenAI-compatible provider adapter, and controlled prompt/model experiments. Voice, Telegram, images, QR, MCP, PWA, and embeddings remain out of scope until live text-model evaluation produces evidence that they are worth adding.

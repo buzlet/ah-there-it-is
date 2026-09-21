@@ -1,0 +1,36 @@
+{% extends "base.html" %}
+{% block title %}Experiment #{{ run.id }} · {{ app_name }}{% endblock %}
+{% block content %}
+<a href="/experiments">← Experiments</a>
+<h1>Experiment run #{{ run.id }}</h1>
+<dl class="run-meta">
+  <dt>Source run</dt><dd><a href="/evaluations/{{ run.source_run_id }}">#{{ run.source_run_id }}</a></dd>
+  <dt>Status</dt><dd>{{ run.status }}</dd>
+  <dt>Experiment</dt><dd>{{ run.experiment_name }}</dd>
+  <dt>Prompt</dt><dd>{{ run.prompt_version }} / <code>{{ run.prompt_hash }}</code></dd>
+  <dt>Provider/model</dt><dd>{{ run.llm_provider }} / {{ run.llm_model }}</dd>
+  <dt>Rounds</dt><dd>{{ run.rounds }}</dd>
+  <dt>Divergence</dt><dd>{{ run.divergence_reason or "—" }}</dd>
+</dl>
+<div class="comparison-grid">
+<section><h2>Baseline</h2><p>{{ run.source_run.final_content or run.source_run.error or "—" }}</p><p class="muted">Human rating: {{ run.source_run.feedback.rating if run.source_run.feedback else "—" }}</p></section>
+<section><h2>Variant</h2><p>{{ run.final_content or run.error or run.divergence_reason or "—" }}</p></section>
+</div>
+<h2>Human review</h2>
+<form id="experiment-review" data-run-id="{{ run.id }}">
+  <label>Better response
+    <select name="choice">
+      {% for value, label in [("baseline","Baseline"),("variant","Variant"),("tie","Tie"),("both_bad","Both bad")] %}
+      <option value="{{ value }}" {% if run.review and run.review.choice == value %}selected{% endif %}>{{ label }}</option>
+      {% endfor %}
+    </select>
+  </label>
+  <label>Variant rating (1–5, optional)<input name="variant_rating" type="number" min="1" max="5" value="{{ run.review.variant_rating if run.review and run.review.variant_rating is not none else '' }}"></label>
+  <label>Comment<textarea name="comment">{{ run.review.comment if run.review and run.review.comment else '' }}</textarea></label>
+  <button type="submit">Save review</button><span id="review-status" class="muted"></span>
+</form>
+<details><summary>System prompt</summary><pre>{{ run.system_prompt }}</pre></details>
+<details><summary>LLM config</summary><pre>{{ config_json }}</pre></details>
+<details open><summary>Replay trace</summary><pre>{{ trace_json }}</pre></details>
+{% endblock %}
+{% block scripts %}<script src="/static/experiment.js"></script>{% endblock %}

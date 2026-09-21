@@ -52,6 +52,7 @@ class LLMResponse(BaseModel):
 
     content: str = ""
     tool_calls: tuple[ToolCall, ...] = ()
+    metadata: dict[str, Any] = Field(default_factory=dict)
 
 
 class LLMClient(Protocol):
