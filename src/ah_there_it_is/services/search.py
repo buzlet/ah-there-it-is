@@ -215,6 +215,12 @@ class SearchService:
                 score, match = self.NORMALIZED_NAME, "normalized_name"
             elif search_key and search_key in leaf_search:
                 score, match = self.CONTAINS + 50, "contains"
+            elif leaf_search and leaf_search in search_key:
+                # Natural phrases often contain the exact leaf plus inflected
+                # ancestry, e.g. "средний ящик стола". Prefer the longer,
+                # more specific leaf over a generic ancestor such as "стол".
+                specificity = min(len(leaf_search.split()), 3)
+                score, match = self.CONTAINS + 50 * specificity, "contains"
             elif self._all_tokens_present(search_key, path_search):
                 score, match = self.CONTAINS, "contains"
             else:
