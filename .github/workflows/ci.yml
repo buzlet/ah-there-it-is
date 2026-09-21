@@ -94,7 +94,7 @@ jobs:
           if-no-files-found: ignore
 
   live-groq-smoke:
-    if: ${{ (github.event_name == 'workflow_dispatch' && inputs.provider == 'groq') || github.ref == 'refs/heads/feat/httpx-transport-observability' }}
+    if: ${{ github.event_name == 'workflow_dispatch' && inputs.provider == 'groq' }}
     environment: live-llm-test
     runs-on: ubuntu-24.04
     timeout-minutes: 6
@@ -115,7 +115,7 @@ jobs:
           AH_THERE_IT_IS_LLM_MAX_RETRIES: '2'
           AH_THERE_IT_IS_LLM_RETRY_BACKOFF_SECONDS: '1'
           AH_THERE_IT_IS_LLM_TEMPERATURE: '0.6'
-          AH_THERE_IT_IS_LLM_EXTRA_BODY_JSON: '{"max_completion_tokens":2048,"top_p":0.95,"reasoning_effort":"default","reasoning_format":"hidden"}'
+          AH_THERE_IT_IS_LLM_EXTRA_BODY_JSON: '{"max_completion_tokens":256,"top_p":0.95,"reasoning_effort":"none","reasoning_format":"hidden"}'
         run: |
           if [ -z "$AH_THERE_IT_IS_LLM_API_KEY" ]; then
             echo "Live Groq evaluation skipped: configure GROQ_API_KEY in environment live-llm-test."
@@ -137,7 +137,7 @@ jobs:
             "${CASES[@]}" \
             --output live-eval.json
       - name: Upload live evaluation report
-        if: ${{ always() && (github.event_name == 'workflow_dispatch' || github.ref == 'refs/heads/feat/httpx-transport-observability') }}
+        if: ${{ always() && github.event_name == 'workflow_dispatch' }}
         uses: actions/upload-artifact@v4
         with:
           name: live-eval-report-groq
