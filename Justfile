@@ -26,7 +26,10 @@ migrate:
     python -m alembic upgrade head
 
 migration-check:
-    python -m alembic check
+    rm -f /tmp/ah-there-it-is-migration-check.db
+    AH_THERE_IT_IS_DATABASE_URL=sqlite:////tmp/ah-there-it-is-migration-check.db python -m alembic upgrade head
+    AH_THERE_IT_IS_DATABASE_URL=sqlite:////tmp/ah-there-it-is-migration-check.db python -m alembic check
+    rm -f /tmp/ah-there-it-is-migration-check.db
 
 eval-export file="evaluation-cases.json":
     python -m ah_there_it_is.evaluation_export > "{{file}}"
