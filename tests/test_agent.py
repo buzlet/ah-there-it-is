@@ -98,6 +98,24 @@ def test_create_item_requires_search_then_allows_creation(session: Session) -> N
     assert created.state == "new"
 
 
+def test_create_accepts_prior_search_with_same_tokens_reordered(session: Session) -> None:
+    dispatcher = ToolDispatcher(session)
+
+    searched = dispatcher.execute(
+        "search_items",
+        {"query": "Anker 7-в-1 USB-C hub"},
+    )
+    created = dispatcher.execute(
+        "create_item",
+        {"name": "USB-C hub Anker 7-в-1"},
+    )
+
+    assert searched["ok"] is True
+    assert searched["result"] == []
+    assert created["ok"] is True
+    assert created["result"]["name"] == "USB-C hub Anker 7-в-1"
+
+
 def test_create_without_matching_prior_search_is_rejected(session: Session) -> None:
     dispatcher = ToolDispatcher(session)
 
