@@ -137,7 +137,7 @@ jobs:
             "${CASES[@]}" \
             --output live-eval.json
       - name: Upload live evaluation report
-        if: ${{ always() && github.event_name == 'workflow_dispatch' }}
+        if: ${{ always() && (github.event_name == 'workflow_dispatch' || github.ref == 'refs/heads/feat/httpx-transport-observability') }}
         uses: actions/upload-artifact@v4
         with:
           name: live-eval-report-groq
