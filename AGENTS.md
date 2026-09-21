@@ -138,6 +138,7 @@ Preparation that does not require a provider key is complete:
 - `live_eval` refuses the heuristic provider by default. `--allow-heuristic` exists only to test the harness offline and must not be treated as model-quality evidence.
 - Added an offline harness test proving a complete fixture-backed tool/mutation flow without touching external state.
 - GitHub Actions test matrix now validates the corpus. The manual live-provider job is prepared to run provider connectivity plus five fixture-backed live cases and upload `live-eval.json` as an artifact once repository variables/secrets are configured.
+- GitHub repository `buzlet/ah-there-it-is` is reachable through the connected GitHub integration, but the sandbox itself has no DNS/Internet for `git push`. The remote was only bootstrapped with `.gitignore`; **do not treat GitHub as synchronized yet**. Perform a normal full push from U24 (preferred) before relying on Actions there; avoid reconstructing the whole repository file-by-file through the API.
 - A concrete deterministic-search weakness was exposed by the intentionally dumb heuristic adapter: Russian morphology such as `стола` vs stored `стол` is not normalized by Stage 2 search. Keep the realistic corpus wording; a real LLM should normally reformulate the search tool query. Treat recurring failures here as evaluation evidence before adding stemming/embeddings.
 
 Remaining Stage 6 work requires real provider credentials:
