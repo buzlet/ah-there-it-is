@@ -17,7 +17,7 @@ from sqlalchemy import func, select
 from ah_there_it_is.agent.factory import build_llm_factory
 from ah_there_it_is.agent.runner import AgentRunner, SYSTEM_PROMPT
 from ah_there_it_is.config import get_settings
-from ah_there_it_is.db.models import Base, Event
+from ah_there_it_is.db.models import AgentRunLog, Base, Event
 from ah_there_it_is.db.search_schema import install_fts_schema
 from ah_there_it_is.db.session import create_db_engine, create_session_factory
 from ah_there_it_is.eval_corpus import EvaluationCase, ExpectedCheck, load_corpus
@@ -123,17 +123,43 @@ def run_case(
                 for user_text in case.turns:
                     result = runner.run(user_text, conversation_id=conversation_id)
                     conversation_id = result.conversation_id
+                    run_log = runner.evaluation.get_run(result.run_id)
                     turns.append(
                         {
                             "user": user_text,
                             "assistant": result.content,
                             "run_id": result.run_id,
                             "rounds": result.rounds,
+                            "status": run_log.status,
+                            "tool_trace": run_log.tool_trace,
+                            "llm_provider": run_log.llm_provider,
+                            "llm_model": run_log.llm_model,
+                            "llm_config": run_log.llm_config,
                         }
                     )
             except Exception as exc:  # live harness must report, not hide, provider/tool failures
                 status = "failed"
                 error = f"{type(exc).__name__}: {exc}"
+                latest = session.scalar(
+                    select(AgentRunLog).order_by(AgentRunLog.id.desc()).limit(1)
+                )
+                if latest is not None and not any(
+                    turn.get("run_id") == latest.id for turn in turns
+                ):
+                    turns.append(
+                        {
+                            "user": case.turns[len(turns)] if len(turns) < len(case.turns) else None,
+                            "assistant": latest.final_content,
+                            "run_id": latest.id,
+                            "rounds": latest.rounds,
+                            "status": latest.status,
+                            "error": latest.error,
+                            "tool_trace": latest.tool_trace,
+                            "llm_provider": latest.llm_provider,
+                            "llm_model": latest.llm_model,
+                            "llm_config": latest.llm_config,
+                        }
+                    )
 
             checks = [
                 _check_expected(session, check, events_before=events_before)
@@ -147,7 +173,7 @@ def run_case(
                 "error": error,
                 "turns": turns,
                 "checks": checks,
-                "checks_passed": all(check["ok"] for check in checks),
+                "checks_passed": (all(check["ok"] for check in checks) if checks else None),
             }
     finally:
         engine.dispose()
@@ -203,11 +229,16 @@ def main() -> None:
         ],
     }
     cases = report["cases"]
+    checked_cases = [case for case in cases if case["checks_passed"] is not None]
     report["summary"] = {
         "count": len(cases),
         "completed": sum(case["status"] == "completed" for case in cases),
         "failed": sum(case["status"] == "failed" for case in cases),
-        "checks_passed": sum(case["checks_passed"] for case in cases),
+        "automatically_checked": len(checked_cases),
+        "automatic_checks_passed": sum(
+            case["checks_passed"] is True for case in checked_cases
+        ),
+        "manual_review_required": len(cases) - len(checked_cases),
     }
 
     rendered = json.dumps(report, ensure_ascii=False, indent=2)
