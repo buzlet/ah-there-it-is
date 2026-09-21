@@ -375,3 +375,73 @@ def test_gemini_adapter_retries_transient_http_errors(monkeypatch) -> None:
     assert sleeps == [0.5, 1.0]
     assert client.info.config["max_retries"] == 2
     assert client.info.config["retry_backoff_seconds"] == 0.5
+
+def test_gemini_adapter_does_not_retry_http_429(monkeypatch) -> None:
+    import io
+    from urllib.error import HTTPError
+
+    import ah_there_it_is.agent.gemini as gemini_module
+    from ah_there_it_is.agent.gemini import GeminiConfig, GeminiLLMClient
+
+    calls = 0
+
+    def fake_urlopen(request, timeout):
+        nonlocal calls
+        calls += 1
+        raise HTTPError(
+            request.full_url,
+            429,
+            "quota",
+            hdrs={},
+            fp=io.BytesIO(b'{"error":{"status":"RESOURCE_EXHAUSTED"}}'),
+        )
+
+    monkeypatch.setattr(gemini_module, "urlopen", fake_urlopen)
+    client = GeminiLLMClient(GeminiConfig(model="gemini-test", max_retries=5))
+
+    with pytest.raises(Exception, match="provider HTTP 429"):
+        client.complete([AgentMessage(role="user", content="x")], [])
+
+    assert calls == 1
+
+
+def test_gemini_adapter_retries_timeout(monkeypatch) -> None:
+    import ah_there_it_is.agent.gemini as gemini_module
+    from ah_there_it_is.agent.gemini import GeminiConfig, GeminiLLMClient
+
+    calls = 0
+
+    class _Response:
+        def __enter__(self):
+            return self
+
+        def __exit__(self, exc_type, exc, tb):
+            return False
+
+        def read(self):
+            return json.dumps(
+                {
+                    "candidates": [
+                        {
+                            "finishReason": "STOP",
+                            "content": {"role": "model", "parts": [{"text": "OK"}]},
+                        }
+                    ]
+                }
+            ).encode()
+
+    def fake_urlopen(request, timeout):
+        nonlocal calls
+        calls += 1
+        if calls == 1:
+            raise TimeoutError("read timed out")
+        return _Response()
+
+    monkeypatch.setattr(gemini_module, "urlopen", fake_urlopen)
+    monkeypatch.setattr(gemini_module.time, "sleep", lambda delay: None)
+    client = GeminiLLMClient(
+        GeminiConfig(model="gemini-test", max_retries=1, retry_backoff_seconds=0)
+    )
+
+    assert client.complete([AgentMessage(role="user", content="x")], []).content == "OK"
+    assert calls == 2

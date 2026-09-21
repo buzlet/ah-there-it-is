@@ -31,25 +31,33 @@ jobs:
     if: ${{ github.event_name == 'workflow_dispatch' }}
     environment: live-llm-test
     runs-on: ubuntu-24.04
+    timeout-minutes: 6
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
         with:
           python-version: '3.13'
       - run: python -m pip install -e '.[test]'
-      - name: Run live Gemini provider smoke when configured
+      - name: Run bounded live Gemini evaluation when configured
         env:
-          AH_THERE_IT_IS_LLM_PROVIDER: gemini
+          AH_THERE_IT_IS_LLM_PROVIDER: ${{ vars.LLM_PROVIDER || 'gemini' }}
           AH_THERE_IT_IS_LLM_PROVIDER_NAME: gemini
+          AH_THERE_IT_IS_LLM_BASE_URL: ${{ vars.GEMINI_BASE_URL || 'https://generativelanguage.googleapis.com/v1beta' }}
           AH_THERE_IT_IS_LLM_MODEL: ${{ vars.GEMINI_MODEL || 'gemini-flash-latest' }}
           AH_THERE_IT_IS_LLM_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+          AH_THERE_IT_IS_LLM_TIMEOUT_SECONDS: '30'
+          AH_THERE_IT_IS_LLM_MAX_RETRIES: '2'
+          AH_THERE_IT_IS_LLM_RETRY_BACKOFF_SECONDS: '1'
         run: |
           if [ -z "$AH_THERE_IT_IS_LLM_API_KEY" ]; then
-            echo "Live Gemini smoke skipped: configure GEMINI_API_KEY in environment live-llm-test."
+            echo "Live Gemini evaluation skipped: configure GEMINI_API_KEY in environment live-llm-test."
             exit 0
           fi
-          python -m ah_there_it_is.provider_smoke
-          python -m ah_there_it_is.live_eval --corpus eval/corpus-v1.json --limit 5 --output live-eval.json
+          python -m ah_there_it_is.live_eval \
+            --corpus eval/corpus-v1.json \
+            --case find-01 \
+            --case move-01 \
+            --output live-eval.json
       - name: Upload live evaluation report
         if: ${{ always() && github.event_name == 'workflow_dispatch' }}
         uses: actions/upload-artifact@v4

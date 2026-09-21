@@ -251,6 +251,9 @@ def main() -> None:
     else:
         print(rendered)
 
+    if report["summary"]["failed"]:
+        raise SystemExit(2)
+
 
 if __name__ == "__main__":
     main()
