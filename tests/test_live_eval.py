@@ -1,6 +1,8 @@
 from __future__ import annotations
 
+import json
 from pathlib import Path
+import sys
 
 from sqlalchemy import func, select
 
@@ -88,6 +90,7 @@ def test_offline_live_eval_plumbing_can_move_without_touching_external_state(mon
     assert len(result["turns"]) == 1
     assert result["turns"][0]["tool_trace"]
     assert result["turns"][0]["llm_model"] == "heuristic-v1"
+    assert result["wall_seconds"] >= 0
 
 
 def test_fixture_seed_creates_history_events(session) -> None:
@@ -153,3 +156,37 @@ def test_failed_live_case_never_counts_automatic_checks_as_passed(monkeypatch) -
     assert result["status"] == "failed"
     assert result["checks"][0]["ok"] is True
     assert result["checks_passed"] is False
+
+
+def test_live_eval_main_writes_progress_and_report(monkeypatch, tmp_path, capsys) -> None:
+    import ah_there_it_is.live_eval as live_eval
+    from ah_there_it_is.config import get_settings
+
+    output = tmp_path / "report.json"
+    monkeypatch.setenv("AH_THERE_IT_IS_LLM_PROVIDER", "heuristic")
+    monkeypatch.setattr(
+        sys,
+        "argv",
+        [
+            "live_eval",
+            "--corpus",
+            str(CORPUS),
+            "--case",
+            "find-01",
+            "--output",
+            str(output),
+            "--allow-heuristic",
+        ],
+    )
+    get_settings.cache_clear()
+    try:
+        live_eval.main()
+    finally:
+        get_settings.cache_clear()
+
+    report = json.loads(output.read_text(encoding="utf-8"))
+    captured = capsys.readouterr().out
+    assert report["summary"]["count"] == 1
+    assert report["cases"][0]["case_id"] == "find-01"
+    assert "[live-eval] case 1/1 start find-01" in captured
+    assert "[live-eval] case 1/1 done find-01" in captured

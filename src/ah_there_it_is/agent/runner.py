@@ -76,15 +76,16 @@ class AgentRunner:
         input_messages = [message.model_dump(mode="json") for message in messages]
         tool_trace: list[dict[str, Any]] = []
         dispatcher = ToolDispatcher(self.session, original_text=text)
-        definitions = dispatcher.definitions()
         rounds = 0
 
         try:
             for round_number in range(1, self.max_rounds + 1):
                 rounds = round_number
+                definitions = dispatcher.definitions()
                 response = self.llm.complete(messages, definitions)
                 round_trace: dict[str, Any] = {
                     "round": round_number,
+                    "available_tools": [tool.name for tool in definitions],
                     "assistant": {
                         "content": response.content,
                         "tool_calls": [

@@ -43,6 +43,7 @@ class SearchService:
         identity = normalize_name(query)
         search_key = normalize_search_text(query)
         ranked: dict[int, _Ranked] = {}
+        items_by_id: dict[int, Item] = {}
 
         item_stmt = (
             select(Item)
@@ -53,11 +54,15 @@ class SearchService:
             .order_by(Item.id)
         )
         for item in self.session.scalars(item_stmt):
+            items_by_id[item.id] = item
             candidate = self._rank_item_python(item, identity, search_key)
             if candidate is not None:
                 ranked[item.id] = candidate
 
         for item_id, fts_rank in self._fts_item_ids(query, limit=max(limit * 4, 20)):
+            item = items_by_id.get(item_id)
+            if item is None or not self._fts_overlap_ok(item, search_key):
+                continue
             current = ranked.get(item_id)
             proposed = _Ranked(self.FTS, "fts", fts_rank)
             if current is None or proposed.score > current.score:
@@ -165,6 +170,20 @@ class SearchService:
             return _Ranked(self.CONTAINS, "contains")
         return None
 
+    def _fts_overlap_ok(self, item: Item, search_key: str) -> bool:
+        query_tokens = set(search_key.split())
+        if len(query_tokens) < 3:
+            return True
+        searchable_parts = [
+            normalize_search_text(item.name),
+            normalize_search_text(item.description or ""),
+            *(normalize_search_text(alias.name) for alias in item.aliases),
+            *(normalize_search_text(link.tag.name) for link in item.tag_links),
+            *self._attribute_values(item.attributes),
+        ]
+        candidate_tokens = set(" ".join(searchable_parts).split())
+        return len(query_tokens.intersection(candidate_tokens)) >= 2
+
     def _fts_item_ids(self, query: str, *, limit: int) -> list[tuple[int, float]]:
         expression = self._fts_expression(query)
         if not expression:
@@ -203,9 +222,11 @@ class SearchService:
             return []
         identity = normalize_name(query)
         search_key = normalize_search_text(query)
+        nodes = list(self.session.scalars(select(model).order_by(model.id)))
         candidates: list[SearchCandidate] = []
 
-        for node in self.session.scalars(select(model).order_by(model.id)):
+        # Preserve the original strong tree-search semantics first.
+        for node in nodes:
             path = self._path(node) or node.name
             leaf_search = normalize_search_text(node.name)
             path_search = normalize_search_text(path)
@@ -230,6 +251,31 @@ class SearchService:
                     score=score,
                 )
             )
+
+        if candidates:
+            return sorted(candidates, key=lambda c: (-c.score, c.path or "", c.id))[:limit]
+
+        # Fallback only when the original search found nothing. Natural phrases
+        # may contain an exact leaf plus inflected ancestry, e.g.
+        # "средний ящик стола". Prefer the longer, more specific leaf.
+        for node in nodes:
+            path = self._path(node) or node.name
+            leaf_search = normalize_search_text(node.name)
+            if not leaf_search or leaf_search not in search_key:
+                continue
+            specificity = min(len(leaf_search.split()), 3)
+            candidates.append(
+                SearchCandidate(
+                    id=node.id,
+                    entity_type=entity_type,  # type: ignore[arg-type]
+                    name=node.name,
+                    path=path,
+                    description=node.description,
+                    match_type="contains",
+                    score=self.CONTAINS + 50 * specificity,
+                )
+            )
+
         return sorted(candidates, key=lambda c: (-c.score, c.path or "", c.id))[:limit]
 
     @staticmethod

@@ -1,4 +1,4 @@
-"""Minimal synchronous OpenAI-compatible chat-completions adapter."""
+"""Synchronous OpenAI-compatible chat-completions adapter."""
 
 from __future__ import annotations
 
@@ -7,8 +7,8 @@ import time
 from collections.abc import Sequence
 from dataclasses import dataclass
 from typing import Any
-from urllib.error import HTTPError, URLError
-from urllib.request import Request, urlopen
+
+import httpx
 
 from ah_there_it_is.agent.errors import ProviderProtocolError, ProviderRequestError
 from ah_there_it_is.agent.protocol import (
@@ -36,11 +36,16 @@ class OpenAICompatibleConfig:
 class OpenAICompatibleLLMClient:
     """Call a provider implementing the OpenAI chat-completions tool format.
 
-    No provider SDK is required. This keeps the adapter small and makes the same
-    boundary usable for hosted providers and local OpenAI-compatible servers.
+    One persistent httpx.Client is reused for the life of this adapter so
+    multi-round tool loops retain HTTP keep-alive connections.
     """
 
-    def __init__(self, config: OpenAICompatibleConfig) -> None:
+    def __init__(
+        self,
+        config: OpenAICompatibleConfig,
+        *,
+        client: httpx.Client | None = None,
+    ) -> None:
         if not config.base_url.strip():
             raise ValueError("base_url must not be empty")
         if not config.model.strip():
@@ -52,6 +57,16 @@ class OpenAICompatibleLLMClient:
         if config.retry_backoff_seconds < 0:
             raise ValueError("retry_backoff_seconds must be >= 0")
         self.config = config
+        self._owns_client = client is None
+        self._client = client or httpx.Client(
+            timeout=httpx.Timeout(config.timeout_seconds),
+            limits=httpx.Limits(
+                max_connections=10,
+                max_keepalive_connections=10,
+                keepalive_expiry=60.0,
+            ),
+            follow_redirects=True,
+        )
 
     @property
     def info(self) -> LLMClientInfo:
@@ -60,6 +75,7 @@ class OpenAICompatibleLLMClient:
             "timeout_seconds": self.config.timeout_seconds,
             "max_retries": self.config.max_retries,
             "retry_backoff_seconds": self.config.retry_backoff_seconds,
+            "transport": "httpx-persistent",
         }
         if self.config.temperature is not None:
             logged_config["temperature"] = self.config.temperature
@@ -70,6 +86,16 @@ class OpenAICompatibleLLMClient:
             model=self.config.model,
             config=logged_config,
         )
+
+    def close(self) -> None:
+        if self._owns_client and not self._client.is_closed:
+            self._client.close()
+
+    def __enter__(self) -> "OpenAICompatibleLLMClient":
+        return self
+
+    def __exit__(self, exc_type, exc, tb) -> None:
+        self.close()
 
     def complete(
         self,
@@ -96,15 +122,7 @@ class OpenAICompatibleLLMClient:
                 )
             body.update(self.config.extra_body)
 
-        payload = json.dumps(body, ensure_ascii=False).encode("utf-8")
-        headers = {
-            "Content-Type": "application/json",
-            "Accept": "application/json",
-            "User-Agent": "ah-there-it-is/0.2 (+https://github.com/buzlet/ah-there-it-is)",
-        }
-        if self.config.api_key:
-            headers["Authorization"] = f"Bearer {self.config.api_key}"
-        raw = self._post_with_retry(payload, headers)
+        raw, transport = self._post_with_retry(body)
 
         try:
             data = json.loads(raw)
@@ -134,45 +152,103 @@ class OpenAICompatibleLLMClient:
         metadata: dict[str, Any] = {
             "response_id": data.get("id"),
             "finish_reason": choice.get("finish_reason"),
+            "transport": transport,
         }
-        if isinstance(data.get("usage"), dict):
-            metadata["usage"] = data["usage"]
+        usage = data.get("usage")
+        if isinstance(usage, dict):
+            metadata["usage"] = usage
+            provider_seconds = usage.get("total_time")
+            if isinstance(provider_seconds, (int, float)):
+                metadata["provider_server_seconds"] = float(provider_seconds)
+                metadata["client_minus_provider_seconds"] = round(
+                    max(0.0, transport["client_wall_seconds"] - float(provider_seconds)),
+                    6,
+                )
         return LLMResponse(
             content=message.get("content") or "",
             tool_calls=tuple(tool_calls),
             metadata=metadata,
         )
 
-    def _post_with_retry(self, payload: bytes, headers: dict[str, str]) -> str:
+    def _post_with_retry(self, body: dict[str, Any]) -> tuple[str, dict[str, Any]]:
         transient_statuses = {429, 500, 502, 503, 504}
+        started = time.perf_counter()
+        attempts = 0
+        retry_events: list[dict[str, Any]] = []
+
         for attempt in range(self.config.max_retries + 1):
-            request = Request(self._endpoint(), data=payload, headers=headers, method="POST")
+            attempts = attempt + 1
             try:
-                with urlopen(request, timeout=self.config.timeout_seconds) as response:
-                    return response.read().decode("utf-8")
-            except HTTPError as exc:
-                detail = exc.read().decode("utf-8", errors="replace")[:4000]
-                if exc.code not in transient_statuses or attempt >= self.config.max_retries:
-                    raise ProviderRequestError(
-                        f"provider HTTP {exc.code}: {detail or exc.reason}"
-                    ) from exc
-                self._retry_sleep(
-                    attempt,
-                    exc.headers.get("Retry-After") if exc.headers else None,
+                response = self._client.post(
+                    self._endpoint(),
+                    json=body,
+                    headers=self._headers(),
                 )
-            except TimeoutError as exc:
+            except httpx.TimeoutException as exc:
                 if attempt >= self.config.max_retries:
                     raise ProviderRequestError("provider request timed out") from exc
-                self._retry_sleep(attempt)
-            except URLError as exc:
+                delay = self._retry_sleep(attempt)
+                retry_events.append(
+                    {"kind": "timeout", "delay_seconds": round(delay, 6)}
+                )
+                continue
+            except httpx.RequestError as exc:
                 if attempt >= self.config.max_retries:
                     raise ProviderRequestError(
-                        f"provider request failed: {exc.reason}"
+                        f"provider request failed: {exc}"
                     ) from exc
-                self._retry_sleep(attempt)
+                delay = self._retry_sleep(attempt)
+                retry_events.append(
+                    {
+                        "kind": "request_error",
+                        "delay_seconds": round(delay, 6),
+                    }
+                )
+                continue
+
+            if response.status_code >= 400:
+                detail = response.text[:4000]
+                if (
+                    response.status_code not in transient_statuses
+                    or attempt >= self.config.max_retries
+                ):
+                    raise ProviderRequestError(
+                        f"provider HTTP {response.status_code}: "
+                        f"{detail or response.reason_phrase}"
+                    )
+                delay = self._retry_sleep(
+                    attempt, response.headers.get("Retry-After")
+                )
+                retry_events.append(
+                    {
+                        "kind": "http",
+                        "status": response.status_code,
+                        "delay_seconds": round(delay, 6),
+                    }
+                )
+                continue
+
+            wall = time.perf_counter() - started
+            return response.text, {
+                "client_wall_seconds": round(wall, 6),
+                "attempts": attempts,
+                "http_version": response.http_version,
+                "retry_events": retry_events,
+            }
+
         raise AssertionError("retry loop exhausted unexpectedly")
 
-    def _retry_sleep(self, attempt: int, retry_after: str | None = None) -> None:
+    def _headers(self) -> dict[str, str]:
+        headers = {
+            "Content-Type": "application/json",
+            "Accept": "application/json",
+            "User-Agent": "ah-there-it-is/0.2 (+https://github.com/buzlet/ah-there-it-is)",
+        }
+        if self.config.api_key:
+            headers["Authorization"] = f"Bearer {self.config.api_key}"
+        return headers
+
+    def _retry_sleep(self, attempt: int, retry_after: str | None = None) -> float:
         delay = self.config.retry_backoff_seconds * (2**attempt)
         if retry_after:
             try:
@@ -181,6 +257,7 @@ class OpenAICompatibleLLMClient:
                 pass
         if delay > 0:
             time.sleep(delay)
+        return delay
 
     def _endpoint(self) -> str:
         base = self.config.base_url.rstrip("/")

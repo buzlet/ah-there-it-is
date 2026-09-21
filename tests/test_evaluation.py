@@ -60,6 +60,34 @@ def test_feedback_is_upserted_and_summarized_by_exact_variant(session: Session) 
     assert summaries[0].average_rating == 5.0
 
 
+def test_evaluation_summary_separates_provider_configs(session: Session) -> None:
+    evaluation = EvaluationService(session)
+    first = AgentRunner(
+        session,
+        ScriptedLLMClient([LLMResponse(content="A")]),
+        system_prompt="same prompt",
+        prompt_version="same",
+    ).run("one")
+    second = AgentRunner(
+        session,
+        ScriptedLLMClient([LLMResponse(content="B")]),
+        system_prompt="same prompt",
+        prompt_version="same",
+    ).run("two")
+
+    first_run = evaluation.get_run(first.run_id)
+    second_run = evaluation.get_run(second.run_id)
+    first_run.llm_config = {"temperature": 0.0, "nested": {"x": 1}}
+    second_run.llm_config = {"nested": {"x": 1}, "temperature": 0.6}
+    session.commit()
+
+    summaries = evaluation.summaries()
+    assert len(summaries) == 2
+    assert {summary.llm_config_hash for summary in summaries}
+    assert len({summary.llm_config_hash for summary in summaries}) == 2
+    assert {summary.llm_config["temperature"] for summary in summaries} == {0.0, 0.6}
+
+
 def test_failed_agent_run_is_logged_for_evaluation(session: Session) -> None:
     llm = ScriptedLLMClient(
         [LLMResponse(tool_calls=(ToolCall(id="1", name="search_items", arguments={"query": "x"}),))]

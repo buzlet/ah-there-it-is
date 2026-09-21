@@ -117,6 +117,21 @@ def test_tree_search_can_use_ancestry_to_disambiguate(session: Session) -> None:
     assert results[0].path == "Балкон / Полка 2"
 
 
+def test_tree_search_prefers_specific_leaf_inside_natural_phrase(session: Session) -> None:
+    inventory = InventoryService(session)
+    search = SearchService(session)
+    home = inventory.create_location("Квартира")
+    office = inventory.create_location("Кабинет", parent_id=home.id)
+    desk = inventory.create_location("Стол", parent_id=office.id)
+    middle = inventory.create_location("Средний ящик", parent_id=desk.id)
+
+    results = search.search_locations("средний ящик стола")
+
+    assert results[0].id == middle.id
+    assert results[0].path == "Квартира / Кабинет / Стол / Средний ящик"
+    assert results[0].score - results[1].score >= 50
+
+
 def test_category_candidates_include_full_path(session: Session) -> None:
     inventory = InventoryService(session)
     search = SearchService(session)
@@ -178,6 +193,19 @@ def test_fts_table_is_trigger_maintained(session: Session) -> None:
     assert "cheap meter" in row.aliases
     assert "Красный мультиметр" in row.description
     assert "repair" in row.tags
+
+
+def test_long_fts_query_filters_single_token_noise(session: Session) -> None:
+    inventory = InventoryService(session)
+    search = SearchService(session)
+    target = inventory.create_item("Gigabyte GTX 1070")
+    inventory.create_item("ASUS GTX 750 Ti")
+    inventory.create_item("USB programmer", description="USB device for BIOS")
+
+    results = search.search_items("GeForce GTX 1070")
+    assert [result.id for result in results] == [target.id]
+
+    assert search.search_items("USB-C hub Anker 7-в-1") == []
 
 
 def test_search_handles_fts_operator_punctuation_as_plain_text(session: Session) -> None:

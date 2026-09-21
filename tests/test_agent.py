@@ -98,6 +98,24 @@ def test_create_item_requires_search_then_allows_creation(session: Session) -> N
     assert created.state == "new"
 
 
+def test_create_accepts_prior_search_with_same_tokens_reordered(session: Session) -> None:
+    dispatcher = ToolDispatcher(session)
+
+    searched = dispatcher.execute(
+        "search_items",
+        {"query": "Anker 7-в-1 USB-C hub"},
+    )
+    created = dispatcher.execute(
+        "create_item",
+        {"name": "USB-C hub Anker 7-в-1"},
+    )
+
+    assert searched["ok"] is True
+    assert searched["result"] == []
+    assert created["ok"] is True
+    assert created["result"]["name"] == "USB-C hub Anker 7-в-1"
+
+
 def test_create_without_matching_prior_search_is_rejected(session: Session) -> None:
     dispatcher = ToolDispatcher(session)
 
@@ -164,12 +182,104 @@ def test_invalid_and_unknown_tool_calls_return_structured_errors(session: Sessio
 
 
 def test_tool_schema_mutations_are_id_based(session: Session) -> None:
-    definitions = {tool.name: tool for tool in ToolDispatcher(session).definitions()}
+    inventory = InventoryService(session)
+    item = inventory.create_item("Adapter")
+    location = inventory.create_location("Балкон")
+    dispatcher = ToolDispatcher(session)
+    dispatcher.execute("search_items", {"query": "Adapter"})
+    dispatcher.execute("search_locations", {"query": "Балкон"})
+    definitions = {tool.name: tool for tool in dispatcher.definitions()}
 
+    assert item.id in dispatcher.state.resolved["item"]
+    assert location.id in dispatcher.state.resolved["location"]
     move_props = definitions["move_item"].input_schema["properties"]
     assert set(move_props) == {"item_id", "location_id"}
     assert "item" not in move_props
     assert "location" not in move_props
+
+
+def test_tool_definitions_expand_from_backend_capabilities(session: Session) -> None:
+    inventory = InventoryService(session)
+    inventory.create_item("Adapter")
+    inventory.create_location("Балкон")
+    dispatcher = ToolDispatcher(session)
+
+    initial = {tool.name for tool in dispatcher.definitions()}
+    assert initial == {
+        "search_items",
+        "search_locations",
+        "search_categories",
+        "search_tags",
+    }
+
+    dispatcher.execute("search_items", {"query": "Adapter"})
+    after_item = {tool.name for tool in dispatcher.definitions()}
+    assert {"get_item", "get_item_history", "update_item", "move_item"} <= after_item
+    assert "create_item" not in after_item
+    assert "get_location" not in after_item
+
+    dispatcher.execute("search_locations", {"query": "Балкон"})
+    after_location = {tool.name for tool in dispatcher.definitions()}
+    assert {"get_location", "list_location", "move_item"} <= after_location
+    assert "create_location" not in after_location
+
+    dispatcher.execute("search_items", {"query": "Never Seen Widget"})
+    after_empty_item = {tool.name for tool in dispatcher.definitions()}
+    assert "create_item" in after_empty_item
+
+
+def test_ambiguous_location_search_hides_move_until_refined(session: Session) -> None:
+    inventory = InventoryService(session)
+    inventory.create_item("Adapter")
+    room_a = inventory.create_location("Комната A")
+    room_b = inventory.create_location("Комната B")
+    inventory.create_location("Шкаф", parent_id=room_a.id)
+    inventory.create_location("Шкаф", parent_id=room_b.id)
+    dispatcher = ToolDispatcher(session)
+
+    dispatcher.execute("search_items", {"query": "Adapter"})
+    assert "move_item" in {tool.name for tool in dispatcher.definitions()}
+
+    dispatcher.execute("search_locations", {"query": "Шкаф"})
+    ambiguous = {tool.name for tool in dispatcher.definitions()}
+    assert "move_item" not in ambiguous
+
+    dispatcher.execute("search_locations", {"query": "Комната A"})
+    refined = {tool.name for tool in dispatcher.definitions()}
+    assert "move_item" in refined
+
+
+def test_compact_tool_schema_drops_pydantic_titles_and_defaults(session: Session) -> None:
+    dispatcher = ToolDispatcher(session)
+    search = {tool.name: tool for tool in dispatcher.definitions()}["search_items"]
+    encoded = json.dumps(search.input_schema)
+
+    assert '"title"' not in encoded
+    assert '"default"' not in encoded
+    assert search.input_schema["properties"]["query"]["minLength"] == 1
+
+
+def test_agent_refreshes_tool_definitions_after_search(session: Session) -> None:
+    inventory = InventoryService(session)
+    inventory.create_item("Adapter")
+    llm = ScriptedLLMClient(
+        [
+            LLMResponse(tool_calls=(call("1", "search_items", query="Adapter"),)),
+            LLMResponse(content="Нашёл."),
+        ]
+    )
+
+    AgentRunner(session, llm).run("Где Adapter?")
+
+    first_tools = {tool.name for tool in llm.calls[0][1]}
+    second_tools = {tool.name for tool in llm.calls[1][1]}
+    assert first_tools == {
+        "search_items",
+        "search_locations",
+        "search_categories",
+        "search_tags",
+    }
+    assert {"get_item", "get_item_history", "update_item", "move_item"} <= second_tools
 
 
 def test_agent_loop_has_hard_round_limit(session: Session) -> None:

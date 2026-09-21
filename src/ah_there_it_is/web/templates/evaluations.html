@@ -5,8 +5,8 @@
 <p class="muted">Ratings are tied to exact prompt hashes, provider/model metadata, and stored execution traces.</p>
 <h2>Variants</h2>
 {% if summaries %}<div class="table-wrap"><table>
-<thead><tr><th>Prompt</th><th>Hash</th><th>Provider / model</th><th>Runs</th><th>Rated</th><th>Avg.</th></tr></thead>
-<tbody>{% for s in summaries %}<tr><td>{{ s.prompt_version }}</td><td><code>{{ s.prompt_hash[:10] }}</code></td><td>{{ s.llm_provider }} / {{ s.llm_model }}</td><td>{{ s.runs }}</td><td>{{ s.rated_runs }}</td><td>{{ "%.2f"|format(s.average_rating) if s.average_rating is not none else "—" }}</td></tr>{% endfor %}</tbody>
+<thead><tr><th>Prompt</th><th>Hash</th><th>Provider / model</th><th>Config</th><th>Runs</th><th>Rated</th><th>Avg.</th></tr></thead>
+<tbody>{% for s in summaries %}<tr><td>{{ s.prompt_version }}</td><td><code>{{ s.prompt_hash[:10] }}</code></td><td>{{ s.llm_provider }} / {{ s.llm_model }}</td><td><code>{{ s.llm_config_hash[:10] }}</code></td><td>{{ s.runs }}</td><td>{{ s.rated_runs }}</td><td>{{ "%.2f"|format(s.average_rating) if s.average_rating is not none else "—" }}</td></tr>{% endfor %}</tbody>
 </table></div>{% else %}<p class="muted">No runs yet.</p>{% endif %}
 <h2>Recent runs</h2>
 {% if runs %}<div class="table-wrap"><table>

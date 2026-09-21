@@ -8,7 +8,7 @@
 <thead><tr><th>Experiment</th><th>Prompt / model</th><th>Cases</th><th>Done / div / fail</th><th>Rounds</th><th>Source avg</th><th>Variant avg</th><th>Reviews B/V/T/X</th><th>Clarify*</th><th>Mutation err</th></tr></thead>
 <tbody>{% for s in summaries %}<tr>
 <td>{{ s.experiment_name }}</td>
-<td>{{ s.prompt_version }} <code>{{ s.prompt_hash[:8] }}</code><br>{{ s.llm_provider }}/{{ s.llm_model }}</td>
+<td>{{ s.prompt_version }} <code>{{ s.prompt_hash[:8] }}</code><br>{{ s.llm_provider }}/{{ s.llm_model }} · cfg <code>{{ s.llm_config_hash[:8] }}</code></td>
 <td>{{ s.cases }}</td><td>{{ s.completed }} / {{ s.diverged }} / {{ s.failed }}</td>
 <td>{{ "%.2f"|format(s.average_rounds) }}</td>
 <td>{{ "%.2f"|format(s.source_average_rating) if s.source_average_rating is not none else "—" }}</td>

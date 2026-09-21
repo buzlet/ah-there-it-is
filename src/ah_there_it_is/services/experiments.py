@@ -16,6 +16,7 @@ from ah_there_it_is.db.models import (
     utc_now,
 )
 from ah_there_it_is.domain.exceptions import EntityNotFoundError
+from ah_there_it_is.services.evaluation import canonical_llm_config
 
 _MUTATION_TOOLS = {"create_item", "create_location", "create_category", "update_item", "move_item"}
 _REVIEW_CHOICES = {"baseline", "variant", "tie", "both_bad"}
@@ -28,6 +29,8 @@ class ExperimentSummary:
     prompt_hash: str
     llm_provider: str
     llm_model: str
+    llm_config_hash: str
+    llm_config: dict[str, Any]
     cases: int
     completed: int
     diverged: int
@@ -148,16 +151,26 @@ class ExperimentService:
 
     def summaries(self) -> list[ExperimentSummary]:
         runs = self.recent_runs(limit=10_000)
-        groups: dict[tuple[str, str, str, str, str], list[ExperimentRun]] = {}
+        groups: dict[
+            tuple[str, str, str, str, str, str],
+            list[ExperimentRun],
+        ] = {}
+        config_hashes: dict[
+            tuple[str, str, str, str, str, str],
+            str,
+        ] = {}
         for run in runs:
+            canonical, config_hash = canonical_llm_config(run.llm_config)
             key = (
                 run.experiment_name,
                 run.prompt_version,
                 run.prompt_hash,
                 run.llm_provider,
                 run.llm_model,
+                canonical,
             )
             groups.setdefault(key, []).append(run)
+            config_hashes[key] = config_hash
 
         summaries: list[ExperimentSummary] = []
         for key, group in groups.items():
@@ -179,6 +192,8 @@ class ExperimentService:
                     prompt_hash=key[2],
                     llm_provider=key[3],
                     llm_model=key[4],
+                    llm_config_hash=config_hashes[key],
+                    llm_config=dict(group[0].llm_config),
                     cases=len(group),
                     completed=sum(run.status == "completed" for run in group),
                     diverged=sum(run.status == "diverged" for run in group),
