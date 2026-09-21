@@ -231,7 +231,7 @@ class ToolDispatcher:
                 self._get_item_history,
             ),
             "create_category": _ToolSpec(
-                "Create a category only after search_categories was called for this name.",
+                "Create a category only when the user explicitly asked for a new category, after search_categories for the same name. Do not invent taxonomy merely to create an item.",
                 CreateCategoryInput,
                 self._create_category,
             ),
@@ -241,7 +241,7 @@ class ToolDispatcher:
                 self._create_location,
             ),
             "create_item": _ToolSpec(
-                "Create an item only after search_items was called for this name; existing category/location IDs must be resolved first.",
+                "Create an item only after search_items for the exact same proposed name; reuse that searched name. Existing category/location IDs must be resolved. Persist only metadata stated by the user: leave optional category, tags, description, attributes, and state unset/default rather than inventing them.",
                 CreateItemInput,
                 self._create_item,
             ),
