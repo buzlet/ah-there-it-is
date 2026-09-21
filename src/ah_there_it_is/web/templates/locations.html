@@ -1,0 +1,11 @@
+{% extends "base.html" %}
+{% block title %}Locations · {{ app_name }}{% endblock %}
+{% block content %}
+<h1>Locations</h1>
+{% if locations %}
+<div class="table-wrap"><table>
+  <thead><tr><th>Path</th><th>Direct items</th><th>Description</th></tr></thead>
+  <tbody>{% for location in locations %}<tr><td>{{ location.path }}</td><td>{{ location.item_count }}</td><td>{{ location.description or "—" }}</td></tr>{% endfor %}</tbody>
+</table></div>
+{% else %}<p class="muted">No locations yet.</p>{% endif %}
+{% endblock %}

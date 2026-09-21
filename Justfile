@@ -11,6 +11,9 @@ test:
 test-agent:
     python -m pytest tests/test_agent.py
 
+test-web:
+    python -m pytest tests/test_app.py tests/test_evaluation.py
+
 compile:
     python -m compileall -q src tests migrations
 
@@ -21,6 +24,9 @@ migrate:
 
 migration-check:
     python -m alembic check
+
+eval-export file="evaluation-cases.json":
+    python -m ah_there_it_is.evaluation_export > "{{file}}"
 
 migration message:
     python -m alembic revision --autogenerate -m "{{message}}"

@@ -5,6 +5,7 @@ from ah_there_it_is.agent.heuristic import HeuristicLLMClient
 from ah_there_it_is.agent.protocol import (
     AgentMessage,
     LLMClient,
+    LLMClientInfo,
     LLMResponse,
     ToolCall,
     ToolDefinition,
@@ -17,6 +18,7 @@ __all__ = [
     "AgentRunner",
     "HeuristicLLMClient",
     "LLMClient",
+    "LLMClientInfo",
     "LLMResponse",
     "ScriptedLLMClient",
     "ToolCall",

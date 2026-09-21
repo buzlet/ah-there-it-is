@@ -1,8 +1,10 @@
-"""Bounded provider-neutral agent loop."""
+"""Bounded provider-neutral agent loop with replay-oriented run logging."""
 
 from __future__ import annotations
 
 from dataclasses import dataclass
+import hashlib
+from typing import Any
 
 from sqlalchemy.orm import Session
 
@@ -10,8 +12,10 @@ from ah_there_it_is.agent.errors import AgentLoopLimitError
 from ah_there_it_is.agent.protocol import AgentMessage, LLMClient
 from ah_there_it_is.agent.tools import ToolDispatcher
 from ah_there_it_is.services.conversations import ConversationService
+from ah_there_it_is.services.evaluation import EvaluationService
 
 
+SYSTEM_PROMPT_VERSION = "inventory-v1"
 SYSTEM_PROMPT = """You are the text interface to a personal inventory.
 Use tools to inspect real inventory data before making claims about it.
 Never invent entity IDs. Search first and use only IDs returned by tools.
@@ -25,6 +29,7 @@ Keep final user-facing answers concise and distinguish known data from inference
 @dataclass(frozen=True)
 class AgentRunResult:
     conversation_id: int
+    run_id: int
     content: str
     rounds: int
 
@@ -37,6 +42,7 @@ class AgentRunner:
         *,
         max_rounds: int = 8,
         system_prompt: str = SYSTEM_PROMPT,
+        prompt_version: str = SYSTEM_PROMPT_VERSION,
     ) -> None:
         if max_rounds < 1:
             raise ValueError("max_rounds must be >= 1")
@@ -44,7 +50,9 @@ class AgentRunner:
         self.llm = llm
         self.max_rounds = max_rounds
         self.system_prompt = system_prompt
+        self.prompt_version = prompt_version
         self.conversations = ConversationService(session)
+        self.evaluation = EvaluationService(session)
 
     def run(self, user_text: str, *, conversation_id: int | None = None) -> AgentRunResult:
         text = user_text.strip()
@@ -63,40 +71,127 @@ class AgentRunner:
             for message in prior
         )
         messages.append(AgentMessage(role="user", content=text))
-        self.conversations.add_message(conversation_id, "user", text)
+        user_message = self.conversations.add_message(conversation_id, "user", text)
 
+        input_messages = [message.model_dump(mode="json") for message in messages]
+        tool_trace: list[dict[str, Any]] = []
         dispatcher = ToolDispatcher(self.session, original_text=text)
         definitions = dispatcher.definitions()
+        rounds = 0
 
-        for round_number in range(1, self.max_rounds + 1):
-            response = self.llm.complete(messages, definitions)
-            messages.append(
-                AgentMessage(
-                    role="assistant",
-                    content=response.content,
-                    tool_calls=response.tool_calls,
-                )
-            )
-            if not response.tool_calls:
-                final = response.content.strip()
-                self.conversations.add_message(conversation_id, "assistant", final)
-                return AgentRunResult(conversation_id, final, round_number)
-
-            dispatcher.begin_round()
-            try:
-                for call in response.tool_calls:
-                    result = dispatcher.execute(call.name, call.arguments)
-                    messages.append(
-                        AgentMessage(
-                            role="tool",
-                            content=dispatcher.as_tool_message_content(result),
-                            tool_call_id=call.id,
-                            tool_name=call.name,
-                        )
+        try:
+            for round_number in range(1, self.max_rounds + 1):
+                rounds = round_number
+                response = self.llm.complete(messages, definitions)
+                round_trace: dict[str, Any] = {
+                    "round": round_number,
+                    "assistant": {
+                        "content": response.content,
+                        "tool_calls": [
+                            call.model_dump(mode="json") for call in response.tool_calls
+                        ],
+                    },
+                    "tool_results": [],
+                }
+                tool_trace.append(round_trace)
+                messages.append(
+                    AgentMessage(
+                        role="assistant",
+                        content=response.content,
+                        tool_calls=response.tool_calls,
                     )
-            finally:
-                dispatcher.end_round()
+                )
+                if not response.tool_calls:
+                    final = response.content.strip()
+                    assistant_message = self.conversations.add_message(
+                        conversation_id, "assistant", final
+                    )
+                    run = self._record_run(
+                        conversation_id=conversation_id,
+                        user_message_id=user_message.id,
+                        assistant_message_id=assistant_message.id,
+                        input_messages=input_messages,
+                        tool_trace=tool_trace,
+                        final_content=final,
+                        rounds=round_number,
+                        status="completed",
+                    )
+                    return AgentRunResult(
+                        conversation_id=conversation_id,
+                        run_id=run.id,
+                        content=final,
+                        rounds=round_number,
+                    )
 
-        raise AgentLoopLimitError(
-            f"agent exceeded max_rounds={self.max_rounds} without a final response"
+                dispatcher.begin_round()
+                try:
+                    for call in response.tool_calls:
+                        result = dispatcher.execute(call.name, call.arguments)
+                        round_trace["tool_results"].append(
+                            {
+                                "tool_call_id": call.id,
+                                "tool_name": call.name,
+                                "arguments": call.arguments,
+                                "result": result,
+                            }
+                        )
+                        messages.append(
+                            AgentMessage(
+                                role="tool",
+                                content=dispatcher.as_tool_message_content(result),
+                                tool_call_id=call.id,
+                                tool_name=call.name,
+                            )
+                        )
+                finally:
+                    dispatcher.end_round()
+
+            raise AgentLoopLimitError(
+                f"agent exceeded max_rounds={self.max_rounds} without a final response"
+            )
+        except Exception as exc:
+            self._record_run(
+                conversation_id=conversation_id,
+                user_message_id=user_message.id,
+                assistant_message_id=None,
+                input_messages=input_messages,
+                tool_trace=tool_trace,
+                final_content=None,
+                rounds=rounds,
+                status="failed",
+                error=f"{type(exc).__name__}: {exc}",
+            )
+            raise
+
+    def _record_run(
+        self,
+        *,
+        conversation_id: int,
+        user_message_id: int,
+        assistant_message_id: int | None,
+        input_messages: list[dict[str, Any]],
+        tool_trace: list[dict[str, Any]],
+        final_content: str | None,
+        rounds: int,
+        status: str,
+        error: str | None = None,
+    ):
+        info = self.llm.info
+        prompt_hash = hashlib.sha256(self.system_prompt.encode("utf-8")).hexdigest()
+        return self.evaluation.record_run(
+            conversation_id=conversation_id,
+            user_message_id=user_message_id,
+            assistant_message_id=assistant_message_id,
+            prompt_version=self.prompt_version,
+            prompt_hash=prompt_hash,
+            system_prompt=self.system_prompt,
+            llm_provider=info.provider,
+            llm_model=info.model,
+            llm_config=info.config,
+            input_messages=input_messages,
+            tool_trace=tool_trace,
+            final_content=final_content,
+            rounds=rounds,
+            status=status,
+            error=error,
         )

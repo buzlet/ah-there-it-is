@@ -33,6 +33,7 @@
 
 - Work in focused feature branches and merge only after tests pass.
 - Add tests with each behavior change.
+- At the end of every stage, update this file with a concise completed-stage summary and the concrete next-stage plan before merging.
 - Do not add dependencies that cannot be exercised in the active development environment.
 - Keep module imports side-effect-light; application creation belongs in `create_app()`.
 - Preserve local-first operation. External LLM APIs may be adapters, never storage authorities.
@@ -87,23 +88,40 @@
 - Deterministic Stage 2 score gaps can resolve a clear top candidate; tied/close candidates remain mutation-ineligible until search is refined or the user clarifies.
 - Tool capabilities are frozen per LLM round, so a search and dependent mutation emitted in the same model response cannot cheat by consuming results the model has not seen yet.
 - `create_*` operations require a prior same-name search; existing category/location/item targets must be resolved before mutation.
-- Minimal `Conversation`/`Message` persistence stores only human-visible user/final-assistant turns needed for clarification across requests; internal tool traces are intentionally ephemeral.
+- Minimal `Conversation`/`Message` persistence stores only human-visible user/final-assistant turns needed for clarification across requests; tool traces are not mixed into conversation history. Stage 4 stores them separately as evaluation/run logs.
 - `ScriptedLLMClient` provides deterministic complete offline agent tests.
 - `HeuristicLLMClient` provides a deliberately tiny offline smoke adapter for `Где X?` and `Положил/переложил X в Y`; it is development scaffolding, not a production NLP model.
 - No real model-provider adapter was added because the active sandbox cannot exercise an external API. The provider boundary is ready for one later.
 - `Justfile` now includes dedicated `test-agent` and `migration-check` recipes in addition to the canonical test/check/migrate/server commands.
 
-### Stage 4 — next
+### Stage 4 — complete
 
-Build the first usable text-only web application around the proven agent core:
+- First usable text-only web application added with FastAPI/Jinja2/vanilla JavaScript; no frontend framework or network-served assets are required.
+- `POST /api/chat` accepts a message plus optional stable `conversation_id`, invokes the existing bounded `AgentRunner`, and returns `conversation_id`, `run_id`, response text, and round count.
+- Browser chat persists the active conversation in local storage and restores persisted human-visible turns through `GET /api/conversations/{id}`.
+- `HeuristicLLMClient` remains the explicit offline development provider; provider construction is isolated behind the application factory.
+- Read-oriented web pages added for items, nested locations, nested categories, item detail, and item history.
+- Minimal manual item correction is service-backed through `PATCH /api/items/{id}` and records normal domain history events rather than bypassing validation.
+- Evaluation logging is first-class: each agent run stores exact system prompt, prompt version, SHA-256 prompt hash, provider/model/config metadata, input message snapshot, per-round tool calls/results, final result or failure, and round count.
+- User feedback is attached to a concrete agent run as a 1–5 rating plus optional comment and can be updated later.
+- `/evaluations` groups results by exact `(prompt_version, prompt_hash, provider, model)` and shows run/rating counts plus average rating; `/evaluations/{run_id}` exposes the full captured trace for inspection.
+- Alternate system prompts can be supplied by file (`AH_THERE_IT_IS_PROMPT_FILE`) while `AH_THERE_IT_IS_PROMPT_VERSION` gives the human-readable experiment label; hash protects against forgotten version bumps.
+- Rated runs can be exported as JSON with `just eval-export`, preserving the material needed for later prompt/model experiments.
+- Failed agent executions are logged as evaluation runs too, so failure-prone variants are not silently excluded from comparison.
+- A real Uvicorn smoke flow was exercised offline: chat mutation -> persisted item -> 1–5 feedback -> conversation restore -> evaluation summary -> rated-run export.
+- `Justfile` remains canonical and now includes `test-web` and `eval-export`.
 
-1. Add application-level session/DB dependencies and an `AgentRunner` factory; HTTP handlers must remain thin.
-2. Add a text chat endpoint that accepts `message` plus optional `conversation_id` and returns the final response plus stable conversation ID.
-3. Wire the existing minimal web page into a simple chat UI with no frontend framework requirement; preserve conversation ID between turns.
-4. Use `HeuristicLLMClient` only as an explicit offline-development mode so the sandbox can exercise the whole UI; do not present it as normal language understanding.
-5. Add a provider-selection/configuration seam, but add a real external provider adapter only when it can be tested in the active environment.
-6. Add basic read-only inventory pages for items, locations, categories, and an item detail/history view so agent writes can be inspected manually.
-7. Keep manual correction/edit controls minimal and service-backed; do not duplicate domain validation in HTTP/UI code.
-8. Add HTTP/UI integration tests covering new conversation, continued clarification, agent errors, and persisted inventory effects.
-9. Keep voice, Telegram, images, embeddings, MCP, QR, and PWA explicitly out of scope.
-10. Finish with an end-to-end local smoke flow: enter text in the browser, mutate inventory through the agent, then find/read the stored item from the browser.
+### Stage 5 — next
+
+Connect a real replaceable model provider and turn the Stage 4 evaluation data into an experiment/replay workflow:
+
+1. Add the first real LLM adapter only in an environment where its API can actually be exercised; prefer a small OpenAI-compatible/provider-neutral HTTP boundary rather than introducing an agent framework.
+2. Keep provider/model/temperature/reasoning/tool settings in explicit adapter metadata so every run remains attributable and comparable.
+3. Add a prompt experiment runner that selects rated historical runs, applies a named prompt variant, and stores results as separate experiment runs without overwriting production history.
+4. Start with replay against captured input/tool evidence and explicitly mark divergence when a variant requests a tool/result not present in the recorded trace; do not pretend this is an exact historical DB snapshot.
+5. Add side-by-side baseline/variant comparison and aggregate metrics: average human rating, completion/failure rate, tool rounds, ambiguity/clarification rate, and mutation-error rate.
+6. Add a compact review UI for choosing which variant response is better; keep human ratings authoritative rather than deriving a fake quality score from model self-evaluation.
+7. Add prompt files under a versioned project directory and make prompt changes reviewable in git.
+8. Expand the heuristic/offline tests only for protocol behavior; do not grow the heuristic parser into a shadow production NLP implementation.
+9. Once a real model is connected, build a representative 30–50 query evaluation corpus from actual inventory usage before tuning prompts or adding embeddings.
+10. Keep voice, Telegram, images, MCP, QR, and PWA out of scope until the real text workflow and evaluation loop are stable.

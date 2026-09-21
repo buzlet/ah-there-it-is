@@ -37,6 +37,16 @@ class ToolDefinition(BaseModel):
     input_schema: dict[str, Any]
 
 
+class LLMClientInfo(BaseModel):
+    """Stable metadata stored with every agent run for later evaluation."""
+
+    model_config = ConfigDict(frozen=True)
+
+    provider: str
+    model: str
+    config: dict[str, Any] = Field(default_factory=dict)
+
+
 class LLMResponse(BaseModel):
     model_config = ConfigDict(frozen=True)
 
@@ -46,6 +56,9 @@ class LLMResponse(BaseModel):
 
 class LLMClient(Protocol):
     """Small adapter boundary implemented by real and fake model providers."""
+
+    @property
+    def info(self) -> LLMClientInfo: ...
 
     def complete(
         self,

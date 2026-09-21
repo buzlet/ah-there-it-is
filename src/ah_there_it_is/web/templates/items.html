@@ -1,0 +1,19 @@
+{% extends "base.html" %}
+{% block title %}Items · {{ app_name }}{% endblock %}
+{% block content %}
+<h1>Items</h1>
+{% if items %}
+<div class="table-wrap"><table>
+  <thead><tr><th>Item</th><th>State</th><th>Qty</th><th>Category</th><th>Location</th></tr></thead>
+  <tbody>
+  {% for item in items %}
+    <tr>
+      <td><a href="/items/{{ item.id }}">{{ item.name }}</a></td>
+      <td>{{ item.state }}</td><td>{{ item.quantity }}</td>
+      <td>{{ item.category_path or "—" }}</td><td>{{ item.location_path or "—" }}</td>
+    </tr>
+  {% endfor %}
+  </tbody>
+</table></div>
+{% else %}<p class="muted">No items yet.</p>{% endif %}
+{% endblock %}

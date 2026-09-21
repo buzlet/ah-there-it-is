@@ -1,0 +1,39 @@
+:root { color-scheme: light dark; font-family: system-ui, -apple-system, sans-serif; line-height: 1.45; }
+* { box-sizing: border-box; }
+body { margin: 0; background: Canvas; color: CanvasText; }
+a { color: LinkText; }
+.site-header { display: flex; align-items: center; justify-content: space-between; gap: 1rem; padding: .85rem max(1rem, calc((100vw - 72rem)/2)); border-bottom: 1px solid color-mix(in srgb, CanvasText 18%, transparent); position: sticky; top: 0; background: Canvas; z-index: 5; }
+.site-header nav { display: flex; flex-wrap: wrap; gap: .8rem; }
+.brand { font-weight: 750; text-decoration: none; color: CanvasText; }
+.page { width: min(72rem, calc(100% - 2rem)); margin: 1.5rem auto 4rem; }
+.muted { opacity: .65; }
+.section-head { display: flex; align-items: start; justify-content: space-between; gap: 1rem; }
+button, input, textarea, select { font: inherit; }
+button { cursor: pointer; padding: .65rem .9rem; border-radius: .55rem; border: 1px solid color-mix(in srgb, CanvasText 28%, transparent); }
+button.secondary { background: transparent; }
+input, textarea, select { width: 100%; padding: .65rem; border: 1px solid color-mix(in srgb, CanvasText 25%, transparent); border-radius: .45rem; background: Field; color: FieldText; }
+label { display: grid; gap: .3rem; margin: .75rem 0; }
+.chat-shell { max-width: 54rem; margin: auto; }
+.chat-log { min-height: 24rem; display: flex; flex-direction: column; gap: .8rem; padding: 1rem 0; }
+.message { max-width: 88%; padding: .8rem 1rem; border-radius: .8rem; border: 1px solid color-mix(in srgb, CanvasText 15%, transparent); white-space: pre-wrap; }
+.message.user { align-self: flex-end; background: color-mix(in srgb, LinkText 10%, Canvas); }
+.message.assistant { align-self: flex-start; }
+.feedback { display: flex; flex-wrap: wrap; align-items: center; gap: .3rem; margin-top: .55rem; font-size: .9rem; }
+.feedback button { padding: .28rem .5rem; background: transparent; }
+.feedback button.selected { font-weight: 750; outline: 2px solid LinkText; }
+.feedback input { width: min(19rem, 100%); padding: .3rem .45rem; }
+.chat-form { display: grid; grid-template-columns: 1fr auto; gap: .6rem; position: sticky; bottom: 0; padding: .8rem 0; background: Canvas; }
+.status { min-height: 1.3rem; margin-top: 0; }
+.table-wrap { overflow-x: auto; }
+table { width: 100%; border-collapse: collapse; }
+th, td { text-align: left; padding: .55rem .65rem; border-bottom: 1px solid color-mix(in srgb, CanvasText 14%, transparent); vertical-align: top; }
+.truncate { max-width: 28rem; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.card { padding: 1rem; border: 1px solid color-mix(in srgb, CanvasText 15%, transparent); border-radius: .75rem; margin: 1rem 0; }
+.two-col { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 1rem; }
+dl { display: grid; grid-template-columns: max-content 1fr; gap: .45rem .8rem; }
+dt { font-weight: 700; }
+dd { margin: 0; min-width: 0; }
+pre { white-space: pre-wrap; overflow-wrap: anywhere; background: color-mix(in srgb, CanvasText 5%, Canvas); padding: .7rem; border-radius: .45rem; overflow-x: auto; }
+.history li { margin-bottom: .8rem; }
+.sr-only { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0,0,0,0); }
+@media (max-width: 700px) { .site-header { align-items: flex-start; flex-direction: column; } .two-col { grid-template-columns: 1fr; } .chat-form { grid-template-columns: 1fr; } .message { max-width: 96%; } dl { grid-template-columns: 1fr; } }
