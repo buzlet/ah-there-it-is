@@ -15,3 +15,11 @@ class ToolPreconditionError(ToolExecutionError):
 
 class AgentLoopLimitError(AgentError):
     pass
+
+
+class ProviderRequestError(AgentError):
+    """A model provider could not complete the HTTP request."""
+
+
+class ProviderProtocolError(AgentError):
+    """A model provider returned a response that violates its contract."""

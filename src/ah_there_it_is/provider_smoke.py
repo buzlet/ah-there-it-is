@@ -10,7 +10,7 @@ from ah_there_it_is.config import get_settings
 def main() -> None:
     settings = get_settings()
     if settings.llm_provider == "heuristic":
-        raise SystemExit("live provider smoke requires AH_THERE_IT_IS_LLM_PROVIDER=openai-compatible")
+        raise SystemExit("live provider smoke requires a non-heuristic AH_THERE_IT_IS_LLM_PROVIDER")
     client = build_llm_factory(settings)()
     response = client.complete(
         [

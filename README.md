@@ -57,7 +57,20 @@ If `just` is unavailable in a constrained sandbox, execute the exact underlying 
 
 ## LLM providers
 
-Offline development still defaults to `HeuristicLLMClient`. For a real hosted or local model, configure the OpenAI-compatible Chat Completions adapter:
+Offline development still defaults to `HeuristicLLMClient`. Two real-provider adapters are available.
+
+Native Gemini `generateContent`:
+
+```bash
+export AH_THERE_IT_IS_LLM_PROVIDER=gemini
+export AH_THERE_IT_IS_LLM_PROVIDER_NAME=gemini
+export AH_THERE_IT_IS_LLM_MODEL=gemini-flash-latest
+export AH_THERE_IT_IS_LLM_API_KEY=secret
+```
+
+The Gemini adapter uses the native REST protocol, including `functionCall` / `functionResponse` IDs and Gemini 3 `thoughtSignature` round-tripping during the active tool loop. Opaque provider state is deliberately excluded from persisted tool-call DTOs.
+
+For a hosted or local OpenAI-compatible endpoint:
 
 ```bash
 export AH_THERE_IT_IS_LLM_PROVIDER=openai-compatible
@@ -67,7 +80,7 @@ export AH_THERE_IT_IS_LLM_MODEL=model-name
 export AH_THERE_IT_IS_LLM_API_KEY=secret
 ```
 
-`AH_THERE_IT_IS_LLM_API_KEY` is used only for the Authorization header and is never written to run metadata. Optional request settings include `AH_THERE_IT_IS_LLM_TEMPERATURE`, timeout, and `AH_THERE_IT_IS_LLM_EXTRA_BODY_JSON`. The Stage 5 adapter targets standard non-streaming Chat Completions tool calling; provider-specific reasoning/thinking protocols are not assumed.
+`AH_THERE_IT_IS_LLM_API_KEY` is used only for request authentication and is never written to run metadata. Optional request settings include `AH_THERE_IT_IS_LLM_TEMPERATURE`, timeout, and `AH_THERE_IT_IS_LLM_EXTRA_BODY_JSON`.
 
 ## Prompt/model evaluation
 
@@ -93,18 +106,16 @@ The `/experiments` UI shows aggregate completion/divergence/failure metrics, rou
 
 ## CI and external verification
 
-`.github/workflows/ci.yml` runs the canonical `just` checks on Ubuntu 24.04 with Python 3.12 and 3.13. A manual `live-provider-smoke` job is also included. It performs a real API call only when these repository variables/secrets are configured:
+`.github/workflows/ci.yml` runs the canonical `just` checks on Ubuntu 24.04 with Python 3.12 and 3.13. The manual `live-gemini-smoke` job uses the protected GitHub Environment `live-llm-test`. Configure there:
 
-- `AH_THERE_IT_IS_TEST_PROVIDER_NAME` (variable)
-- `AH_THERE_IT_IS_TEST_BASE_URL` (variable)
-- `AH_THERE_IT_IS_TEST_MODEL` (variable)
-- `AH_THERE_IT_IS_TEST_API_KEY` (secret)
+- `GEMINI_API_KEY` as an **Environment secret**;
+- optional `GEMINI_MODEL` as an Environment variable (defaults to `gemini-flash-latest`).
 
-Without them, the live smoke job explicitly reports that it was skipped.
+Normal CI jobs never receive the Gemini secret. The manual job first performs provider connectivity, then five fixture-backed live evaluation cases, and uploads `live-eval.json`.
 
 ## Current scope
 
-Stages 0–5 are implemented: project bootstrap, domain persistence, deterministic search, bounded agent/tool layer, text-only web/evaluation MVP, replaceable OpenAI-compatible provider adapter, and controlled prompt/model experiments. Voice, Telegram, images, QR, MCP, PWA, and embeddings remain out of scope until live text-model evaluation produces evidence that they are worth adding.
+Stages 0–5 are implemented and Stage 6 live-provider validation is in progress: project bootstrap, domain persistence, deterministic search, bounded agent/tool layer, text-only web/evaluation MVP, replaceable OpenAI-compatible provider adapter, and controlled prompt/model experiments. Voice, Telegram, images, QR, MCP, PWA, and embeddings remain out of scope until live text-model evaluation produces evidence that they are worth adding.
 
 ## Stage 6 live evaluation
 
@@ -120,4 +131,4 @@ Canonical repeated commands are in `Justfile`:
 
 `live-eval` intentionally refuses the offline heuristic provider unless `--allow-heuristic` is passed explicitly. The heuristic mode exists only to test harness plumbing; it is not a model-quality result.
 
-The GitHub Actions manual provider job runs connectivity first and, when provider variables/secrets are configured, follows it with five fixture-backed live cases and uploads the JSON report as `live-eval-report`.
+The GitHub Actions manual Gemini job uses the `live-llm-test` environment, runs connectivity first, then five fixture-backed live cases, and uploads the JSON report as `live-eval-report`. A live U24 probe has already confirmed `gemini-flash-latest` text generation and native function-call emission; full corpus execution remains pending repository synchronization.

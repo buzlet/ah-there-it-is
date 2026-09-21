@@ -140,10 +140,14 @@ Preparation that does not require a provider key is complete:
 - GitHub Actions test matrix now validates the corpus. The manual live-provider job is prepared to run provider connectivity plus five fixture-backed live cases and upload `live-eval.json` as an artifact once repository variables/secrets are configured.
 - GitHub repository `buzlet/ah-there-it-is` is reachable through the connected GitHub integration, but the sandbox itself has no DNS/Internet for `git push`. The remote was only bootstrapped with `.gitignore`; **do not treat GitHub as synchronized yet**. Perform a normal full push from U24 (preferred) before relying on Actions there; avoid reconstructing the whole repository file-by-file through the API.
 - A concrete deterministic-search weakness was exposed by the intentionally dumb heuristic adapter: Russian morphology such as `стола` vs stored `стол` is not normalized by Stage 2 search. Keep the realistic corpus wording; a real LLM should normally reformulate the search tool query. Treat recurring failures here as evaluation evidence before adding stemming/embeddings.
+- Added a native Gemini `generateContent` adapter using only the Python standard library. Do not route Gemini through the OpenAI-compatible adapter: Gemini 3 function calling requires exact `thoughtSignature` preservation inside the current tool loop. Provider-only opaque state is kept in-memory and excluded from persisted generic tool-call traces.
+- Gemini function declarations use `parametersJsonSchema`; Pydantic local `$ref` values are resolved and schemas are reduced to a provider-friendly JSON Schema subset before sending. Backend Pydantic validation remains authoritative.
+- Live U24 verification on 2026-09-21 confirmed the supplied key/model endpoint: `gemini-flash-latest` returned HTTP 200 and resolved to `gemini-3.8-flash`; a native forced function-calling request also returned HTTP 200 with function name/arguments, call ID, and `thoughtSignature`. One intermediate attempt returned provider 503/high-demand, which is treated as an external transient failure rather than protocol evidence.
+- GitHub Actions live testing is now Gemini-specific and uses the protected `live-llm-test` Environment. Store `GEMINI_API_KEY` there as an Environment secret; optional `GEMINI_MODEL` is a variable. Ordinary CI jobs must never receive that secret.
 
 Remaining Stage 6 work requires real provider credentials:
 
-1. Run provider connectivity and full tool calling against at least one real OpenAI-compatible model; capture provider/model/config exactly.
+1. Complete full end-to-end `AgentRunner` execution with native Gemini on the synchronized project and capture provider/model/config exactly. Basic connectivity and function-call emission are already verified live.
 2. Run a representative subset first (find, create, move, ambiguity, history), inspect traces, then run all 40 cases.
 3. Rate real interactions 1–5 with comments, including failures and awkward clarification, rather than curating only successes.
 4. Run the same corpus with `inventory-v1` and `inventory-v2-strict`; record side-by-side pairwise decisions before changing prompts again.

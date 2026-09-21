@@ -17,6 +17,9 @@ class ToolCall(BaseModel):
     id: str
     name: str
     arguments: dict[str, Any] = Field(default_factory=dict)
+    # Provider-only opaque state needed inside the current tool loop (for example,
+    # Gemini thought signatures). It must never leak into persisted traces.
+    provider_state: dict[str, Any] = Field(default_factory=dict, exclude=True, repr=False)
 
 
 class AgentMessage(BaseModel):
