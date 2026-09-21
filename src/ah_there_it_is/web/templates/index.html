@@ -1,0 +1,27 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>{{ app_name }}</title>
+  <style>
+    :root { color-scheme: light dark; font-family: system-ui, sans-serif; }
+    body { margin: 0; min-height: 100vh; display: grid; place-items: center; }
+    main { width: min(44rem, calc(100% - 2rem)); }
+    form { display: flex; gap: .5rem; }
+    input { flex: 1; padding: .8rem; font: inherit; }
+    button { padding: .8rem 1rem; font: inherit; }
+    .muted { opacity: .65; }
+  </style>
+</head>
+<body>
+  <main>
+    <h1>{{ app_name }}</h1>
+    <p class="muted">Stage 0 web shell. Message handling arrives with the MVP agent layer.</p>
+    <form onsubmit="return false">
+      <input type="text" aria-label="Message" placeholder="Where did I put…?" disabled>
+      <button type="submit" disabled>Send</button>
+    </form>
+  </main>
+</body>
+</html>
