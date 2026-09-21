@@ -8,6 +8,9 @@ default:
 test:
     python -m pytest
 
+test-agent:
+    python -m pytest tests/test_agent.py
+
 compile:
     python -m compileall -q src tests migrations
 
@@ -15,6 +18,9 @@ check: compile test
 
 migrate:
     python -m alembic upgrade head
+
+migration-check:
+    python -m alembic check
 
 migration message:
     python -m alembic revision --autogenerate -m "{{message}}"

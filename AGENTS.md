@@ -77,17 +77,33 @@
 - Ambiguity, duplicate names, path disambiguation, punctuation safety, ranking, trigger synchronization, and migration backfill are covered by tests.
 - Embeddings remain intentionally deferred; no measured Stage 2 case requires them yet.
 
-### Stage 3 — next
+### Stage 3 — complete
 
-Build the bounded LLM tool loop on top of deterministic search, still without a production external model dependency in the sandbox:
+- Provider-neutral `LLMClient`, message, tool-call, response, and JSON-schema contracts added without an agent framework.
+- Typed Pydantic tool inputs expose deterministic search/read operations and explicit stable-ID mutations.
+- `ToolDispatcher` is the only LLM-facing mutation boundary; it never exposes SQL or a database session.
+- Bounded `AgentRunner` enforces a hard `max_rounds` limit and returns malformed/unknown tool calls as structured tool errors.
+- Tool authorization distinguishes **seen** candidates from **resolved** candidates: ambiguous/tied results may be inspected but cannot be mutated.
+- Deterministic Stage 2 score gaps can resolve a clear top candidate; tied/close candidates remain mutation-ineligible until search is refined or the user clarifies.
+- Tool capabilities are frozen per LLM round, so a search and dependent mutation emitted in the same model response cannot cheat by consuming results the model has not seen yet.
+- `create_*` operations require a prior same-name search; existing category/location/item targets must be resolved before mutation.
+- Minimal `Conversation`/`Message` persistence stores only human-visible user/final-assistant turns needed for clarification across requests; internal tool traces are intentionally ephemeral.
+- `ScriptedLLMClient` provides deterministic complete offline agent tests.
+- `HeuristicLLMClient` provides a deliberately tiny offline smoke adapter for `Где X?` and `Положил/переложил X в Y`; it is development scaffolding, not a production NLP model.
+- No real model-provider adapter was added because the active sandbox cannot exercise an external API. The provider boundary is ready for one later.
+- `Justfile` now includes dedicated `test-agent` and `migration-check` recipes in addition to the canonical test/check/migrate/server commands.
 
-1. Define a small provider-neutral `LLMClient`/response protocol so model vendors remain replaceable.
-2. Define typed tool schemas for search/read first, then explicit ID-based mutations (`create_*`, `update_item`, `move_item`).
-3. Add an agent/tool dispatcher that never exposes a database session or arbitrary SQL to the model.
-4. Implement a bounded tool loop with a hard maximum number of rounds and explicit handling for malformed/unknown tool calls.
-5. Require search/resolution before mutations that target existing entities; mutation tools accept stable IDs, not free-text entity names.
-6. Make ambiguity a first-class outcome: close/multiple candidates must produce a user clarification request rather than an invented choice.
-7. Add conversation/message persistence only to the extent needed to continue a clarification across turns.
-8. Test the whole agent loop with a deterministic fake/scripted model; no Internet/API access is required for correctness tests.
-9. Keep actual model-provider adapters thin and add one only when it can be exercised in the active environment.
-10. Leave the web chat integration for the following stage after the tool loop is independently proven.
+### Stage 4 — next
+
+Build the first usable text-only web application around the proven agent core:
+
+1. Add application-level session/DB dependencies and an `AgentRunner` factory; HTTP handlers must remain thin.
+2. Add a text chat endpoint that accepts `message` plus optional `conversation_id` and returns the final response plus stable conversation ID.
+3. Wire the existing minimal web page into a simple chat UI with no frontend framework requirement; preserve conversation ID between turns.
+4. Use `HeuristicLLMClient` only as an explicit offline-development mode so the sandbox can exercise the whole UI; do not present it as normal language understanding.
+5. Add a provider-selection/configuration seam, but add a real external provider adapter only when it can be tested in the active environment.
+6. Add basic read-only inventory pages for items, locations, categories, and an item detail/history view so agent writes can be inspected manually.
+7. Keep manual correction/edit controls minimal and service-backed; do not duplicate domain validation in HTTP/UI code.
+8. Add HTTP/UI integration tests covering new conversation, continued clarification, agent errors, and persisted inventory effects.
+9. Keep voice, Telegram, images, embeddings, MCP, QR, and PWA explicitly out of scope.
+10. Finish with an end-to-end local smoke flow: enter text in the browser, mutate inventory through the agent, then find/read the stored item from the browser.
