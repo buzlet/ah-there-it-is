@@ -105,3 +105,19 @@ Without them, the live smoke job explicitly reports that it was skipped.
 ## Current scope
 
 Stages 0–5 are implemented: project bootstrap, domain persistence, deterministic search, bounded agent/tool layer, text-only web/evaluation MVP, replaceable OpenAI-compatible provider adapter, and controlled prompt/model experiments. Voice, Telegram, images, QR, MCP, PWA, and embeddings remain out of scope until live text-model evaluation produces evidence that they are worth adding.
+
+## Stage 6 live evaluation
+
+Real-model validation uses a deterministic fixture and a versioned corpus rather than the live inventory database.
+
+The committed corpus is `eval/corpus-v1.json` (40 cases). Each case starts from `inventory-fixture-v1`, so prompt/model comparisons see the same initial categories, locations, items, ambiguity, aliases, and history. The harness creates a fresh temporary SQLite database per case and never points at the normal application database.
+
+Canonical repeated commands are in `Justfile`:
+
+- `just corpus-check` validates corpus/fixture compatibility and unique case IDs.
+- `just live-eval` runs the first configured cases against the provider selected by `AH_THERE_IT_IS_LLM_*` and writes `live-eval.json`.
+- `just provider-smoke` remains the lightweight connectivity-only check.
+
+`live-eval` intentionally refuses the offline heuristic provider unless `--allow-heuristic` is passed explicitly. The heuristic mode exists only to test harness plumbing; it is not a model-quality result.
+
+The GitHub Actions manual provider job runs connectivity first and, when provider variables/secrets are configured, follows it with five fixture-backed live cases and uploads the JSON report as `live-eval-report`.

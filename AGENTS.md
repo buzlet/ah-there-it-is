@@ -127,16 +127,26 @@
 - Added GitHub Actions CI on Ubuntu 24.04 / Python 3.12 and 3.13 using the canonical `just` commands, plus a manual live-provider smoke job gated by repository variables/secrets.
 - Stage 5 application/package version is `0.2.0`.
 
-### Stage 6 — next
+### Stage 6 — in progress
 
-Validate the real text workflow against actual model traffic and build the first trustworthy evaluation corpus:
+Preparation that does not require a provider key is complete:
 
-1. Run the new provider adapter against at least one real OpenAI-compatible model on U24 or the manual GitHub Actions smoke job; capture provider/model/config exactly and do not broaden provider-specific support until a real incompatibility appears.
-2. Exercise full tool calling, not only connectivity: find an existing item, create a new item after search, move an item, resolve an ambiguous candidate, and answer a history/location query.
-3. Collect 30–50 representative real inventory requests with human 1–5 ratings and comments; include successes, ambiguous wording, corrections, multiple items, nested locations, and failed/awkward interactions rather than a polished synthetic-only corpus.
-4. Replay the corpus with `inventory-v1` and `inventory-v2-strict`; review side-by-side cases and record pairwise decisions before changing prompts again.
-5. Add an experiment report/export that compares exact prompt hash + provider/model/config combinations and highlights divergence cases for manual inspection.
-6. Improve prompt/tool descriptions only where evaluation evidence shows recurring errors. Do not add generic prompt complexity pre-emptively.
-7. If controlled replay divergence becomes the main blocker, design a reproducible inventory-state fixture/snapshot mechanism for experiments instead of weakening replay safety.
-8. Reconsider embeddings only after the corpus exposes semantic-search misses that deterministic aliases/FTS cannot solve.
-9. Keep voice, Telegram, images, QR, MCP, PWA, and multi-user support out of scope until the live text workflow reaches a stable evaluation baseline.
+- Added versioned `inventory-fixture-v1`, a deterministic realistic inventory graph used only for evaluation. Every live evaluation case starts from a fresh in-memory SQLite database; live user inventory is never reused or mutated.
+- Added `eval/corpus-v1.json` with 40 representative Russian-language cases covering find, create, move, ambiguity/clarification, updates, history, nested locations, normalization/descriptive queries, and backend-safety attempts.
+- Added typed corpus validation and `just corpus-check`; corpus IDs are unique and fixture compatibility is explicit.
+- Added `live_eval` harness. It records exact corpus/fixture/prompt hash/provider/model config, runs multi-turn cases through the real `AgentRunner`, performs simple state-based postcondition checks, and emits JSON suitable for comparison/archive.
+- `live_eval` refuses the heuristic provider by default. `--allow-heuristic` exists only to test the harness offline and must not be treated as model-quality evidence.
+- Added an offline harness test proving a complete fixture-backed tool/mutation flow without touching external state.
+- GitHub Actions test matrix now validates the corpus. The manual live-provider job is prepared to run provider connectivity plus five fixture-backed live cases and upload `live-eval.json` as an artifact once repository variables/secrets are configured.
+- A concrete deterministic-search weakness was exposed by the intentionally dumb heuristic adapter: Russian morphology such as `стола` vs stored `стол` is not normalized by Stage 2 search. Keep the realistic corpus wording; a real LLM should normally reformulate the search tool query. Treat recurring failures here as evaluation evidence before adding stemming/embeddings.
+
+Remaining Stage 6 work requires real provider credentials:
+
+1. Run provider connectivity and full tool calling against at least one real OpenAI-compatible model; capture provider/model/config exactly.
+2. Run a representative subset first (find, create, move, ambiguity, history), inspect traces, then run all 40 cases.
+3. Rate real interactions 1–5 with comments, including failures and awkward clarification, rather than curating only successes.
+4. Run the same corpus with `inventory-v1` and `inventory-v2-strict`; record side-by-side pairwise decisions before changing prompts again.
+5. Add/report exact prompt-hash + provider/model/config comparison metrics and inspect divergences.
+6. Change prompt/tool descriptions or deterministic retrieval only where the real corpus shows a recurring error pattern.
+7. Reconsider embeddings only if real descriptive queries fail after sensible model reformulation.
+8. Keep voice, Telegram, images, QR, MCP, PWA, and multi-user support out of scope until the live text workflow reaches a stable evaluation baseline.
