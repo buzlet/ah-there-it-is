@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import time
 from collections.abc import Sequence
 from dataclasses import dataclass
 from typing import Any
@@ -28,6 +29,8 @@ class OpenAICompatibleConfig:
     timeout_seconds: float = 60.0
     temperature: float | None = None
     extra_body: dict[str, Any] | None = None
+    max_retries: int = 2
+    retry_backoff_seconds: float = 1.0
 
 
 class OpenAICompatibleLLMClient:
@@ -44,6 +47,10 @@ class OpenAICompatibleLLMClient:
             raise ValueError("model must not be empty")
         if config.timeout_seconds <= 0:
             raise ValueError("timeout_seconds must be > 0")
+        if config.max_retries < 0:
+            raise ValueError("max_retries must be >= 0")
+        if config.retry_backoff_seconds < 0:
+            raise ValueError("retry_backoff_seconds must be >= 0")
         self.config = config
 
     @property
@@ -51,6 +58,8 @@ class OpenAICompatibleLLMClient:
         logged_config: dict[str, Any] = {
             "base_url": self.config.base_url.rstrip("/"),
             "timeout_seconds": self.config.timeout_seconds,
+            "max_retries": self.config.max_retries,
+            "retry_backoff_seconds": self.config.retry_backoff_seconds,
         }
         if self.config.temperature is not None:
             logged_config["temperature"] = self.config.temperature
@@ -91,18 +100,7 @@ class OpenAICompatibleLLMClient:
         headers = {"Content-Type": "application/json"}
         if self.config.api_key:
             headers["Authorization"] = f"Bearer {self.config.api_key}"
-        request = Request(self._endpoint(), data=payload, headers=headers, method="POST")
-
-        try:
-            with urlopen(request, timeout=self.config.timeout_seconds) as response:
-                raw = response.read().decode("utf-8")
-        except HTTPError as exc:
-            detail = exc.read().decode("utf-8", errors="replace")[:4000]
-            raise ProviderRequestError(
-                f"provider HTTP {exc.code}: {detail or exc.reason}"
-            ) from exc
-        except URLError as exc:
-            raise ProviderRequestError(f"provider request failed: {exc.reason}") from exc
+        raw = self._post_with_retry(payload, headers)
 
         try:
             data = json.loads(raw)
@@ -140,6 +138,45 @@ class OpenAICompatibleLLMClient:
             tool_calls=tuple(tool_calls),
             metadata=metadata,
         )
+
+    def _post_with_retry(self, payload: bytes, headers: dict[str, str]) -> str:
+        transient_statuses = {429, 500, 502, 503, 504}
+        for attempt in range(self.config.max_retries + 1):
+            request = Request(self._endpoint(), data=payload, headers=headers, method="POST")
+            try:
+                with urlopen(request, timeout=self.config.timeout_seconds) as response:
+                    return response.read().decode("utf-8")
+            except HTTPError as exc:
+                detail = exc.read().decode("utf-8", errors="replace")[:4000]
+                if exc.code not in transient_statuses or attempt >= self.config.max_retries:
+                    raise ProviderRequestError(
+                        f"provider HTTP {exc.code}: {detail or exc.reason}"
+                    ) from exc
+                self._retry_sleep(
+                    attempt,
+                    exc.headers.get("Retry-After") if exc.headers else None,
+                )
+            except TimeoutError as exc:
+                if attempt >= self.config.max_retries:
+                    raise ProviderRequestError("provider request timed out") from exc
+                self._retry_sleep(attempt)
+            except URLError as exc:
+                if attempt >= self.config.max_retries:
+                    raise ProviderRequestError(
+                        f"provider request failed: {exc.reason}"
+                    ) from exc
+                self._retry_sleep(attempt)
+        raise AssertionError("retry loop exhausted unexpectedly")
+
+    def _retry_sleep(self, attempt: int, retry_after: str | None = None) -> None:
+        delay = self.config.retry_backoff_seconds * (2**attempt)
+        if retry_after:
+            try:
+                delay = max(delay, float(retry_after))
+            except ValueError:
+                pass
+        if delay > 0:
+            time.sleep(delay)
 
     def _endpoint(self) -> str:
         base = self.config.base_url.rstrip("/")

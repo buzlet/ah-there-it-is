@@ -109,9 +109,11 @@ The `/experiments` UI shows aggregate completion/divergence/failure metrics, rou
 `.github/workflows/ci.yml` runs the canonical `just` checks on Ubuntu 24.04 with Python 3.12 and 3.13. The manual `live-gemini-smoke` job uses the protected GitHub Environment `live-llm-test`. Configure there:
 
 - `GEMINI_API_KEY` as an **Environment secret**;
-- optional `GEMINI_MODEL` as an Environment variable (defaults to `gemini-flash-latest`).
+- `GEMINI_MODEL` and `GEMINI_BASE_URL` as Environment variables;
+- `GROQ_API_KEY` as an **Environment secret**;
+- `GROQ_MODEL=qwen/qwen3.8-27b` and `GROQ_BASE_URL=https://api.groq.com/openai/v1` as Environment variables.
 
-Normal CI jobs never receive the Gemini secret. The manual job runs two representative fixture-backed cases (`find-01` and `move-01`) and uploads `live-eval.json`. It intentionally keeps the smoke small because model calls, not corpus cases, consume provider request quota.
+Normal CI jobs never receive provider secrets. Manual `workflow_dispatch` selects `groq` or `gemini`; only the selected provider job runs and receives its own secret. Both smoke jobs run the same two fixture-backed cases (`find-01`, `move-01`) so provider comparisons start from identical state. Groq/Qwen is pinned to temperature 0.6, top_p 0.95, max_completion_tokens 2048, reasoning_effort default, and hidden reasoning; these settings are captured in run metadata.
 
 ## Current scope
 

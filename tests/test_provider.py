@@ -445,3 +445,102 @@ def test_gemini_adapter_retries_timeout(monkeypatch) -> None:
 
     assert client.complete([AgentMessage(role="user", content="x")], []).content == "OK"
     assert calls == 2
+
+
+def test_openai_compatible_adapter_retries_transient_http_429(monkeypatch) -> None:
+    import io
+    from urllib.error import HTTPError
+
+    import ah_there_it_is.agent.openai_compatible as provider_module
+
+    calls = 0
+    sleeps: list[float] = []
+
+    class _Response:
+        def __enter__(self):
+            return self
+
+        def __exit__(self, exc_type, exc, tb):
+            return False
+
+        def read(self):
+            return json.dumps(
+                {
+                    "id": "ok",
+                    "choices": [
+                        {
+                            "finish_reason": "stop",
+                            "message": {"role": "assistant", "content": "OK"},
+                        }
+                    ],
+                }
+            ).encode()
+
+    def fake_urlopen(request, timeout):
+        nonlocal calls
+        calls += 1
+        if calls == 1:
+            raise HTTPError(
+                request.full_url,
+                429,
+                "rate limit",
+                hdrs={"Retry-After": "0"},
+                fp=io.BytesIO(b"{\"error\":\"rate limit\"}"),
+            )
+        return _Response()
+
+    monkeypatch.setattr(provider_module, "urlopen", fake_urlopen)
+    monkeypatch.setattr(provider_module.time, "sleep", sleeps.append)
+
+    client = OpenAICompatibleLLMClient(
+        OpenAICompatibleConfig(
+            base_url="https://api.example/v1",
+            model="test-model",
+            max_retries=1,
+            retry_backoff_seconds=0,
+        )
+    )
+    assert client.complete([AgentMessage(role="user", content="x")], []).content == "OK"
+    assert calls == 2
+    assert sleeps == []
+
+
+def test_openai_compatible_adapter_sends_groq_style_extra_body() -> None:
+    server, thread = _server(
+        {
+            "id": "resp-groq",
+            "choices": [
+                {
+                    "finish_reason": "stop",
+                    "message": {"role": "assistant", "content": "OK"},
+                }
+            ],
+        }
+    )
+    try:
+        client = OpenAICompatibleLLMClient(
+            OpenAICompatibleConfig(
+                base_url=f"http://127.0.0.1:{server.server_port}/openai/v1",
+                model="qwen/qwen3.8-27b",
+                temperature=0.6,
+                extra_body={
+                    "max_completion_tokens": 2048,
+                    "top_p": 0.95,
+                    "reasoning_effort": "default",
+                    "reasoning_format": "hidden",
+                },
+            )
+        )
+        client.complete([AgentMessage(role="user", content="x")], [])
+        request = _Handler.request_payload
+    finally:
+        server.shutdown()
+        thread.join(timeout=2)
+        server.server_close()
+
+    assert request["model"] == "qwen/qwen3.8-27b"
+    assert request["temperature"] == 0.6
+    assert request["max_completion_tokens"] == 2048
+    assert request["top_p"] == 0.95
+    assert request["reasoning_effort"] == "default"
+    assert request["reasoning_format"] == "hidden"
