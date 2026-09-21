@@ -4,9 +4,11 @@ from __future__ import annotations
 
 from collections.abc import Sequence
 from dataclasses import dataclass
+import hashlib
+import json
 from typing import Any
 
-from sqlalchemy import func, select
+from sqlalchemy import select
 from sqlalchemy.orm import Session, selectinload
 
 from ah_there_it_is.db.models import AgentFeedback, AgentRunLog, utc_now
@@ -19,9 +21,22 @@ class EvaluationSummary:
     prompt_hash: str
     llm_provider: str
     llm_model: str
+    llm_config_hash: str
+    llm_config: dict[str, Any]
     runs: int
     rated_runs: int
     average_rating: float | None
+
+
+def canonical_llm_config(config: dict[str, Any]) -> tuple[str, str]:
+    canonical = json.dumps(
+        config,
+        ensure_ascii=False,
+        sort_keys=True,
+        separators=(",", ":"),
+    )
+    digest = hashlib.sha256(canonical.encode("utf-8")).hexdigest()
+    return canonical, digest
 
 
 class EvaluationService:
@@ -128,36 +143,59 @@ class EvaluationService:
 
     def summaries(self) -> list[EvaluationSummary]:
         stmt = (
-            select(
-                AgentRunLog.prompt_version,
-                AgentRunLog.prompt_hash,
-                AgentRunLog.llm_provider,
-                AgentRunLog.llm_model,
-                func.count(AgentRunLog.id),
-                func.count(AgentFeedback.id),
-                func.avg(AgentFeedback.rating),
-            )
-            .outerjoin(AgentFeedback, AgentFeedback.agent_run_id == AgentRunLog.id)
-            .group_by(
-                AgentRunLog.prompt_version,
-                AgentRunLog.prompt_hash,
-                AgentRunLog.llm_provider,
-                AgentRunLog.llm_model,
-            )
-            .order_by(AgentRunLog.prompt_version, AgentRunLog.llm_provider, AgentRunLog.llm_model)
+            select(AgentRunLog)
+            .options(selectinload(AgentRunLog.feedback))
+            .order_by(AgentRunLog.id.asc())
         )
-        return [
-            EvaluationSummary(
-                prompt_version=row[0],
-                prompt_hash=row[1],
-                llm_provider=row[2],
-                llm_model=row[3],
-                runs=int(row[4]),
-                rated_runs=int(row[5]),
-                average_rating=float(row[6]) if row[6] is not None else None,
+        runs = list(self.session.scalars(stmt))
+        groups: dict[
+            tuple[str, str, str, str, str],
+            list[AgentRunLog],
+        ] = {}
+        config_hashes: dict[tuple[str, str, str, str, str], str] = {}
+        for run in runs:
+            canonical, config_hash = canonical_llm_config(run.llm_config)
+            key = (
+                run.prompt_version,
+                run.prompt_hash,
+                run.llm_provider,
+                run.llm_model,
+                canonical,
             )
-            for row in self.session.execute(stmt)
-        ]
+            groups.setdefault(key, []).append(run)
+            config_hashes[key] = config_hash
+
+        summaries: list[EvaluationSummary] = []
+        for key, group in groups.items():
+            ratings = [
+                run.feedback.rating
+                for run in group
+                if run.feedback is not None
+            ]
+            summaries.append(
+                EvaluationSummary(
+                    prompt_version=key[0],
+                    prompt_hash=key[1],
+                    llm_provider=key[2],
+                    llm_model=key[3],
+                    llm_config_hash=config_hashes[key],
+                    llm_config=dict(group[0].llm_config),
+                    runs=len(group),
+                    rated_runs=len(ratings),
+                    average_rating=(
+                        sum(ratings) / len(ratings) if ratings else None
+                    ),
+                )
+            )
+        return sorted(
+            summaries,
+            key=lambda summary: (
+                summary.prompt_version,
+                summary.llm_provider,
+                summary.llm_model,
+                summary.llm_config_hash,
+            ),
+        )
 
     @staticmethod
     def _clean_comment(comment: str | None) -> str | None:
