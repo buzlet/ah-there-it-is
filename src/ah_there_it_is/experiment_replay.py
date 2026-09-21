@@ -38,16 +38,22 @@ def main() -> None:
                 sources = evaluations.rated_runs(limit=args.limit)
             results = []
             for source in sources:
-                result = ExperimentRunner(
-                    session,
-                    llm_factory(),
-                    max_rounds=settings.agent_max_rounds,
-                ).run(
-                    source,
-                    experiment_name=args.name,
-                    system_prompt=prompt,
-                    prompt_version=args.version,
-                )
+                llm = llm_factory()
+                try:
+                    result = ExperimentRunner(
+                        session,
+                        llm,
+                        max_rounds=settings.agent_max_rounds,
+                    ).run(
+                        source,
+                        experiment_name=args.name,
+                        system_prompt=prompt,
+                        prompt_version=args.version,
+                    )
+                finally:
+                    close = getattr(llm, "close", None)
+                    if callable(close):
+                        close()
                 results.append(
                     {
                         "source_run_id": source.id,
