@@ -1,0 +1,188 @@
+"""SQLAlchemy persistence models for the inventory domain."""
+
+from __future__ import annotations
+
+from datetime import datetime, timezone
+from typing import Any
+
+from sqlalchemy import (
+    JSON,
+    DateTime,
+    ForeignKey,
+    Index,
+    Integer,
+    String,
+    Text,
+    UniqueConstraint,
+)
+from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, relationship
+
+from ah_there_it_is.domain.states import ItemState
+
+
+def utc_now() -> datetime:
+    return datetime.now(timezone.utc)
+
+
+class Base(DeclarativeBase):
+    pass
+
+
+class Category(Base):
+    __tablename__ = "categories"
+    __table_args__ = (
+        UniqueConstraint("parent_id", "normalized_name", name="uq_category_parent_name"),
+    )
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    parent_id: Mapped[int | None] = mapped_column(
+        ForeignKey("categories.id", ondelete="RESTRICT"), nullable=True, index=True
+    )
+    name: Mapped[str] = mapped_column(String(200))
+    normalized_name: Mapped[str] = mapped_column(String(200), index=True)
+    description: Mapped[str | None] = mapped_column(Text, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=utc_now, nullable=False
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=utc_now, onupdate=utc_now, nullable=False
+    )
+
+    parent: Mapped["Category | None"] = relationship(
+        remote_side="Category.id", back_populates="children"
+    )
+    children: Mapped[list["Category"]] = relationship(back_populates="parent")
+    items: Mapped[list["Item"]] = relationship(back_populates="category")
+
+
+class Location(Base):
+    __tablename__ = "locations"
+    __table_args__ = (
+        UniqueConstraint("parent_id", "normalized_name", name="uq_location_parent_name"),
+    )
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    parent_id: Mapped[int | None] = mapped_column(
+        ForeignKey("locations.id", ondelete="RESTRICT"), nullable=True, index=True
+    )
+    name: Mapped[str] = mapped_column(String(200))
+    normalized_name: Mapped[str] = mapped_column(String(200), index=True)
+    description: Mapped[str | None] = mapped_column(Text, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=utc_now, nullable=False
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=utc_now, onupdate=utc_now, nullable=False
+    )
+
+    parent: Mapped["Location | None"] = relationship(
+        remote_side="Location.id", back_populates="children"
+    )
+    children: Mapped[list["Location"]] = relationship(back_populates="parent")
+    items: Mapped[list["Item"]] = relationship(back_populates="current_location")
+
+
+class Item(Base):
+    __tablename__ = "items"
+    __table_args__ = (
+        Index("ix_items_normalized_name_category", "normalized_name", "category_id"),
+    )
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    name: Mapped[str] = mapped_column(String(300))
+    normalized_name: Mapped[str] = mapped_column(String(300), index=True)
+    description: Mapped[str | None] = mapped_column(Text, nullable=True)
+    state: Mapped[str] = mapped_column(String(32), default=ItemState.UNKNOWN.value)
+    category_id: Mapped[int | None] = mapped_column(
+        ForeignKey("categories.id", ondelete="RESTRICT"), nullable=True, index=True
+    )
+    current_location_id: Mapped[int | None] = mapped_column(
+        ForeignKey("locations.id", ondelete="RESTRICT"), nullable=True, index=True
+    )
+    quantity: Mapped[int] = mapped_column(Integer, default=1, nullable=False)
+    attributes: Mapped[dict[str, Any]] = mapped_column(JSON, default=dict, nullable=False)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=utc_now, nullable=False
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=utc_now, onupdate=utc_now, nullable=False
+    )
+
+    category: Mapped[Category | None] = relationship(back_populates="items")
+    current_location: Mapped[Location | None] = relationship(back_populates="items")
+    aliases: Mapped[list["Alias"]] = relationship(
+        back_populates="item", cascade="all, delete-orphan"
+    )
+    tag_links: Mapped[list["ItemTag"]] = relationship(
+        back_populates="item", cascade="all, delete-orphan"
+    )
+    events: Mapped[list["Event"]] = relationship(back_populates="item")
+
+
+class Alias(Base):
+    __tablename__ = "aliases"
+    __table_args__ = (
+        UniqueConstraint("item_id", "normalized_name", name="uq_alias_item_name"),
+    )
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    item_id: Mapped[int] = mapped_column(
+        ForeignKey("items.id", ondelete="CASCADE"), nullable=False, index=True
+    )
+    name: Mapped[str] = mapped_column(String(300))
+    normalized_name: Mapped[str] = mapped_column(String(300), index=True)
+
+    item: Mapped[Item] = relationship(back_populates="aliases")
+
+
+class Tag(Base):
+    __tablename__ = "tags"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    name: Mapped[str] = mapped_column(String(100))
+    normalized_name: Mapped[str] = mapped_column(String(100), unique=True, index=True)
+
+    item_links: Mapped[list["ItemTag"]] = relationship(
+        back_populates="tag", cascade="all, delete-orphan"
+    )
+
+
+class ItemTag(Base):
+    __tablename__ = "item_tags"
+
+    item_id: Mapped[int] = mapped_column(
+        ForeignKey("items.id", ondelete="CASCADE"), primary_key=True
+    )
+    tag_id: Mapped[int] = mapped_column(
+        ForeignKey("tags.id", ondelete="CASCADE"), primary_key=True
+    )
+
+    item: Mapped[Item] = relationship(back_populates="tag_links")
+    tag: Mapped[Tag] = relationship(back_populates="item_links")
+
+
+class Event(Base):
+    __tablename__ = "events"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    event_type: Mapped[str] = mapped_column(String(50), index=True)
+    item_id: Mapped[int | None] = mapped_column(
+        ForeignKey("items.id", ondelete="SET NULL"), nullable=True, index=True
+    )
+    from_location_id: Mapped[int | None] = mapped_column(
+        ForeignKey("locations.id", ondelete="RESTRICT"), nullable=True
+    )
+    to_location_id: Mapped[int | None] = mapped_column(
+        ForeignKey("locations.id", ondelete="RESTRICT"), nullable=True
+    )
+    payload: Mapped[dict[str, Any]] = mapped_column(JSON, default=dict, nullable=False)
+    original_text: Mapped[str | None] = mapped_column(Text, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=utc_now, nullable=False, index=True
+    )
+
+    item: Mapped[Item | None] = relationship(back_populates="events")
+    from_location: Mapped[Location | None] = relationship(
+        foreign_keys=[from_location_id]
+    )
+    to_location: Mapped[Location | None] = relationship(foreign_keys=[to_location_id])
