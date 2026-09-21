@@ -147,7 +147,7 @@ class GeminiLLMClient:
         )
 
     def _post_with_retry(self, payload: bytes, headers: dict[str, str]) -> str:
-        transient_statuses = {429, 500, 502, 503, 504}
+        transient_statuses = {500, 502, 503, 504}
         for attempt in range(self.config.max_retries + 1):
             request = Request(self._endpoint(), data=payload, headers=headers, method="POST")
             try:
@@ -163,6 +163,10 @@ class GeminiLLMClient:
                     attempt,
                     exc.headers.get("Retry-After") if exc.headers else None,
                 )
+            except TimeoutError as exc:
+                if attempt >= self.config.max_retries:
+                    raise ProviderRequestError("provider request timed out") from exc
+                self._retry_sleep(attempt)
             except URLError as exc:
                 if attempt >= self.config.max_retries:
                     raise ProviderRequestError(

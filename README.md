@@ -111,7 +111,7 @@ The `/experiments` UI shows aggregate completion/divergence/failure metrics, rou
 - `GEMINI_API_KEY` as an **Environment secret**;
 - optional `GEMINI_MODEL` as an Environment variable (defaults to `gemini-flash-latest`).
 
-Normal CI jobs never receive the Gemini secret. The manual job first performs provider connectivity, then five fixture-backed live evaluation cases, and uploads `live-eval.json`.
+Normal CI jobs never receive the Gemini secret. The manual job runs two representative fixture-backed cases (`find-01` and `move-01`) and uploads `live-eval.json`. It intentionally keeps the smoke small because model calls, not corpus cases, consume provider request quota.
 
 ## Current scope
 
@@ -131,4 +131,4 @@ Canonical repeated commands are in `Justfile`:
 
 `live-eval` intentionally refuses the offline heuristic provider unless `--allow-heuristic` is passed explicitly. The heuristic mode exists only to test harness plumbing; it is not a model-quality result.
 
-The GitHub Actions manual Gemini job uses the `live-llm-test` environment, runs connectivity first, then five fixture-backed live cases, and uploads the JSON report as `live-eval-report`. A live U24 probe has already confirmed `gemini-flash-latest` text generation and native function-call emission; full corpus execution remains pending repository synchronization.
+The GitHub Actions manual Gemini job uses the `live-llm-test` environment and runs a bounded read + mutation smoke (`find-01`, `move-01`) before uploading the JSON report as `live-eval-report`. GitHub is synchronized and normal CI is green on Python 3.12/3.13. Live Gemini runs have confirmed complete `AgentRunner` tool loops; broader corpus execution requires provider quota large enough for multiple model calls per case.

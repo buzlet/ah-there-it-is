@@ -129,7 +129,7 @@
 
 ### Stage 6 — in progress
 
-Preparation that does not require a provider key is complete:
+Preparation and first live-provider validation are complete:
 
 - Added versioned `inventory-fixture-v1`, a deterministic realistic inventory graph used only for evaluation. Every live evaluation case starts from a fresh in-memory SQLite database; live user inventory is never reused or mutated.
 - Added `eval/corpus-v1.json` with 40 representative Russian-language cases covering find, create, move, ambiguity/clarification, updates, history, nested locations, normalization/descriptive queries, and backend-safety attempts.
@@ -137,18 +137,20 @@ Preparation that does not require a provider key is complete:
 - Added `live_eval` harness. It records exact corpus/fixture/prompt hash/provider/model config, runs multi-turn cases through the real `AgentRunner`, exports each run's full tool trace before the temporary database is discarded, performs simple state-based postcondition checks, and emits JSON suitable for comparison/archive. Cases without an automated postcondition are explicitly manual-review cases and are never counted as automatically passed.
 - `live_eval` refuses the heuristic provider by default. `--allow-heuristic` exists only to test the harness offline and must not be treated as model-quality evidence.
 - Added an offline harness test proving a complete fixture-backed tool/mutation flow without touching external state.
-- GitHub Actions test matrix now validates the corpus. The manual live-provider job is prepared to run provider connectivity plus five fixture-backed live cases and upload `live-eval.json` as an artifact once repository variables/secrets are configured.
-- GitHub repository `buzlet/ah-there-it-is` is reachable through the connected GitHub integration, but the sandbox itself has no DNS/Internet for `git push`. The remote was only bootstrapped with `.gitignore`; **do not treat GitHub as synchronized yet**. Perform a normal full push from U24 (preferred) before relying on Actions there; avoid reconstructing the whole repository file-by-file through the API.
+- GitHub repository `buzlet/ah-there-it-is` is synchronized from U24. The GitHub CLI token on U24 now includes the `workflow` scope, so normal code, workflow, and tag pushes are supported. Tags `v0.1.0` and `v0.2.0` are present remotely.
+- GitHub Actions test matrix is green on Ubuntu 24.04 / Python 3.12 and 3.13. `migration-check` is self-contained and upgrades a temporary SQLite database before running `alembic check`.
 - A concrete deterministic-search weakness was exposed by the intentionally dumb heuristic adapter: Russian morphology such as `стола` vs stored `стол` is not normalized by Stage 2 search. Keep the realistic corpus wording; a real LLM should normally reformulate the search tool query. Treat recurring failures here as evaluation evidence before adding stemming/embeddings.
 - Added a native Gemini `generateContent` adapter using only the Python standard library. Do not route Gemini through the OpenAI-compatible adapter: Gemini 3 function calling requires exact `thoughtSignature` preservation inside the current tool loop. Provider-only opaque state is kept in-memory and excluded from persisted generic tool-call traces.
 - Gemini function declarations use `parametersJsonSchema`; Pydantic local `$ref` values are resolved and schemas are reduced to a provider-friendly JSON Schema subset before sending. Backend Pydantic validation remains authoritative.
-- Live U24 verification on 2026-09-21 confirmed the supplied key/model endpoint: `gemini-flash-latest` returned HTTP 200 and resolved to `gemini-3.8-flash`; a native forced function-calling request also returned HTTP 200 with function name/arguments, call ID, and `thoughtSignature`. Attempts to exercise a complete live functionCall -> functionResponse round-trip then hit provider 503/high-demand before a usable first step, so that exact two-step path is **not yet live-verified**. Its serialization/signature contract is covered offline by adapter tests and must be rechecked live before Stage 6 is called complete.
-- GitHub Actions live testing is now Gemini-specific and uses the protected `live-llm-test` Environment. Store `GEMINI_API_KEY` there as an Environment secret; optional `GEMINI_MODEL` is a variable. Ordinary CI jobs must never receive that secret.
+- Live U24 verification on 2026-09-21 confirmed the supplied key/model endpoint and native function calling. GitHub Actions then completed full real `AgentRunner` loops: `find-01` and `find-02` each performed search -> stable-ID read -> final answer with correct fixture locations. This live-verifies the multi-round functionCall/functionResponse path.
+- GitHub Actions live testing is Gemini-specific and uses the protected `live-llm-test` Environment. Store `GEMINI_API_KEY` there as an Environment secret; `GEMINI_MODEL`, `GEMINI_BASE_URL`, and `LLM_PROVIDER` are Environment variables. Ordinary CI jobs must never receive that secret.
+- First five-case live run: 2 completed correctly; 3 failed on provider `503 high demand`. A subsequent retry-enabled run exposed the free-tier request quota: `gemini-3.8-flash` returned `429 RESOURCE_EXHAUSTED` with `GenerateRequestsPerDayPerProjectPerModel-FreeTier`, limit 20. Failed provider runs must never count as passed merely because a no-mutation postcondition stayed true.
+- Gemini transport retries are bounded and logged in provider config. Retry transient network/timeout and 5xx failures; do not retry HTTP 429 blindly because hard quota errors only waste requests/time. GitHub live smoke is quota-conscious: two representative cases only (`find-01` read path + `move-01` mutation path), 30-second request timeout, max 2 transient retries, 6-minute job limit. `live_eval` exits non-zero on provider/harness failures while still writing its report for artifact upload.
 
-Remaining Stage 6 work requires real provider credentials:
+Remaining Stage 6 work requires usable provider quota:
 
-1. Complete full end-to-end `AgentRunner` execution with native Gemini on the synchronized project and capture provider/model/config exactly. Basic connectivity and function-call emission are already verified live.
-2. Run a representative subset first (find, create, move, ambiguity, history), inspect traces, then run all 40 cases.
+1. Re-run the bounded `find-01` + `move-01` smoke after quota is available and confirm the new transient-retry/timeout policy under live conditions.
+2. With sufficient quota, run a representative subset (find, create, move, ambiguity, history), inspect traces, then expand toward all 40 cases. A 20-request/day free-tier limit is insufficient for the full corpus because one case normally consumes multiple model calls.
 3. Rate real interactions 1–5 with comments, including failures and awkward clarification, rather than curating only successes.
 4. Run the same corpus with `inventory-v1` and `inventory-v2-strict`; record side-by-side pairwise decisions before changing prompts again.
 5. Add/report exact prompt-hash + provider/model/config comparison metrics and inspect divergences.
