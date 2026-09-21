@@ -7,6 +7,15 @@ permissions:
   push:
   pull_request:
   workflow_dispatch:
+    inputs:
+      provider:
+        description: Live LLM provider
+        required: true
+        default: groq
+        type: choice
+        options:
+          - groq
+          - gemini
 
 jobs:
   test:
@@ -28,7 +37,7 @@ jobs:
       - run: just corpus-check
 
   live-gemini-smoke:
-    if: ${{ github.event_name == 'workflow_dispatch' }}
+    if: ${{ github.event_name == 'workflow_dispatch' && inputs.provider == 'gemini' }}
     environment: live-llm-test
     runs-on: ubuntu-24.04
     timeout-minutes: 6
@@ -62,6 +71,47 @@ jobs:
         if: ${{ always() && github.event_name == 'workflow_dispatch' }}
         uses: actions/upload-artifact@v4
         with:
-          name: live-eval-report
+          name: live-eval-report-gemini
+          path: live-eval.json
+          if-no-files-found: ignore
+
+  live-groq-smoke:
+    if: ${{ github.event_name == 'workflow_dispatch' && inputs.provider == 'groq' }}
+    environment: live-llm-test
+    runs-on: ubuntu-24.04
+    timeout-minutes: 6
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.13'
+      - run: python -m pip install -e '.[test]'
+      - name: Run bounded live Groq evaluation when configured
+        env:
+          AH_THERE_IT_IS_LLM_PROVIDER: openai-compatible
+          AH_THERE_IT_IS_LLM_PROVIDER_NAME: groq
+          AH_THERE_IT_IS_LLM_BASE_URL: ${{ vars.GROQ_BASE_URL || 'https://api.groq.com/openai/v1' }}
+          AH_THERE_IT_IS_LLM_MODEL: ${{ vars.GROQ_MODEL || 'qwen/qwen3.8-27b' }}
+          AH_THERE_IT_IS_LLM_API_KEY: ${{ secrets.GROQ_API_KEY }}
+          AH_THERE_IT_IS_LLM_TIMEOUT_SECONDS: '30'
+          AH_THERE_IT_IS_LLM_MAX_RETRIES: '2'
+          AH_THERE_IT_IS_LLM_RETRY_BACKOFF_SECONDS: '1'
+          AH_THERE_IT_IS_LLM_TEMPERATURE: '0.6'
+          AH_THERE_IT_IS_LLM_EXTRA_BODY_JSON: '{"max_completion_tokens":2048,"top_p":0.95,"reasoning_effort":"default","reasoning_format":"hidden"}'
+        run: |
+          if [ -z "$AH_THERE_IT_IS_LLM_API_KEY" ]; then
+            echo "Live Groq evaluation skipped: configure GROQ_API_KEY in environment live-llm-test."
+            exit 0
+          fi
+          python -m ah_there_it_is.live_eval \
+            --corpus eval/corpus-v1.json \
+            --case find-01 \
+            --case move-01 \
+            --output live-eval.json
+      - name: Upload live evaluation report
+        if: ${{ always() && github.event_name == 'workflow_dispatch' }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: live-eval-report-groq
           path: live-eval.json
           if-no-files-found: ignore
