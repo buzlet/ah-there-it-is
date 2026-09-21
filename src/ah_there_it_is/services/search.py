@@ -203,9 +203,11 @@ class SearchService:
             return []
         identity = normalize_name(query)
         search_key = normalize_search_text(query)
+        nodes = list(self.session.scalars(select(model).order_by(model.id)))
         candidates: list[SearchCandidate] = []
 
-        for node in self.session.scalars(select(model).order_by(model.id)):
+        # Preserve the original strong tree-search semantics first.
+        for node in nodes:
             path = self._path(node) or node.name
             leaf_search = normalize_search_text(node.name)
             path_search = normalize_search_text(path)
@@ -215,12 +217,6 @@ class SearchService:
                 score, match = self.NORMALIZED_NAME, "normalized_name"
             elif search_key and search_key in leaf_search:
                 score, match = self.CONTAINS + 50, "contains"
-            elif leaf_search and leaf_search in search_key:
-                # Natural phrases often contain the exact leaf plus inflected
-                # ancestry, e.g. "средний ящик стола". Prefer the longer,
-                # more specific leaf over a generic ancestor such as "стол".
-                specificity = min(len(leaf_search.split()), 3)
-                score, match = self.CONTAINS + 50 * specificity, "contains"
             elif self._all_tokens_present(search_key, path_search):
                 score, match = self.CONTAINS, "contains"
             else:
@@ -236,6 +232,31 @@ class SearchService:
                     score=score,
                 )
             )
+
+        if candidates:
+            return sorted(candidates, key=lambda c: (-c.score, c.path or "", c.id))[:limit]
+
+        # Fallback only when the original search found nothing. Natural phrases
+        # may contain an exact leaf plus inflected ancestry, e.g.
+        # "средний ящик стола". Prefer the longer, more specific leaf.
+        for node in nodes:
+            path = self._path(node) or node.name
+            leaf_search = normalize_search_text(node.name)
+            if not leaf_search or leaf_search not in search_key:
+                continue
+            specificity = min(len(leaf_search.split()), 3)
+            candidates.append(
+                SearchCandidate(
+                    id=node.id,
+                    entity_type=entity_type,  # type: ignore[arg-type]
+                    name=node.name,
+                    path=path,
+                    description=node.description,
+                    match_type="contains",
+                    score=self.CONTAINS + 50 * specificity,
+                )
+            )
+
         return sorted(candidates, key=lambda c: (-c.score, c.path or "", c.id))[:limit]
 
     @staticmethod
