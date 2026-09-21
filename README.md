@@ -18,7 +18,7 @@ The LLM is not a database client. Domain services own validation, identity, hist
 
 ## Sandbox development
 
-The project remains compatible with packages already present in the OpenAI sandbox; no network dependency is introduced merely for development. The real provider adapter deliberately uses Python's standard-library HTTP client rather than adding a provider SDK.
+The project remains compatible with packages exercised in the OpenAI sandbox. The OpenAI-compatible adapter uses a persistent `httpx.Client` so multi-round tool loops reuse HTTP keep-alive connections without depending on a provider SDK.
 
 Verified baseline:
 
@@ -113,7 +113,7 @@ The `/experiments` UI shows aggregate completion/divergence/failure metrics, rou
 - `GROQ_API_KEY` as an **Environment secret**;
 - `GROQ_MODEL=qwen/qwen3.8-27b` and `GROQ_BASE_URL=https://api.groq.com/openai/v1` as Environment variables.
 
-Normal CI jobs never receive provider secrets. Manual `workflow_dispatch` selects `groq` or `gemini` plus a `smoke` or `representative` suite; only the selected provider job runs and receives its own secret. `smoke` runs `find-01` + `move-01`; `representative` adds `create-01`, `ambiguity-01`, and `history-01`. Groq/Qwen is pinned to temperature 0.6, top_p 0.95, max_completion_tokens 2048, reasoning_effort default, and hidden reasoning; these settings are captured in run metadata.
+Normal CI jobs never receive provider secrets. Manual `workflow_dispatch` selects `groq` or `gemini` plus a `smoke` or `representative` suite; only the selected provider job runs and receives its own secret. `smoke` runs `find-01` + `move-01`; `representative` adds `create-01`, `ambiguity-01`, and `history-01`. Groq/Qwen live evaluation uses temperature 0.6, top_p 0.95, `max_completion_tokens=256`, `reasoning_effort=none`, and hidden reasoning. These settings are captured in run metadata. The smaller completion budget and instruct mode are deliberate: measured free-tier limits are 7000 input tokens/minute and 1000 output tokens/minute.
 
 ## Current scope
 
@@ -133,4 +133,4 @@ Canonical repeated commands are in `Justfile`:
 
 `live-eval` intentionally refuses the offline heuristic provider unless `--allow-heuristic` is passed explicitly. The heuristic mode exists only to test harness plumbing; it is not a model-quality result.
 
-The GitHub Actions manual Gemini job uses the `live-llm-test` environment and runs a bounded read + mutation smoke (`find-01`, `move-01`) before uploading the JSON report as `live-eval-report`. GitHub is synchronized and normal CI is green on Python 3.12/3.13. Live Gemini runs have confirmed complete `AgentRunner` tool loops; broader corpus execution requires provider quota large enough for multiple model calls per case.
+The GitHub Actions manual provider jobs use the `live-llm-test` environment and run bounded smoke/representative suites before uploading JSON reports. Normal CI is green on Python 3.12/3.13. Live Gemini and Groq runs have confirmed complete `AgentRunner` tool loops. Groq diagnostics now record persistent-transport wall time, provider server time, attempts, and retry events; the latest smoke reduced `move-01` from 8 rounds to 3 after deterministic natural-phrase location fallback was added.
