@@ -58,6 +58,14 @@ class ToolRunState:
             "tag": set(),
         }
     )
+    empty_searches: dict[str, set[str]] = field(
+        default_factory=lambda: {
+            "item": set(),
+            "location": set(),
+            "category": set(),
+            "tag": set(),
+        }
+    )
 
 
 @dataclass(frozen=True)
@@ -109,7 +117,7 @@ class ToolDispatcher:
             ToolDefinition(
                 name=name,
                 description=spec.description,
-                input_schema=spec.input_model.model_json_schema(),
+                input_schema=self._compact_schema(spec.input_model.model_json_schema()),
             )
             for name, spec in self._specs.items()
             if name in available
@@ -129,16 +137,34 @@ class ToolDispatcher:
         if self.state.seen["category"]:
             names.add("get_category")
 
-        if self.state.searches["item"]:
+        if self.state.empty_searches["item"]:
             names.add("create_item")
-        if self.state.searches["location"]:
+        if self.state.empty_searches["location"]:
             names.add("create_location")
-        if self.state.searches["category"]:
+        if self.state.empty_searches["category"]:
             names.add("create_category")
 
         if self.state.resolved["item"]:
-            names.update({"update_item", "move_item"})
+            names.add("update_item")
+            # A move to a named location is useful only after the location is
+            # resolved. With no location search yet, keep move_item available
+            # so location_id=null can still represent "take/remove from storage".
+            if not self.state.searches["location"] or self.state.resolved["location"]:
+                names.add("move_item")
         return names
+
+    @classmethod
+    def _compact_schema(cls, value: Any) -> Any:
+        """Remove model-irrelevant Pydantic decoration without changing validation."""
+        if isinstance(value, dict):
+            return {
+                key: cls._compact_schema(item)
+                for key, item in value.items()
+                if key not in {"title", "default", "examples"}
+            }
+        if isinstance(value, list):
+            return [cls._compact_schema(item) for item in value]
+        return value
 
     def execute(self, name: str, arguments: dict[str, Any]) -> dict[str, Any]:
         spec = self._specs.get(name)
@@ -235,28 +261,28 @@ class ToolDispatcher:
         args = self._cast(SearchInput, raw)
         self._remember_search("item", args.query)
         results = self.search.search_items(args.query, limit=args.limit)
-        self._remember_search_candidates("item", results)
+        self._remember_search_candidates("item", args.query, results)
         return [candidate.model_dump(mode="json") for candidate in results]
 
     def _search_locations(self, raw: BaseModel) -> list[dict[str, Any]]:
         args = self._cast(SearchInput, raw)
         self._remember_search("location", args.query)
         results = self.search.search_locations(args.query, limit=args.limit)
-        self._remember_search_candidates("location", results)
+        self._remember_search_candidates("location", args.query, results)
         return [candidate.model_dump(mode="json") for candidate in results]
 
     def _search_categories(self, raw: BaseModel) -> list[dict[str, Any]]:
         args = self._cast(SearchInput, raw)
         self._remember_search("category", args.query)
         results = self.search.search_categories(args.query, limit=args.limit)
-        self._remember_search_candidates("category", results)
+        self._remember_search_candidates("category", args.query, results)
         return [candidate.model_dump(mode="json") for candidate in results]
 
     def _search_tags(self, raw: BaseModel) -> list[dict[str, Any]]:
         args = self._cast(SearchInput, raw)
         self._remember_search("tag", args.query)
         results = self.search.search_tags(args.query, limit=args.limit)
-        self._remember_search_candidates("tag", results)
+        self._remember_search_candidates("tag", args.query, results)
         return [candidate.model_dump(mode="json") for candidate in results]
 
     def _get_item(self, raw: BaseModel) -> dict[str, Any]:
@@ -372,10 +398,18 @@ class ToolDispatcher:
         self.state.seen[entity_type].add(entity_id)
         self.state.resolved[entity_type].add(entity_id)
 
-    def _remember_search_candidates(self, entity_type: str, candidates: list[Any]) -> None:
+    def _remember_search_candidates(
+        self,
+        entity_type: str,
+        query: str,
+        candidates: list[Any],
+    ) -> None:
         ids = [candidate.id for candidate in candidates]
         self._remember_seen(entity_type, ids)
         if not candidates:
+            key = normalize_search_text(query)
+            if key:
+                self.state.empty_searches[entity_type].add(key)
             return
         if len(candidates) == 1:
             self.state.resolved[entity_type].add(candidates[0].id)
