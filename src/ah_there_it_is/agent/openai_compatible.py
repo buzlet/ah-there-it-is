@@ -9,6 +9,7 @@ from typing import Any
 from urllib.error import HTTPError, URLError
 from urllib.request import Request, urlopen
 
+from ah_there_it_is.agent.errors import ProviderProtocolError, ProviderRequestError
 from ah_there_it_is.agent.protocol import (
     AgentMessage,
     LLMClientInfo,
@@ -16,14 +17,6 @@ from ah_there_it_is.agent.protocol import (
     ToolCall,
     ToolDefinition,
 )
-
-
-class ProviderRequestError(RuntimeError):
-    """The provider could not complete the HTTP request."""
-
-
-class ProviderProtocolError(RuntimeError):
-    """The provider returned a response that violates the expected contract."""
 
 
 @dataclass(frozen=True)

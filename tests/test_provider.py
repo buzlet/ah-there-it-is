@@ -11,7 +11,7 @@ from ah_there_it_is.agent.openai_compatible import (
     OpenAICompatibleLLMClient,
     ProviderProtocolError,
 )
-from ah_there_it_is.agent.protocol import AgentMessage, ToolDefinition
+from ah_there_it_is.agent.protocol import AgentMessage, ToolCall, ToolDefinition
 
 
 class _Handler(BaseHTTPRequestHandler):
@@ -149,3 +149,168 @@ def test_openai_compatible_adapter_rejects_invalid_tool_json() -> None:
         server.shutdown()
         thread.join(timeout=2)
         server.server_close()
+
+
+def test_gemini_adapter_serializes_tools_and_preserves_thought_signature() -> None:
+    from ah_there_it_is.agent.gemini import GeminiConfig, GeminiLLMClient
+
+    server, thread = _server(
+        {
+            "candidates": [
+                {
+                    "finishReason": "STOP",
+                    "content": {
+                        "role": "model",
+                        "parts": [
+                            {
+                                "functionCall": {
+                                    "id": "fc-1",
+                                    "name": "search_items",
+                                    "args": {"query": "CH341A"},
+                                },
+                                "thoughtSignature": "opaque-signature",
+                            }
+                        ],
+                    },
+                }
+            ],
+            "usageMetadata": {"promptTokenCount": 10, "totalTokenCount": 20},
+            "modelVersion": "gemini-test",
+            "responseId": "resp-gemini-1",
+        }
+    )
+    try:
+        client = GeminiLLMClient(
+            GeminiConfig(
+                base_url=f"http://127.0.0.1:{server.server_port}",
+                model="gemini-test",
+                api_key="secret",
+                temperature=0.1,
+            )
+        )
+        tools = [
+            ToolDefinition(
+                name="search_items",
+                description="Search items",
+                input_schema={
+                    "type": "object",
+                    "properties": {"query": {"type": "string"}},
+                    "required": ["query"],
+                    "additionalProperties": False,
+                },
+            )
+        ]
+        first = client.complete(
+            [
+                AgentMessage(role="system", content="Use tools."),
+                AgentMessage(role="user", content="Где CH341A?"),
+            ],
+            tools,
+        )
+        first_request = _Handler.request_payload
+        assert first.tool_calls[0].provider_state["thought_signature"] == "opaque-signature"
+        assert first.model_dump()["tool_calls"][0].get("provider_state") is None
+        assert first_request["systemInstruction"]["parts"][0]["text"] == "Use tools."
+        assert first_request["tools"][0]["functionDeclarations"][0]["name"] == "search_items"
+        assert first_request["generationConfig"]["temperature"] == 0.1
+
+        _Handler.response_payload = {
+            "candidates": [
+                {
+                    "finishReason": "STOP",
+                    "content": {"role": "model", "parts": [{"text": "Нашёл."}]},
+                }
+            ],
+            "modelVersion": "gemini-test",
+            "responseId": "resp-gemini-2",
+        }
+        response = client.complete(
+            [
+                AgentMessage(role="system", content="Use tools."),
+                AgentMessage(role="user", content="Где CH341A?"),
+                AgentMessage(role="assistant", tool_calls=first.tool_calls),
+                AgentMessage(
+                    role="tool",
+                    content='{"ok":true,"result":[{"id":7,"name":"CH341A"}]}',
+                    tool_call_id="fc-1",
+                    tool_name="search_items",
+                ),
+            ],
+            tools,
+        )
+        second_request = _Handler.request_payload
+    finally:
+        server.shutdown()
+        thread.join(timeout=2)
+        server.server_close()
+
+    model_part = second_request["contents"][1]["parts"][0]
+    assert model_part["functionCall"]["id"] == "fc-1"
+    assert model_part["thoughtSignature"] == "opaque-signature"
+    function_response = second_request["contents"][2]["parts"][0]["functionResponse"]
+    assert function_response["id"] == "fc-1"
+    assert function_response["name"] == "search_items"
+    assert function_response["response"]["ok"] is True
+    assert response.content == "Нашёл."
+
+
+def test_gemini_adapter_groups_parallel_tool_responses() -> None:
+    from ah_there_it_is.agent.gemini import GeminiConfig, GeminiLLMClient
+
+    client = GeminiLLMClient(GeminiConfig(base_url="http://localhost", model="x"))
+    contents = client._contents(  # noqa: SLF001 - serialization invariant under test
+        [
+            AgentMessage(role="user", content="find both"),
+            AgentMessage(
+                role="assistant",
+                tool_calls=(
+                    ToolCall(id="a", name="search_items", arguments={"query": "a"}),
+                    ToolCall(id="b", name="search_items", arguments={"query": "b"}),
+                ),
+            ),
+            AgentMessage(role="tool", content='{"ok":true}', tool_call_id="a", tool_name="search_items"),
+            AgentMessage(role="tool", content='{"ok":true}', tool_call_id="b", tool_name="search_items"),
+        ]
+    )
+    assert len(contents) == 3
+    assert len(contents[2]["parts"]) == 2
+    assert [part["functionResponse"]["id"] for part in contents[2]["parts"]] == ["a", "b"]
+
+
+def test_gemini_schema_resolves_pydantic_defs_and_nullable() -> None:
+    from ah_there_it_is.agent.gemini import _gemini_json_schema
+    from ah_there_it_is.agent.schemas import CreateItemInput
+
+    schema = _gemini_json_schema(CreateItemInput.model_json_schema())
+    assert "$defs" not in schema
+    assert "$ref" not in json.dumps(schema)
+    assert schema["properties"]["state"]["enum"]
+    assert schema["properties"]["location_id"]["type"] == ["integer", "null"]
+    assert schema["properties"]["location_id"]["minimum"] == 1
+
+
+def test_gemini_adapter_does_not_log_api_key() -> None:
+    from ah_there_it_is.agent.gemini import GeminiConfig, GeminiLLMClient
+
+    client = GeminiLLMClient(GeminiConfig(model="gemini-test", api_key="top-secret"))
+    assert "api_key" not in client.info.config
+    assert "top-secret" not in json.dumps(client.info.model_dump())
+
+
+def test_factory_builds_native_gemini_client() -> None:
+    from ah_there_it_is.agent.factory import build_llm_factory
+    from ah_there_it_is.agent.gemini import GeminiLLMClient
+    from ah_there_it_is.config import Settings
+
+    client = build_llm_factory(
+        Settings(
+            llm_provider="gemini",
+            llm_provider_name="google-gemini",
+            llm_model="gemini-flash-latest",
+            llm_api_key="secret",
+        )
+    )()
+    assert isinstance(client, GeminiLLMClient)
+    assert client.info.provider == "google-gemini"
+    assert client.info.model == "gemini-flash-latest"
+    assert "secret" not in json.dumps(client.info.model_dump())
