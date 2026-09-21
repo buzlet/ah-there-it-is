@@ -2,6 +2,12 @@
 
 from ah_there_it_is.agent.fakes import ScriptedLLMClient
 from ah_there_it_is.agent.heuristic import HeuristicLLMClient
+from ah_there_it_is.agent.openai_compatible import (
+    OpenAICompatibleConfig,
+    OpenAICompatibleLLMClient,
+    ProviderProtocolError,
+    ProviderRequestError,
+)
 from ah_there_it_is.agent.protocol import (
     AgentMessage,
     LLMClient,
@@ -18,6 +24,10 @@ __all__ = [
     "AgentRunner",
     "HeuristicLLMClient",
     "LLMClient",
+    "OpenAICompatibleConfig",
+    "OpenAICompatibleLLMClient",
+    "ProviderProtocolError",
+    "ProviderRequestError",
     "LLMClientInfo",
     "LLMResponse",
     "ScriptedLLMClient",

@@ -258,6 +258,9 @@ class AgentRunLog(Base):
     )
 
     conversation: Mapped[Conversation] = relationship(back_populates="runs")
+    experiment_runs: Mapped[list["ExperimentRun"]] = relationship(
+        back_populates="source_run", cascade="all, delete-orphan"
+    )
     feedback: Mapped["AgentFeedback | None"] = relationship(
         back_populates="run", cascade="all, delete-orphan", uselist=False
     )
@@ -286,3 +289,69 @@ class AgentFeedback(Base):
     )
 
     run: Mapped[AgentRunLog] = relationship(back_populates="feedback")
+
+
+class ExperimentRun(Base):
+    """One prompt/model replay against captured evidence from a source run."""
+
+    __tablename__ = "experiment_runs"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    source_run_id: Mapped[int] = mapped_column(
+        ForeignKey("agent_run_logs.id", ondelete="CASCADE"), nullable=False, index=True
+    )
+    experiment_name: Mapped[str] = mapped_column(String(120), nullable=False, index=True)
+    prompt_version: Mapped[str] = mapped_column(String(100), nullable=False, index=True)
+    prompt_hash: Mapped[str] = mapped_column(String(64), nullable=False, index=True)
+    system_prompt: Mapped[str] = mapped_column(Text, nullable=False)
+    llm_provider: Mapped[str] = mapped_column(String(100), nullable=False, index=True)
+    llm_model: Mapped[str] = mapped_column(String(200), nullable=False, index=True)
+    llm_config: Mapped[dict[str, Any]] = mapped_column(JSON, default=dict, nullable=False)
+    input_messages: Mapped[list[dict[str, Any]]] = mapped_column(JSON, default=list, nullable=False)
+    tool_trace: Mapped[list[dict[str, Any]]] = mapped_column(JSON, default=list, nullable=False)
+    final_content: Mapped[str | None] = mapped_column(Text, nullable=True)
+    rounds: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
+    status: Mapped[str] = mapped_column(String(20), nullable=False, index=True)
+    error: Mapped[str | None] = mapped_column(Text, nullable=True)
+    divergence_reason: Mapped[str | None] = mapped_column(Text, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=utc_now, nullable=False, index=True
+    )
+
+    source_run: Mapped[AgentRunLog] = relationship(back_populates="experiment_runs")
+    review: Mapped["ExperimentReview | None"] = relationship(
+        back_populates="experiment_run", cascade="all, delete-orphan", uselist=False
+    )
+
+
+class ExperimentReview(Base):
+    __tablename__ = "experiment_reviews"
+    __table_args__ = (
+        CheckConstraint(
+            "choice IN ('baseline', 'variant', 'tie', 'both_bad')",
+            name="ck_experiment_review_choice",
+        ),
+        CheckConstraint(
+            "variant_rating IS NULL OR (variant_rating >= 1 AND variant_rating <= 5)",
+            name="ck_experiment_review_variant_rating",
+        ),
+    )
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    experiment_run_id: Mapped[int] = mapped_column(
+        ForeignKey("experiment_runs.id", ondelete="CASCADE"),
+        nullable=False,
+        unique=True,
+        index=True,
+    )
+    choice: Mapped[str] = mapped_column(String(20), nullable=False)
+    variant_rating: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    comment: Mapped[str | None] = mapped_column(Text, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=utc_now, nullable=False
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=utc_now, onupdate=utc_now, nullable=False
+    )
+
+    experiment_run: Mapped[ExperimentRun] = relationship(back_populates="review")

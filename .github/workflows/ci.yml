@@ -1,0 +1,50 @@
+name: ci
+
+permissions:
+  contents: read
+
+'on':
+  push:
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  test:
+    runs-on: ubuntu-24.04
+    strategy:
+      matrix:
+        python-version: ['3.12', '3.13']
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+          cache: pip
+      - uses: extractions/setup-just@v4
+      - run: python -m pip install --upgrade pip
+      - run: python -m pip install -e '.[test]'
+      - run: just check
+      - run: just migration-check
+
+  live-provider-smoke:
+    if: ${{ github.event_name == 'workflow_dispatch' }}
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.13'
+      - run: python -m pip install -e '.[test]'
+      - name: Run live OpenAI-compatible provider smoke when configured
+        env:
+          AH_THERE_IT_IS_LLM_PROVIDER: openai-compatible
+          AH_THERE_IT_IS_LLM_PROVIDER_NAME: ${{ vars.AH_THERE_IT_IS_TEST_PROVIDER_NAME }}
+          AH_THERE_IT_IS_LLM_BASE_URL: ${{ vars.AH_THERE_IT_IS_TEST_BASE_URL }}
+          AH_THERE_IT_IS_LLM_MODEL: ${{ vars.AH_THERE_IT_IS_TEST_MODEL }}
+          AH_THERE_IT_IS_LLM_API_KEY: ${{ secrets.AH_THERE_IT_IS_TEST_API_KEY }}
+        run: |
+          if [ -z "$AH_THERE_IT_IS_LLM_BASE_URL" ] || [ -z "$AH_THERE_IT_IS_LLM_MODEL" ] || [ -z "$AH_THERE_IT_IS_LLM_API_KEY" ]; then
+            echo "Live provider smoke skipped: configure repository vars/secrets first."
+            exit 0
+          fi
+          python -m ah_there_it_is.provider_smoke

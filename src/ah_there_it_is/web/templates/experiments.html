@@ -1,0 +1,30 @@
+{% extends "base.html" %}
+{% block title %}Experiments · {{ app_name }}{% endblock %}
+{% block content %}
+<h1>Prompt experiments</h1>
+<p class="muted">Controlled replay uses only tool evidence captured by the source run. Divergence is recorded instead of touching live inventory.</p>
+<h2>Variants</h2>
+{% if summaries %}<div class="table-wrap"><table>
+<thead><tr><th>Experiment</th><th>Prompt / model</th><th>Cases</th><th>Done / div / fail</th><th>Rounds</th><th>Source avg</th><th>Variant avg</th><th>Reviews B/V/T/X</th><th>Clarify*</th><th>Mutation err</th></tr></thead>
+<tbody>{% for s in summaries %}<tr>
+<td>{{ s.experiment_name }}</td>
+<td>{{ s.prompt_version }} <code>{{ s.prompt_hash[:8] }}</code><br>{{ s.llm_provider }}/{{ s.llm_model }}</td>
+<td>{{ s.cases }}</td><td>{{ s.completed }} / {{ s.diverged }} / {{ s.failed }}</td>
+<td>{{ "%.2f"|format(s.average_rounds) }}</td>
+<td>{{ "%.2f"|format(s.source_average_rating) if s.source_average_rating is not none else "—" }}</td>
+<td>{{ "%.2f"|format(s.variant_average_rating) if s.variant_average_rating is not none else "—" }}</td>
+<td>{{ s.baseline_wins }}/{{ s.variant_wins }}/{{ s.ties }}/{{ s.both_bad }}</td>
+<td>{{ "%.0f%%"|format(s.clarification_rate * 100) }}</td>
+<td>{{ "%.0f%%"|format(s.mutation_error_rate * 100) }}</td>
+</tr>{% endfor %}</tbody>
+</table></div><p class="muted">* Clarification rate is a deliberately simple text heuristic, not a quality score.</p>{% else %}<p class="muted">No experiment runs yet.</p>{% endif %}
+<h2>Recent experiment runs</h2>
+{% if runs %}<div class="table-wrap"><table>
+<thead><tr><th>Run</th><th>Source</th><th>Status</th><th>Experiment</th><th>Model</th><th>Rounds</th><th>Review</th><th>Variant response</th></tr></thead>
+<tbody>{% for run in runs %}<tr>
+<td><a href="/experiments/{{ run.id }}">#{{ run.id }}</a></td>
+<td><a href="/evaluations/{{ run.source_run_id }}">#{{ run.source_run_id }}</a></td>
+<td>{{ run.status }}</td><td>{{ run.experiment_name }}</td><td>{{ run.llm_provider }}/{{ run.llm_model }}</td><td>{{ run.rounds }}</td>
+<td>{{ run.review.choice if run.review else "—" }}</td><td class="truncate">{{ run.final_content or run.divergence_reason or run.error or "—" }}</td>
+</tr>{% endfor %}</tbody></table></div>{% endif %}
+{% endblock %}

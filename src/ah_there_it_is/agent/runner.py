@@ -90,6 +90,7 @@ class AgentRunner:
                         "tool_calls": [
                             call.model_dump(mode="json") for call in response.tool_calls
                         ],
+                        "metadata": response.metadata,
                     },
                     "tool_results": [],
                 }

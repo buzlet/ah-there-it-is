@@ -15,6 +15,7 @@ from ah_there_it_is.services.catalog import CatalogService
 from ah_there_it_is.services.conversations import ConversationService
 from ah_there_it_is.services.evaluation import EvaluationService
 from ah_there_it_is.services.inventory import InventoryService
+from ah_there_it_is.services.experiments import ExperimentService
 from ah_there_it_is.web.dependencies import get_session
 from ah_there_it_is.web.schemas import (
     ChatRequest,
@@ -23,6 +24,8 @@ from ah_there_it_is.web.schemas import (
     ConversationResponse,
     FeedbackRequest,
     FeedbackResponse,
+    ExperimentReviewRequest,
+    ExperimentReviewResponse,
     ItemEditRequest,
     ItemResponse,
 )
@@ -204,6 +207,68 @@ def build_router(templates: Jinja2Templates) -> APIRouter:
                 "app_name": request.app.state.settings.app_name,
                 "categories": CatalogService(session).list_categories(),
             },
+        )
+
+
+    @router.get("/experiments", response_class=HTMLResponse)
+    def experiments(request: Request, session: Session = Depends(get_session)) -> HTMLResponse:
+        service = ExperimentService(session)
+        return templates.TemplateResponse(
+            request=request,
+            name="experiments.html",
+            context={
+                "app_name": request.app.state.settings.app_name,
+                "summaries": service.summaries(),
+                "runs": service.recent_runs(limit=100),
+            },
+        )
+
+    @router.get("/experiments/{experiment_run_id}", response_class=HTMLResponse)
+    def experiment_detail(
+        experiment_run_id: int,
+        request: Request,
+        session: Session = Depends(get_session),
+    ) -> HTMLResponse:
+        try:
+            run = ExperimentService(session).get_run(experiment_run_id)
+        except EntityNotFoundError as exc:
+            raise HTTPException(status_code=404, detail=str(exc)) from exc
+        return templates.TemplateResponse(
+            request=request,
+            name="experiment_detail.html",
+            context={
+                "app_name": request.app.state.settings.app_name,
+                "run": run,
+                "trace_json": json.dumps(run.tool_trace, ensure_ascii=False, indent=2),
+                "config_json": json.dumps(run.llm_config, ensure_ascii=False, indent=2),
+            },
+        )
+
+    @router.post(
+        "/api/experiments/{experiment_run_id}/review",
+        response_model=ExperimentReviewResponse,
+    )
+    def experiment_review(
+        experiment_run_id: int,
+        payload: ExperimentReviewRequest,
+        session: Session = Depends(get_session),
+    ) -> ExperimentReviewResponse:
+        try:
+            review = ExperimentService(session).set_review(
+                experiment_run_id,
+                choice=payload.choice,
+                variant_rating=payload.variant_rating,
+                comment=payload.comment,
+            )
+        except EntityNotFoundError as exc:
+            raise HTTPException(status_code=404, detail=str(exc)) from exc
+        except ValueError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+        return ExperimentReviewResponse(
+            experiment_run_id=experiment_run_id,
+            choice=review.choice,
+            variant_rating=review.variant_rating,
+            comment=review.comment,
         )
 
     @router.get("/evaluations", response_class=HTMLResponse)

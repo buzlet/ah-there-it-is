@@ -33,6 +33,8 @@ def test_initial_migration_round_trip(tmp_path: Path) -> None:
             "messages",
             "agent_run_logs",
             "agent_feedback",
+            "experiment_runs",
+            "experiment_reviews",
         } <= tables
         with engine.connect() as connection:
             assert connection.scalar(text("PRAGMA foreign_keys")) == 1
