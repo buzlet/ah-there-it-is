@@ -117,6 +117,21 @@ def test_tree_search_can_use_ancestry_to_disambiguate(session: Session) -> None:
     assert results[0].path == "Балкон / Полка 2"
 
 
+def test_tree_search_prefers_specific_leaf_inside_natural_phrase(session: Session) -> None:
+    inventory = InventoryService(session)
+    search = SearchService(session)
+    home = inventory.create_location("Квартира")
+    office = inventory.create_location("Кабинет", parent_id=home.id)
+    desk = inventory.create_location("Стол", parent_id=office.id)
+    middle = inventory.create_location("Средний ящик", parent_id=desk.id)
+
+    results = search.search_locations("средний ящик стола")
+
+    assert results[0].id == middle.id
+    assert results[0].path == "Квартира / Кабинет / Стол / Средний ящик"
+    assert results[0].score - results[1].score >= 50
+
+
 def test_category_candidates_include_full_path(session: Session) -> None:
     inventory = InventoryService(session)
     search = SearchService(session)
