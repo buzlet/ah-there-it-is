@@ -174,6 +174,7 @@ class OpenAICompatibleLLMClient:
         transient_statuses = {429, 500, 502, 503, 504}
         started = time.perf_counter()
         attempts = 0
+        retry_events: list[dict[str, Any]] = []
 
         for attempt in range(self.config.max_retries + 1):
             attempts = attempt + 1
@@ -186,14 +187,23 @@ class OpenAICompatibleLLMClient:
             except httpx.TimeoutException as exc:
                 if attempt >= self.config.max_retries:
                     raise ProviderRequestError("provider request timed out") from exc
-                self._retry_sleep(attempt)
+                delay = self._retry_sleep(attempt)
+                retry_events.append(
+                    {"kind": "timeout", "delay_seconds": round(delay, 6)}
+                )
                 continue
             except httpx.RequestError as exc:
                 if attempt >= self.config.max_retries:
                     raise ProviderRequestError(
                         f"provider request failed: {exc}"
                     ) from exc
-                self._retry_sleep(attempt)
+                delay = self._retry_sleep(attempt)
+                retry_events.append(
+                    {
+                        "kind": "request_error",
+                        "delay_seconds": round(delay, 6),
+                    }
+                )
                 continue
 
             if response.status_code >= 400:
@@ -206,7 +216,16 @@ class OpenAICompatibleLLMClient:
                         f"provider HTTP {response.status_code}: "
                         f"{detail or response.reason_phrase}"
                     )
-                self._retry_sleep(attempt, response.headers.get("Retry-After"))
+                delay = self._retry_sleep(
+                    attempt, response.headers.get("Retry-After")
+                )
+                retry_events.append(
+                    {
+                        "kind": "http",
+                        "status": response.status_code,
+                        "delay_seconds": round(delay, 6),
+                    }
+                )
                 continue
 
             wall = time.perf_counter() - started
@@ -214,6 +233,7 @@ class OpenAICompatibleLLMClient:
                 "client_wall_seconds": round(wall, 6),
                 "attempts": attempts,
                 "http_version": response.http_version,
+                "retry_events": retry_events,
             }
 
         raise AssertionError("retry loop exhausted unexpectedly")
@@ -228,7 +248,7 @@ class OpenAICompatibleLLMClient:
             headers["Authorization"] = f"Bearer {self.config.api_key}"
         return headers
 
-    def _retry_sleep(self, attempt: int, retry_after: str | None = None) -> None:
+    def _retry_sleep(self, attempt: int, retry_after: str | None = None) -> float:
         delay = self.config.retry_backoff_seconds * (2**attempt)
         if retry_after:
             try:
@@ -237,6 +257,7 @@ class OpenAICompatibleLLMClient:
                 pass
         if delay > 0:
             time.sleep(delay)
+        return delay
 
     def _endpoint(self) -> str:
         base = self.config.base_url.rstrip("/")
