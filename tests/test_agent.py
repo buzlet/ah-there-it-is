@@ -164,12 +164,67 @@ def test_invalid_and_unknown_tool_calls_return_structured_errors(session: Sessio
 
 
 def test_tool_schema_mutations_are_id_based(session: Session) -> None:
-    definitions = {tool.name: tool for tool in ToolDispatcher(session).definitions()}
+    inventory = InventoryService(session)
+    item = inventory.create_item("Adapter")
+    location = inventory.create_location("Балкон")
+    dispatcher = ToolDispatcher(session)
+    dispatcher.execute("search_items", {"query": "Adapter"})
+    dispatcher.execute("search_locations", {"query": "Балкон"})
+    definitions = {tool.name: tool for tool in dispatcher.definitions()}
 
+    assert item.id in dispatcher.state.resolved["item"]
+    assert location.id in dispatcher.state.resolved["location"]
     move_props = definitions["move_item"].input_schema["properties"]
     assert set(move_props) == {"item_id", "location_id"}
     assert "item" not in move_props
     assert "location" not in move_props
+
+
+def test_tool_definitions_expand_from_backend_capabilities(session: Session) -> None:
+    inventory = InventoryService(session)
+    inventory.create_item("Adapter")
+    inventory.create_location("Балкон")
+    dispatcher = ToolDispatcher(session)
+
+    initial = {tool.name for tool in dispatcher.definitions()}
+    assert initial == {
+        "search_items",
+        "search_locations",
+        "search_categories",
+        "search_tags",
+    }
+
+    dispatcher.execute("search_items", {"query": "Adapter"})
+    after_item = {tool.name for tool in dispatcher.definitions()}
+    assert {"get_item", "get_item_history", "create_item", "update_item", "move_item"} <= after_item
+    assert "get_location" not in after_item
+
+    dispatcher.execute("search_locations", {"query": "Балкон"})
+    after_location = {tool.name for tool in dispatcher.definitions()}
+    assert {"get_location", "list_location", "create_location"} <= after_location
+
+
+def test_agent_refreshes_tool_definitions_after_search(session: Session) -> None:
+    inventory = InventoryService(session)
+    inventory.create_item("Adapter")
+    llm = ScriptedLLMClient(
+        [
+            LLMResponse(tool_calls=(call("1", "search_items", query="Adapter"),)),
+            LLMResponse(content="Нашёл."),
+        ]
+    )
+
+    AgentRunner(session, llm).run("Где Adapter?")
+
+    first_tools = {tool.name for tool in llm.calls[0][1]}
+    second_tools = {tool.name for tool in llm.calls[1][1]}
+    assert first_tools == {
+        "search_items",
+        "search_locations",
+        "search_categories",
+        "search_tags",
+    }
+    assert {"get_item", "get_item_history", "update_item", "move_item"} <= second_tools
 
 
 def test_agent_loop_has_hard_round_limit(session: Session) -> None:
