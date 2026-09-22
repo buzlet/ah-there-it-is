@@ -1,0 +1,119 @@
+{
+  "version": "inventory-scenarios-v1",
+  "corpus_version": "inventory-corpus-v1",
+  "cases": [
+    {
+      "case_id": "find-01",
+      "steps": [
+        {
+          "expect_tools": ["search_items"],
+          "tool_calls": [
+            {"name": "search_items", "arguments": {"query": "GTX 1070"}}
+          ]
+        },
+        {
+          "expect_tools": ["get_item"],
+          "tool_calls": [
+            {"name": "get_item", "arguments": {"id": "${tool:search_items:result.0.id}"}}
+          ]
+        },
+        {"final": "GTX 1070 найдена в инвентаре."}
+      ]
+    },
+    {
+      "case_id": "move-01",
+      "steps": [
+        {
+          "expect_tools": ["search_items"],
+          "tool_calls": [
+            {"name": "search_items", "arguments": {"query": "CH341A"}}
+          ]
+        },
+        {
+          "expect_tools": ["search_locations", "move_item"],
+          "tool_calls": [
+            {"name": "search_locations", "arguments": {"query": "Средний ящик"}}
+          ]
+        },
+        {
+          "expect_tools": ["move_item"],
+          "tool_calls": [
+            {
+              "name": "move_item",
+              "arguments": {
+                "item_id": "${tool:search_items:result.0.id}",
+                "location_id": "${tool:search_locations:result.0.id}"
+              }
+            }
+          ]
+        },
+        {"final": "CH341A перемещён в средний ящик."}
+      ]
+    },
+    {
+      "case_id": "create-01",
+      "steps": [
+        {
+          "expect_tools": ["search_items"],
+          "tool_calls": [
+            {"name": "search_items", "arguments": {"query": "USB-C hub Anker 7-в-1"}}
+          ]
+        },
+        {
+          "expect_tools": ["create_item", "search_locations"],
+          "tool_calls": [
+            {"name": "search_locations", "arguments": {"query": "Правый ящик"}}
+          ]
+        },
+        {
+          "expect_tools": ["create_item"],
+          "tool_calls": [
+            {
+              "name": "create_item",
+              "arguments": {
+                "name": "USB-C hub Anker 7-в-1",
+                "location_id": "${tool:search_locations:result.0.id}"
+              }
+            }
+          ]
+        },
+        {"final": "USB-C hub Anker 7-в-1 добавлен в правый ящик."}
+      ]
+    },
+    {
+      "case_id": "ambiguity-01",
+      "steps": [
+        {
+          "expect_tools": ["search_items"],
+          "tool_calls": [
+            {"name": "search_items", "arguments": {"query": "мультиметр"}}
+          ]
+        },
+        {"final": "Найдено несколько мультиметров. Уточните, какой именно."}
+      ]
+    },
+    {
+      "case_id": "history-01",
+      "steps": [
+        {
+          "expect_tools": ["search_items"],
+          "tool_calls": [
+            {"name": "search_items", "arguments": {"query": "Chieftec 750W"}}
+          ]
+        },
+        {
+          "expect_tools": ["get_item_history"],
+          "tool_calls": [
+            {
+              "name": "get_item_history",
+              "arguments": {
+                "item_id": "${tool:search_items:result.0.id}"
+              }
+            }
+          ]
+        },
+        {"final": "История Chieftec 750W получена из журнала инвентаря."}
+      ]
+    }
+  ]
+}
