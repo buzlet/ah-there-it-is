@@ -155,6 +155,8 @@ def test_scenario_suite_matches_corpus_and_core_cases_pass() -> None:
     assert report["summary"]["count"] == len(suite.cases)
     assert report["summary"]["completed"] == len(suite.cases)
     assert report["summary"]["failed"] == 0
+    assert all(case.checks for case in corpus.cases)
+    assert report["summary"]["checks_passed"] == len(suite.cases)
     assert {
         "find-01",
         "move-01",
