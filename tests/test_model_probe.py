@@ -204,3 +204,28 @@ def test_model_probe_stops_after_failed_step() -> None:
     assert result["passed"] is False
     assert len(result["steps"]) == 1
     assert client.remaining == 0
+
+
+def test_model_probe_paces_every_model_request(monkeypatch) -> None:
+    case = ModelProbeCase(
+        id="paced",
+        messages=[{"role": "user", "content": "test"}],
+        tools=[],
+        steps=[
+            ProbeStep(no_tool_calls=True, require_text=True),
+            ProbeStep(no_tool_calls=True, require_text=True),
+        ],
+    )
+    from ah_there_it_is.model_probe import ModelProbeSuite
+    suite = ModelProbeSuite(version="paced-v1", cases=[case])
+    client = ScriptedLLMClient(
+        [LLMResponse(content="one"), LLMResponse(content="two")]
+    )
+    sleeps: list[float] = []
+    import ah_there_it_is.model_probe as probe_module
+    monkeypatch.setattr(probe_module.time, "sleep", sleeps.append)
+
+    report = run_probe_suite(client, suite, delay_seconds=3.2)
+
+    assert report["summary"] == {"count": 1, "passed": 1, "failed": 0}
+    assert sleeps == [3.2]
