@@ -132,7 +132,7 @@ jobs:
           if-no-files-found: ignore
 
   live-groq-smoke:
-    if: ${{ github.event_name == 'workflow_dispatch' && inputs.provider == 'groq' }}
+    if: ${{ (github.event_name == 'workflow_dispatch' && inputs.provider == 'groq') || github.ref == 'refs/heads/feat/stage6-tool-stability' }}
     environment: live-llm-test
     runs-on: ubuntu-24.04
     timeout-minutes: 6
@@ -159,7 +159,9 @@ jobs:
             echo "Live Groq evaluation skipped: configure GROQ_API_KEY in environment live-llm-test."
             exit 0
           fi
-          if [ "${{ inputs.suite }}" = "representative" ]; then
+          if [ "$GITHUB_REF" = "refs/heads/feat/stage6-tool-stability" ]; then
+            CASES=(--case create-01 --case ambiguity-01)
+          elif [ "${{ inputs.suite }}" = "representative" ]; then
             CASES=(
               --case find-01
               --case move-01
@@ -172,7 +174,9 @@ jobs:
           else
             CASES=(--case find-01 --case move-01)
           fi
-          if [ "${{ inputs.prompt_variant }}" = "v2-strict" ]; then
+          if [ "$GITHUB_REF" = "refs/heads/feat/stage6-tool-stability" ]; then
+            PROMPT_ARGS=(--prompt prompts/inventory-v1.txt --version inventory-v1)
+          elif [ "${{ inputs.prompt_variant }}" = "v2-strict" ]; then
             PROMPT_ARGS=(--prompt prompts/inventory-v2-strict.txt --version inventory-v2-strict)
           else
             PROMPT_ARGS=(--prompt prompts/inventory-v1.txt --version inventory-v1)
@@ -184,9 +188,9 @@ jobs:
             --repetitions "${{ inputs.repetitions || '1' }}" \
             --output live-eval.json
       - name: Upload live evaluation report
-        if: ${{ always() && github.event_name == 'workflow_dispatch' }}
+        if: ${{ always() && (github.event_name == 'workflow_dispatch' || github.ref == 'refs/heads/feat/stage6-tool-stability') }}
         uses: actions/upload-artifact@v4
         with:
-          name: live-eval-report-groq-${{ inputs.prompt_variant }}
+          name: live-eval-report-groq-v1-tool-discipline-r2-resume
           path: live-eval.json
           if-no-files-found: ignore
