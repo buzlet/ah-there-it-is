@@ -38,6 +38,7 @@
 - Keep module imports side-effect-light; application creation belongs in `create_app()`.
 - Preserve local-first operation. External LLM APIs may be adapters, never storage authorities.
 - **Application development and application CI must never depend on a real LLM/provider.** Use deterministic scenario mocks for application behavior; test provider/model compatibility in the separate contract pipeline.
+- Every application scenario must have at least one independent postcondition against persisted application state. Scenario completion alone is not success; `scenario-eval` must fail on failed checks or unchecked cases. The current v1 corpus/scenario suite has 40/40 automatic postconditions.
 - Google/Gemma provider probes are contract-only and must remain outside application CI. The current hosted probe uses `gemma-4-31b-it`, optional `thinkingConfig=HIGH`, and a 3.2-second minimum gap between every model request to stay below a 20 RPM target.
 - Use **Just** (`Justfile`) as the canonical runner for repeated development operations such as tests, checks, migrations, and the development server. Do not duplicate recurring command sequences in documentation or ad-hoc scripts when a Just recipe is appropriate.
 - If `just` itself is unavailable in a constrained environment, keep the `Justfile` authoritative and run the exact underlying recipe commands directly until `just` is available; do not add a network dependency merely to bootstrap the task runner.
