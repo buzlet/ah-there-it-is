@@ -87,6 +87,27 @@ def test_item_search_uses_attributes_description_tags_and_updates_fts(session: S
     assert search.search_items("nvidia") == []
 
 
+def test_two_token_fts_query_rejects_single_token_noise(session: Session) -> None:
+    inventory = InventoryService(session)
+    search = SearchService(session)
+
+    inventory.create_item(
+        "HDMI cable 2m",
+        description="Обычный HDMI кабель.",
+        tags=["HDMI", "cable"],
+    )
+    adapter = inventory.create_item(
+        "DisplayPort to HDMI adapter",
+        description="Переходник DisplayPort HDMI.",
+        tags=["DisplayPort", "HDMI"],
+    )
+
+    results = search.search_items("DisplayPort-HDMI")
+
+    assert [result.id for result in results] == [adapter.id]
+    assert all(result.name != "HDMI cable 2m" for result in results)
+
+
 def test_duplicate_location_leaf_names_are_returned_with_paths(session: Session) -> None:
     inventory = InventoryService(session)
     search = SearchService(session)
