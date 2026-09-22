@@ -49,8 +49,8 @@ serve:
 corpus-check corpus="eval/corpus-v1.json":
     python -m ah_there_it_is.corpus_check "{{corpus}}"
 
-live-eval corpus="eval/corpus-v1.json" limit="5" output="live-eval.json":
-    python -m ah_there_it_is.live_eval --corpus "{{corpus}}" --limit "{{limit}}" --output "{{output}}"
+live-eval corpus="eval/corpus-v1.json" limit="5" repetitions="1" output="live-eval.json":
+    python -m ah_there_it_is.live_eval --corpus "{{corpus}}" --limit "{{limit}}" --repetitions "{{repetitions}}" --output "{{output}}"
 
 live-compare baseline variant output="live-compare.json":
     python -m ah_there_it_is.live_compare "{{baseline}}" "{{variant}}" --output "{{output}}"
