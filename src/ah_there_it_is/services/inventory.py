@@ -22,7 +22,13 @@ _UNSET = _Unset()
 
 
 class InventoryService:
-    """Own inventory validation and transaction boundaries for one DB session."""
+    """Own inventory validation for one DB session.
+
+    Standalone callers keep the historical autocommit behavior. AgentRunner
+    constructs the service with autocommit=False so all mutations in one user
+    turn are flushed for tool visibility but committed only with the completed
+    turn. The runner owns rollback on failure in that mode.
+    """
 
     def __init__(self, session: Session, *, autocommit: bool = True) -> None:
         self.session = session
