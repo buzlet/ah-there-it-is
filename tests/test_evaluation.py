@@ -6,7 +6,11 @@ import pytest
 from sqlalchemy.orm import Session
 
 from ah_there_it_is.agent import AgentRunner, LLMResponse, ScriptedLLMClient, ToolCall
-from ah_there_it_is.agent.errors import AgentLoopLimitError
+from ah_there_it_is.agent.errors import (
+    AgentLoopLimitError,
+    RequestConflictError,
+    RequestPreviouslyFailedError,
+)
 from ah_there_it_is.services.evaluation import EvaluationService
 
 
@@ -311,3 +315,119 @@ def test_failed_agent_turn_keeps_user_message_but_no_assistant_message(
     ]
     assert run.user_message_id == messages[0].id
     assert run.assistant_message_id is None
+
+
+def test_completed_request_id_replays_without_second_model_or_mutation(
+    session: Session,
+) -> None:
+    from sqlalchemy import func, select
+
+    from ah_there_it_is.db.models import Event
+    from ah_there_it_is.services.conversations import ConversationService
+    from ah_there_it_is.services.inventory import InventoryService
+    from ah_there_it_is.services.search import SearchService
+
+    inventory = InventoryService(session)
+    target = inventory.create_location("Idempotent Target")
+    events_before = int(session.scalar(select(func.count(Event.id))) or 0)
+    llm = ScriptedLLMClient(
+        [
+            LLMResponse(
+                tool_calls=(
+                    ToolCall(
+                        id="search-new",
+                        name="search_items",
+                        arguments={"query": "Idempotent Widget"},
+                    ),
+                )
+            ),
+            LLMResponse(
+                tool_calls=(
+                    ToolCall(
+                        id="search-location",
+                        name="search_locations",
+                        arguments={"query": "Idempotent Target"},
+                    ),
+                )
+            ),
+            LLMResponse(
+                tool_calls=(
+                    ToolCall(
+                        id="create",
+                        name="create_item",
+                        arguments={
+                            "name": "Idempotent Widget",
+                            "location_id": target.id,
+                        },
+                    ),
+                )
+            ),
+            LLMResponse(content="Добавлено."),
+        ]
+    )
+    runner = AgentRunner(session, llm)
+
+    first = runner.run(
+        "Добавь Idempotent Widget в Idempotent Target",
+        client_request_id="request-create-1",
+    )
+    second = runner.run(
+        "Добавь Idempotent Widget в Idempotent Target",
+        client_request_id="request-create-1",
+    )
+
+    assert second.replayed is True
+    assert first.run_id == second.run_id
+    assert first.conversation_id == second.conversation_id
+    assert first.content == second.content
+    assert len(llm.calls) == 4
+    assert len(SearchService(session).search_items("Idempotent Widget")) == 1
+    assert int(session.scalar(select(func.count(Event.id))) or 0) == events_before + 1
+    messages = ConversationService(session).list_messages(first.conversation_id)
+    assert [message.role for message in messages] == ["user", "assistant"]
+    assert len(EvaluationService(session).recent_runs()) == 1
+
+
+def test_request_id_reuse_with_different_text_is_conflict(session: Session) -> None:
+    llm = ScriptedLLMClient([LLMResponse(content="Первый ответ.")])
+    runner = AgentRunner(session, llm)
+
+    first = runner.run("Первый текст", client_request_id="request-conflict-1")
+    with pytest.raises(RequestConflictError):
+        runner.run(
+            "Другой текст",
+            conversation_id=first.conversation_id,
+            client_request_id="request-conflict-1",
+        )
+
+    assert len(llm.calls) == 1
+    assert len(EvaluationService(session).recent_runs()) == 1
+
+
+def test_failed_request_id_is_terminal_and_not_reexecuted(session: Session) -> None:
+    llm = ScriptedLLMClient(
+        [
+            LLMResponse(
+                tool_calls=(
+                    ToolCall(
+                        id="search-fail",
+                        name="search_items",
+                        arguments={"query": "never-final"},
+                    ),
+                )
+            )
+        ]
+    )
+    runner = AgentRunner(session, llm, max_rounds=1)
+
+    with pytest.raises(AgentLoopLimitError):
+        runner.run("Ищи never-final", client_request_id="request-failed-1")
+
+    with pytest.raises(RequestPreviouslyFailedError) as exc_info:
+        runner.run("Ищи never-final", client_request_id="request-failed-1")
+
+    assert exc_info.value.run_id > 0
+    assert len(llm.calls) == 1
+    runs = EvaluationService(session).recent_runs()
+    assert len(runs) == 1
+    assert runs[0].status == "failed"
