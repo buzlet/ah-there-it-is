@@ -12,6 +12,7 @@ from ah_there_it_is.agent.openai_compatible import (
     OpenAICompatibleConfig,
     OpenAICompatibleLLMClient,
     ProviderProtocolError,
+    ProviderRateLimitError,
     ProviderRequestError,
 )
 from ah_there_it_is.agent.protocol import AgentMessage, ToolCall, ToolDefinition
@@ -405,7 +406,7 @@ def test_gemini_adapter_does_not_retry_http_429(monkeypatch) -> None:
     monkeypatch.setattr(gemini_module, "urlopen", fake_urlopen)
     client = GeminiLLMClient(GeminiConfig(model="gemini-test", max_retries=5))
 
-    with pytest.raises(Exception, match="provider HTTP 429"):
+    with pytest.raises(ProviderRateLimitError, match="provider HTTP 429"):
         client.complete([AgentMessage(role="user", content="x")], [])
 
     assert calls == 1
@@ -547,7 +548,7 @@ def test_openai_compatible_adapter_refuses_excessive_retry_after(
     )
     try:
         with pytest.raises(
-            ProviderRequestError,
+            ProviderRateLimitError,
             match="Retry-After 999s exceeds configured retry-delay cap 3s",
         ):
             client.complete([AgentMessage(role="user", content="x")], [])
