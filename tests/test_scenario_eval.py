@@ -148,6 +148,9 @@ def test_scenario_suite_matches_corpus_and_core_cases_pass() -> None:
     )
 
     assert report["pipeline"] == "application-scenario-mock"
+    corpus = load_corpus(CORPUS)
+    assert {case.case_id for case in suite.cases} == {case.id for case in corpus.cases}
+    assert len(suite.cases) == 40
     assert report["summary"]["count"] == len(suite.cases)
     assert report["summary"]["completed"] == len(suite.cases)
     assert report["summary"]["failed"] == 0
