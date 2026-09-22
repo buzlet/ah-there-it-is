@@ -19,7 +19,7 @@ from ah_there_it_is.agent.protocol import (
 )
 
 
-_REF = re.compile(r"^\\$\\{tool:([^:]+):(.+)\\}$")
+_REF = re.compile(r"^\$\{tool:([^:]+):(.+)\}$")
 
 
 class ScenarioMismatchError(AssertionError):
@@ -120,6 +120,7 @@ class ScenarioLLMClient:
                 f"for model call {self._index + 1}"
             )
 
+        self._assert_trailing_tool_results_ok(messages)
         step = self.scenario.steps[self._index]
         self._index += 1
         available = {tool.name for tool in tools}
@@ -162,6 +163,25 @@ class ScenarioLLMClient:
                 "scenario_step": self._index,
             },
         )
+
+    def _assert_trailing_tool_results_ok(
+        self,
+        messages: Sequence[AgentMessage],
+    ) -> None:
+        for message in reversed(messages):
+            if message.role != "tool":
+                break
+            try:
+                payload = json.loads(message.content)
+            except json.JSONDecodeError as exc:
+                raise ScenarioMismatchError(
+                    f"tool {message.tool_name!r} returned non-JSON content"
+                ) from exc
+            if not isinstance(payload, dict) or payload.get("ok") is not True:
+                raise ScenarioMismatchError(
+                    f"scenario {self.scenario.case_id!r}: "
+                    f"tool {message.tool_name!r} failed: {payload!r}"
+                )
 
     def _resolve(
         self,
