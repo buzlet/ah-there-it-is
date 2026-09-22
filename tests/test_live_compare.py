@@ -117,6 +117,7 @@ def test_compare_reports_is_descriptive_and_has_metric_deltas() -> None:
     assert "does not rank" in result["note"]
     assert result["baseline"]["llm_config_hash"] != result["variant"]["llm_config_hash"]
     assert result["comparability"] == {
+        "both_unaborted": True,
         "same_provider": True,
         "same_model": True,
         "same_provider_config": False,
@@ -135,6 +136,39 @@ def test_compare_reports_is_descriptive_and_has_metric_deltas() -> None:
     assert case["delta_variant_minus_baseline"]["wall_seconds"] == -0.75
     assert case["delta_variant_minus_baseline"]["prompt_tokens"] == -20.0
     assert case["checks_changed"] is False
+
+
+def test_compare_reports_exposes_quota_abort() -> None:
+    baseline = _report(
+        prompt_version="v1",
+        prompt_hash="a" * 64,
+        temperature=0.2,
+        wall=0.5,
+        prompt_tokens=728,
+        retry_delay=0.0,
+        status="failed",
+        checks_passed=False,
+    )
+    baseline["abort"] = {
+        "kind": "provider_rate_limit",
+        "after_case_id": "find-01",
+        "retry_after_seconds": 272.0,
+        "remaining_case_ids": ["create-01", "ambiguity-01"],
+    }
+    variant = _report(
+        prompt_version="v2",
+        prompt_hash="b" * 64,
+        temperature=0.2,
+        wall=1.0,
+        prompt_tokens=800,
+        retry_delay=0.0,
+    )
+
+    result = compare_reports(baseline, variant)
+
+    assert result["baseline_abort"]["kind"] == "provider_rate_limit"
+    assert result["variant_abort"] is None
+    assert result["comparability"]["both_unaborted"] is False
 
 
 def test_compare_reports_reports_missing_cases_without_hiding_them() -> None:
