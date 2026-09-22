@@ -114,7 +114,7 @@ The `/experiments` UI shows aggregate completion/divergence/failure metrics, rou
 - `GROQ_API_KEY` as an **Environment secret**;
 - `GROQ_MODEL=qwen/qwen3.8-27b` and `GROQ_BASE_URL=https://api.groq.com/openai/v1` as Environment variables.
 
-Normal CI jobs never receive provider secrets. Manual `workflow_dispatch` selects `groq` or `gemini`, a `smoke` or `representative` suite, and `prompt_variant=v1|v2-strict`; only the selected provider job runs and receives its own secret. Artifact names include the prompt variant so baseline and variant reports remain distinct. `smoke` runs `find-01` + `move-01`; `representative` adds `create-01`, `ambiguity-01`, and `history-01`. Groq/Qwen live evaluation uses temperature 0.6, top_p 0.95, `max_completion_tokens=256`, `reasoning_effort=none`, and hidden reasoning. These settings are captured in run metadata. The smaller completion budget and instruct mode are deliberate: measured free-tier limits are 7000 input tokens/minute and 1000 output tokens/minute.
+Normal CI jobs never receive provider secrets. Manual `workflow_dispatch` selects `groq` or `gemini`, a `smoke`, `tool-discipline`, or `representative` suite, `repetitions=1|2|3`, and `prompt_variant=v1|v2-strict`; only the selected provider job runs and receives its own secret. `tool-discipline` contains `find-01`, `create-01`, and `ambiguity-01` so stochastic function-calling reliability can be repeated without spending quota on the whole corpus. Artifact names include the prompt variant so baseline and variant reports remain distinct. `smoke` runs `find-01` + `move-01`; `representative` adds `create-01`, `ambiguity-01`, and `history-01`. Groq/Qwen live evaluation uses temperature 0.6, top_p 0.95, `max_completion_tokens=256`, `reasoning_effort=none`, and hidden reasoning. These settings are captured in run metadata. The smaller completion budget and instruct mode are deliberate: measured free-tier limits are 7000 input tokens/minute and 1000 output tokens/minute.
 
 ## Current scope
 
@@ -129,7 +129,7 @@ The committed corpus is `eval/corpus-v1.json` (40 cases). Each case starts from 
 Canonical repeated commands are in `Justfile`:
 
 - `just corpus-check` validates corpus/fixture compatibility and unique case IDs.
-- `just live-eval` runs the first configured cases against the provider selected by `AH_THERE_IT_IS_LLM_*` and writes `live-eval.json`.
+- `just live-eval` runs configured cases against the provider selected by `AH_THERE_IT_IS_LLM_*`; its optional repetitions argument reruns each selected case from a fresh fixture and records `trial` plus stable `execution_id` (for example `find-01#r2`).
 - `just provider-smoke` remains the lightweight connectivity-only check.
 - `just live-compare baseline.json variant.json comparison.json` creates a descriptive case-by-case comparison with exact provider-config fingerprints, rounds, checks, token usage, provider/client time, retry delay, tool usage/errors, and both assistant texts. It deliberately does not rank prompts or choose a winner.
 
