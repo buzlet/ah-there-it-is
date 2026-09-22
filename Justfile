@@ -63,3 +63,6 @@ scenario-eval corpus="eval/corpus-v1.json" scenarios="eval/scenarios-v1.json" ou
 
 model-probe suite="eval/model-probes-v1.json" output="model-probe.json":
     python -m ah_there_it_is.model_probe --suite "{{suite}}" --output "{{output}}"
+
+provider-contract:
+    python -m pytest tests/test_provider.py tests/test_model_probe.py
