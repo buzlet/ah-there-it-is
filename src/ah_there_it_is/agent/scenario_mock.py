@@ -47,6 +47,7 @@ class ScenarioStep(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     expect_tools: list[str] = Field(default_factory=list)
+    forbid_tools: list[str] = Field(default_factory=list)
     expect_results: list[ScenarioResultExpectation] = Field(default_factory=list)
     tool_calls: list[ScenarioToolCall] = Field(default_factory=list)
     final: str | None = None
@@ -141,6 +142,13 @@ class ScenarioLLMClient:
             raise ScenarioMismatchError(
                 f"scenario {self.scenario.case_id!r} step {self._index}: "
                 f"application did not expose expected tools {missing}; "
+                f"available={sorted(available)}"
+            )
+        forbidden = sorted(set(step.forbid_tools).intersection(available))
+        if forbidden:
+            raise ScenarioMismatchError(
+                f"scenario {self.scenario.case_id!r} step {self._index}: "
+                f"application exposed forbidden tools {forbidden}; "
                 f"available={sorted(available)}"
             )
 
