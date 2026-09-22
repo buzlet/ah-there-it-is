@@ -173,7 +173,7 @@ class SearchService:
 
     def _fts_overlap_ok(self, item: Item, search_key: str) -> bool:
         query_tokens = set(search_key.split())
-        if len(query_tokens) < 3:
+        if len(query_tokens) < 2:
             return True
         searchable_parts = [
             normalize_search_text(item.name),
