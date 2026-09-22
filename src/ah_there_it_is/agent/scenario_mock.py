@@ -33,10 +33,21 @@ class ScenarioToolCall(BaseModel):
     arguments: dict[str, Any] = Field(default_factory=dict)
 
 
+class ScenarioResultExpectation(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    tool_name: str
+    path: str = "result"
+    min_items: int | None = Field(default=None, ge=0)
+    max_items: int | None = Field(default=None, ge=0)
+    equals: Any | None = None
+
+
 class ScenarioStep(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     expect_tools: list[str] = Field(default_factory=list)
+    expect_results: list[ScenarioResultExpectation] = Field(default_factory=list)
     tool_calls: list[ScenarioToolCall] = Field(default_factory=list)
     final: str | None = None
 
@@ -122,6 +133,7 @@ class ScenarioLLMClient:
 
         self._assert_trailing_tool_results_ok(messages)
         step = self.scenario.steps[self._index]
+        self._assert_expected_results(step, messages)
         self._index += 1
         available = {tool.name for tool in tools}
         missing = sorted(set(step.expect_tools) - available)
@@ -164,6 +176,58 @@ class ScenarioLLMClient:
             },
         )
 
+    def _assert_expected_results(
+        self,
+        step: ScenarioStep,
+        messages: Sequence[AgentMessage],
+    ) -> None:
+        for expected in step.expect_results:
+            payload = self._latest_tool_payload(messages, expected.tool_name)
+            current = self._path_value(
+                payload,
+                expected.path,
+                label=f"tool {expected.tool_name!r}",
+            )
+            if expected.min_items is not None:
+                if not hasattr(current, "__len__") or len(current) < expected.min_items:
+                    raise ScenarioMismatchError(
+                        f"scenario {self.scenario.case_id!r}: "
+                        f"{expected.tool_name}.{expected.path} expected at least "
+                        f"{expected.min_items} item(s), got {current!r}"
+                    )
+            if expected.max_items is not None:
+                if not hasattr(current, "__len__") or len(current) > expected.max_items:
+                    raise ScenarioMismatchError(
+                        f"scenario {self.scenario.case_id!r}: "
+                        f"{expected.tool_name}.{expected.path} expected at most "
+                        f"{expected.max_items} item(s), got {current!r}"
+                    )
+            if expected.equals is not None and current != expected.equals:
+                raise ScenarioMismatchError(
+                    f"scenario {self.scenario.case_id!r}: "
+                    f"{expected.tool_name}.{expected.path} expected "
+                    f"{expected.equals!r}, got {current!r}"
+                )
+
+    def _path_value(self, payload: Any, path: str, *, label: str) -> Any:
+        current = payload
+        if not path:
+            return current
+        for token in path.split("."):
+            try:
+                if isinstance(current, list):
+                    current = current[int(token)]
+                elif isinstance(current, dict):
+                    current = current[token]
+                else:
+                    raise TypeError(type(current).__name__)
+            except (KeyError, IndexError, ValueError, TypeError) as exc:
+                raise ScenarioMismatchError(
+                    f"scenario {self.scenario.case_id!r}: "
+                    f"cannot resolve {label}.{path} at token {token!r}"
+                ) from exc
+        return current
+
     def _assert_trailing_tool_results_ok(
         self,
         messages: Sequence[AgentMessage],
@@ -200,21 +264,7 @@ class ScenarioLLMClient:
             return value
         tool_name, path = match.groups()
         payload = self._latest_tool_payload(messages, tool_name)
-        current: Any = payload
-        for token in path.split("."):
-            try:
-                if isinstance(current, list):
-                    current = current[int(token)]
-                elif isinstance(current, dict):
-                    current = current[token]
-                else:
-                    raise TypeError(type(current).__name__)
-            except (KeyError, IndexError, ValueError, TypeError) as exc:
-                raise ScenarioMismatchError(
-                    f"scenario {self.scenario.case_id!r}: cannot resolve "
-                    f"{value!r} at token {token!r}"
-                ) from exc
-        return current
+        return self._path_value(payload, path, label=value)
 
     def _latest_tool_payload(
         self,
