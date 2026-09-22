@@ -222,8 +222,20 @@ class OpenAICompatibleLLMClient:
                         f"provider HTTP {response.status_code}: "
                         f"{detail or response.reason_phrase}"
                     )
+                retry_after_header = response.headers.get("Retry-After")
+                retry_after = self._parse_retry_after(retry_after_header)
+                if (
+                    retry_after is not None
+                    and retry_after > self.config.max_retry_delay_seconds
+                ):
+                    raise ProviderRequestError(
+                        f"provider HTTP {response.status_code}: "
+                        f"Retry-After {retry_after:g}s exceeds configured "
+                        f"retry-delay cap {self.config.max_retry_delay_seconds:g}s; "
+                        f"{detail or response.reason_phrase}"
+                    )
                 delay, retry_after = self._retry_sleep(
-                    attempt, response.headers.get("Retry-After")
+                    attempt, retry_after_header
                 )
                 event: dict[str, Any] = {
                     "kind": "http",
@@ -255,19 +267,24 @@ class OpenAICompatibleLLMClient:
             headers["Authorization"] = f"Bearer {self.config.api_key}"
         return headers
 
+    @staticmethod
+    def _parse_retry_after(retry_after: str | None) -> float | None:
+        if not retry_after:
+            return None
+        try:
+            return max(0.0, float(retry_after))
+        except ValueError:
+            return None
+
     def _retry_sleep(
         self,
         attempt: int,
         retry_after: str | None = None,
     ) -> tuple[float, float | None]:
         delay = self.config.retry_backoff_seconds * (2**attempt)
-        retry_after_seconds: float | None = None
-        if retry_after:
-            try:
-                retry_after_seconds = max(0.0, float(retry_after))
-                delay = max(delay, retry_after_seconds)
-            except ValueError:
-                pass
+        retry_after_seconds = self._parse_retry_after(retry_after)
+        if retry_after_seconds is not None:
+            delay = max(delay, retry_after_seconds)
         delay = min(delay, self.config.max_retry_delay_seconds)
         if delay > 0:
             time.sleep(delay)
