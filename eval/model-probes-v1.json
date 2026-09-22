@@ -13,24 +13,26 @@
           "content": "Find GTX 1070 in my inventory."
         }
       ],
-      "tools": [
+      "steps": [
         {
-          "name": "search_items",
-          "description": "Search inventory items by a natural-language query.",
-          "input_schema": {
-            "type": "object",
-            "properties": {
-              "query": {"type": "string"}
-            },
-            "required": ["query"],
-            "additionalProperties": false
+          "tools": [
+            {
+              "name": "search_items",
+              "description": "Search inventory items by a natural-language query.",
+              "input_schema": {
+                "type": "object",
+                "properties": {"query": {"type": "string"}},
+                "required": ["query"],
+                "additionalProperties": false
+              }
+            }
+          ],
+          "expect": {
+            "tool_names": ["search_items"],
+            "required_arguments": {"search_items": ["query"]}
           }
         }
-      ],
-      "expect": {
-        "tool_name": "search_items",
-        "required_arguments": ["query"]
-      }
+      ]
     },
     {
       "id": "final-text-basic",
@@ -44,11 +46,142 @@
           "content": "Reply with a short acknowledgement."
         }
       ],
-      "tools": [],
-      "expect": {
-        "no_tool_calls": true,
-        "require_text": true
-      }
+      "steps": [
+        {
+          "tools": [],
+          "expect": {
+            "tool_names": [],
+            "require_text": true
+          }
+        }
+      ]
+    },
+    {
+      "id": "tool-result-continuation",
+      "messages": [
+        {
+          "role": "system",
+          "content": "Use tools to answer. Continue from tool results and never invent IDs."
+        },
+        {
+          "role": "user",
+          "content": "Where is GTX 1070?"
+        }
+      ],
+      "steps": [
+        {
+          "tools": [
+            {
+              "name": "search_items",
+              "description": "Search inventory items.",
+              "input_schema": {
+                "type": "object",
+                "properties": {"query": {"type": "string"}},
+                "required": ["query"],
+                "additionalProperties": false
+              }
+            }
+          ],
+          "expect": {
+            "tool_names": ["search_items"],
+            "required_arguments": {"search_items": ["query"]}
+          },
+          "tool_results": [
+            {
+              "tool_name": "search_items",
+              "content": {
+                "ok": true,
+                "result": [{"id": 17, "name": "Gigabyte GTX 1070"}]
+              }
+            }
+          ]
+        },
+        {
+          "tools": [
+            {
+              "name": "get_item",
+              "description": "Read an item by an ID returned by search.",
+              "input_schema": {
+                "type": "object",
+                "properties": {"id": {"type": "integer"}},
+                "required": ["id"],
+                "additionalProperties": false
+              }
+            }
+          ],
+          "expect": {
+            "tool_names": ["get_item"],
+            "required_arguments": {"get_item": ["id"]},
+            "argument_equals": {"get_item": {"id": 17}}
+          },
+          "tool_results": [
+            {
+              "tool_name": "get_item",
+              "content": {
+                "ok": true,
+                "result": {
+                  "id": 17,
+                  "name": "Gigabyte GTX 1070",
+                  "location_path": "Квартира / Балкон / Стеллаж / Полка 2"
+                }
+              }
+            }
+          ]
+        },
+        {
+          "tools": [],
+          "expect": {
+            "tool_names": [],
+            "require_text": true
+          }
+        }
+      ]
+    },
+    {
+      "id": "parallel-tool-calls",
+      "messages": [
+        {
+          "role": "system",
+          "content": "This is a tool-protocol test. When asked, call both independent tools in the same response."
+        },
+        {
+          "role": "user",
+          "content": "In one response, search for CH341A and search for the location Средний ящик."
+        }
+      ],
+      "steps": [
+        {
+          "tools": [
+            {
+              "name": "search_items",
+              "description": "Search inventory items.",
+              "input_schema": {
+                "type": "object",
+                "properties": {"query": {"type": "string"}},
+                "required": ["query"],
+                "additionalProperties": false
+              }
+            },
+            {
+              "name": "search_locations",
+              "description": "Search inventory locations.",
+              "input_schema": {
+                "type": "object",
+                "properties": {"query": {"type": "string"}},
+                "required": ["query"],
+                "additionalProperties": false
+              }
+            }
+          ],
+          "expect": {
+            "tool_names": ["search_items", "search_locations"],
+            "required_arguments": {
+              "search_items": ["query"],
+              "search_locations": ["query"]
+            }
+          }
+        }
+      ]
     }
   ]
 }
