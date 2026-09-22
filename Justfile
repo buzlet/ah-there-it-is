@@ -60,3 +60,6 @@ scenario-check scenarios="eval/scenarios-v1.json":
 
 scenario-eval corpus="eval/corpus-v1.json" scenarios="eval/scenarios-v1.json" output="scenario-eval.json":
     python -m ah_there_it_is.scenario_eval --corpus "{{corpus}}" --scenarios "{{scenarios}}" --output "{{output}}"
+
+model-probe suite="eval/model-probes-v1.json" output="model-probe.json":
+    python -m ah_there_it_is.model_probe --suite "{{suite}}" --output "{{output}}"
