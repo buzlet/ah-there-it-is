@@ -174,6 +174,20 @@ def _delta(baseline: dict[str, Any], variant: dict[str, Any]) -> dict[str, Any]:
     }
 
 
+def _execution_key(case: dict[str, Any]) -> tuple[str, int] | None:
+    case_id = case.get("case_id")
+    if not isinstance(case_id, str):
+        return None
+    trial = case.get("trial", 1)
+    if not isinstance(trial, int) or trial < 1:
+        return None
+    return case_id, trial
+
+
+def _execution_label(key: tuple[str, int]) -> str:
+    return f"{key[0]}#r{key[1]}"
+
+
 def compare_reports(
     baseline: dict[str, Any],
     variant: dict[str, Any],
@@ -186,14 +200,16 @@ def compare_reports(
         raise ValueError("reports use different fixture versions")
 
     baseline_cases = {
-        case["case_id"]: case
+        key: case
         for case in baseline.get("cases", [])
-        if isinstance(case, dict) and isinstance(case.get("case_id"), str)
+        if isinstance(case, dict)
+        if (key := _execution_key(case)) is not None
     }
     variant_cases = {
-        case["case_id"]: case
+        key: case
         for case in variant.get("cases", [])
-        if isinstance(case, dict) and isinstance(case.get("case_id"), str)
+        if isinstance(case, dict)
+        if (key := _execution_key(case)) is not None
     }
     baseline_ids = set(baseline_cases)
     variant_ids = set(variant_cases)
@@ -205,7 +221,9 @@ def compare_reports(
         variant_metrics = _case_metrics(variant_cases[case_id])
         cases.append(
             {
-                "case_id": case_id,
+                "case_id": case_id[0],
+                "trial": case_id[1],
+                "execution_id": _execution_label(case_id),
                 "baseline": baseline_metrics,
                 "variant": variant_metrics,
                 "delta_variant_minus_baseline": _delta(
@@ -241,8 +259,12 @@ def compare_reports(
             "same_case_set": baseline_ids == variant_ids,
         },
         "shared_case_count": len(shared),
-        "missing_from_baseline": sorted(variant_ids - baseline_ids),
-        "missing_from_variant": sorted(baseline_ids - variant_ids),
+        "missing_from_baseline": [
+            _execution_label(key) for key in sorted(variant_ids - baseline_ids)
+        ],
+        "missing_from_variant": [
+            _execution_label(key) for key in sorted(baseline_ids - variant_ids)
+        ],
         "cases": cases,
         "note": (
             "This report is descriptive only. It deliberately does not "
