@@ -1,0 +1,54 @@
+{
+  "version": "model-probes-v1",
+  "cases": [
+    {
+      "id": "tool-search-basic",
+      "messages": [
+        {
+          "role": "system",
+          "content": "You are testing a tool API. Use the supplied tool when it is needed."
+        },
+        {
+          "role": "user",
+          "content": "Find GTX 1070 in my inventory."
+        }
+      ],
+      "tools": [
+        {
+          "name": "search_items",
+          "description": "Search inventory items by a natural-language query.",
+          "input_schema": {
+            "type": "object",
+            "properties": {
+              "query": {"type": "string"}
+            },
+            "required": ["query"],
+            "additionalProperties": false
+          }
+        }
+      ],
+      "expect": {
+        "tool_name": "search_items",
+        "required_arguments": ["query"]
+      }
+    },
+    {
+      "id": "final-text-basic",
+      "messages": [
+        {
+          "role": "system",
+          "content": "Return a short plain-text answer. No tools are available."
+        },
+        {
+          "role": "user",
+          "content": "Reply with a short acknowledgement."
+        }
+      ],
+      "tools": [],
+      "expect": {
+        "no_tool_calls": true,
+        "require_text": true
+      }
+    }
+  ]
+}
