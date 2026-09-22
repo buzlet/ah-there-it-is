@@ -54,3 +54,6 @@ live-eval corpus="eval/corpus-v1.json" limit="5" repetitions="1" trial_start="1"
 
 live-compare baseline variant output="live-compare.json":
     python -m ah_there_it_is.live_compare "{{baseline}}" "{{variant}}" --output "{{output}}"
+
+live-merge output report1 report2 *more:
+    python -m ah_there_it_is.live_merge "{{report1}}" "{{report2}}" {{more}} --output "{{output}}"
