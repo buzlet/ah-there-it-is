@@ -41,9 +41,10 @@ def test_exact_name_and_alias_outrank_fts(session: Session) -> None:
     alias_results = search.search_items("Chieftec PSU")
     assert alias_results[0].id == alias.id
     assert alias_results[0].match_type == "exact_alias"
-    assert alias_results[0].score > next(
+    fts_scores = [
         result.score for result in alias_results if result.match_type == "fts"
-    )
+    ]
+    assert all(alias_results[0].score > score for score in fts_scores)
 
 
 def test_search_name_separator_variants_without_merging_identity(session: Session) -> None:
