@@ -87,7 +87,14 @@
           ]
         },
         {
-          "final": "Переходник найден."
+          "final": "Переходник найден.",
+          "expect_results": [
+            {
+              "tool_name": "get_item",
+              "path": "result.name",
+              "equals": "ORICO USB 3.0 SATA adapter"
+            }
+          ]
         }
       ]
     },
@@ -1565,7 +1572,14 @@
           ]
         },
         {
-          "final": "Содержимое первой полки стеллажа получено."
+          "final": "Содержимое первой полки стеллажа получено.",
+          "expect_results": [
+            {
+              "tool_name": "list_location",
+              "path": "result",
+              "min_items": 1
+            }
+          ]
         }
       ]
     },
@@ -1599,7 +1613,14 @@
           ]
         },
         {
-          "final": "USB/SATA адаптер найден."
+          "final": "USB/SATA адаптер найден.",
+          "expect_results": [
+            {
+              "tool_name": "get_item",
+              "path": "result.name",
+              "equals": "ORICO USB 3.0 SATA adapter"
+            }
+          ]
         }
       ]
     },
@@ -1633,7 +1654,14 @@
           ]
         },
         {
-          "final": "CH341A найден."
+          "final": "CH341A найден.",
+          "expect_results": [
+            {
+              "tool_name": "get_item",
+              "path": "result.name",
+              "equals": "CH341A programmer"
+            }
+          ]
         }
       ]
     },
@@ -1667,7 +1695,14 @@
           ]
         },
         {
-          "final": "Gigabyte GTX 1070 найдена."
+          "final": "Gigabyte GTX 1070 найдена.",
+          "expect_results": [
+            {
+              "tool_name": "get_item",
+              "path": "result.name",
+              "equals": "Gigabyte GTX 1070"
+            }
+          ]
         }
       ]
     },

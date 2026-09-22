@@ -173,7 +173,12 @@
         "Достал красный мультиметр."
       ],
       "focus": "Take item out of storage; location becomes unknown/none.",
-      "checks": []
+      "checks": [
+        {
+          "kind": "item_location_none",
+          "item_query": "DT-830B"
+        }
+      ]
     },
     {
       "id": "create-01",
@@ -200,6 +205,16 @@
         {
           "kind": "item_exists",
           "item_query": "DisplayPort-HDMI"
+        },
+        {
+          "kind": "item_location",
+          "item_query": "DisplayPort-HDMI",
+          "location_query": "Правый ящик"
+        },
+        {
+          "kind": "item_state",
+          "item_query": "DisplayPort-HDMI",
+          "state": "working"
         }
       ]
     },
@@ -214,6 +229,16 @@
         {
           "kind": "item_exists",
           "item_query": "USB-C 1 метр"
+        },
+        {
+          "kind": "item_location",
+          "item_query": "USB-C 1 метр",
+          "location_query": "Правый ящик"
+        },
+        {
+          "kind": "item_state",
+          "item_query": "USB-C 1 метр",
+          "state": "new"
         }
       ]
     },
@@ -228,6 +253,16 @@
         {
           "kind": "item_exists",
           "item_query": "Seasonic 550W"
+        },
+        {
+          "kind": "item_location",
+          "item_query": "Seasonic 550W",
+          "location_query": "Коробка старого железа"
+        },
+        {
+          "kind": "item_state",
+          "item_query": "Seasonic 550W",
+          "state": "broken"
         }
       ]
     },
@@ -242,6 +277,16 @@
         {
           "kind": "item_exists",
           "item_query": "TS100"
+        },
+        {
+          "kind": "item_location",
+          "item_query": "TS100",
+          "location_query": "Кабинет Шкаф"
+        },
+        {
+          "kind": "item_state",
+          "item_query": "TS100",
+          "state": "working"
         }
       ]
     },
@@ -320,7 +365,16 @@
         "У GTX 1070 иногда шумит один вентилятор, добавь это в описание."
       ],
       "focus": "Recognize that the fan-noise detail is already present; avoid a redundant update.",
-      "checks": []
+      "checks": [
+        {
+          "kind": "item_description_contains",
+          "item_query": "GTX 1070",
+          "text": "один вентилятор иногда шумит"
+        },
+        {
+          "kind": "no_mutation"
+        }
+      ]
     },
     {
       "id": "update-02",
@@ -329,7 +383,18 @@
         "Красный DT-830B неисправен, щупы порваны."
       ],
       "focus": "State/description update on an existing uniquely resolved item.",
-      "checks": []
+      "checks": [
+        {
+          "kind": "item_state",
+          "item_query": "DT-830B",
+          "state": "broken"
+        },
+        {
+          "kind": "item_description_contains",
+          "item_query": "DT-830B",
+          "text": "щупы порваны"
+        }
+      ]
     },
     {
       "id": "update-03",
@@ -338,7 +403,13 @@
         "У HDMI кабелей количество теперь два."
       ],
       "focus": "Quantity update on existing grouped item.",
-      "checks": []
+      "checks": [
+        {
+          "kind": "item_quantity",
+          "item_query": "HDMI 2 метра",
+          "quantity": 2
+        }
+      ]
     },
     {
       "id": "update-04",
@@ -347,7 +418,16 @@
         "Переходник ORICO ещё подходит для SSD, добавь это как информацию."
       ],
       "focus": "Recognize that SSD compatibility is already present; avoid a redundant update.",
-      "checks": []
+      "checks": [
+        {
+          "kind": "item_description_contains",
+          "item_query": "ORICO",
+          "text": "SSD"
+        },
+        {
+          "kind": "no_mutation"
+        }
+      ]
     },
     {
       "id": "history-01",
@@ -383,7 +463,18 @@
         "Где он лежал до этого?"
       ],
       "focus": "Conversation reference plus newly-created move history.",
-      "checks": []
+      "checks": [
+        {
+          "kind": "item_location",
+          "item_query": "CH341A",
+          "location_query": "Средний ящик"
+        },
+        {
+          "kind": "item_history_min_events",
+          "item_query": "CH341A",
+          "min_events": 2
+        }
+      ]
     },
     {
       "id": "location-01",

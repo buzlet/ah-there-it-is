@@ -7,7 +7,7 @@ import json
 from pathlib import Path
 from typing import Any
 
-from sqlalchemy import func, select
+from sqlalchemy import select
 
 from ah_there_it_is.agent.runner import AgentRunner
 from ah_there_it_is.agent.scenario_mock import (
@@ -15,59 +15,18 @@ from ah_there_it_is.agent.scenario_mock import (
     ScenarioLLMClient,
     load_scenario_suite,
 )
-from ah_there_it_is.db.models import AgentRunLog, Base, Event
+from ah_there_it_is.db.models import AgentRunLog, Base
 from ah_there_it_is.db.search_schema import install_fts_schema
 from ah_there_it_is.db.session import create_db_engine, create_session_factory
-from ah_there_it_is.eval_corpus import EvaluationCase, ExpectedCheck, load_corpus
+from ah_there_it_is.eval_checks import event_count, evaluate_expected_check
+from ah_there_it_is.eval_corpus import EvaluationCase, load_corpus
 from ah_there_it_is.eval_fixture import FIXTURE_VERSION, seed_inventory_fixture
-from ah_there_it_is.services.search import SearchService
 
 
 SCENARIO_PROMPT = (
     "Deterministic scenario mock for application-pipeline testing. "
     "Natural-language reasoning is intentionally outside this pipeline."
 )
-
-
-def _event_count(session) -> int:
-    return int(session.scalar(select(func.count(Event.id))) or 0)
-
-
-def _check_expected(
-    session,
-    check: ExpectedCheck,
-    *,
-    events_before: int,
-) -> dict[str, Any]:
-    search = SearchService(session)
-    if check.kind == "no_mutation":
-        after = _event_count(session)
-        return {
-            "kind": check.kind,
-            "ok": after == events_before,
-            "detail": f"events {events_before} -> {after}",
-        }
-    if check.kind == "item_exists":
-        items = search.search_items(check.item_query or "", limit=3)
-        return {
-            "kind": check.kind,
-            "ok": bool(items),
-            "detail": [item.model_dump(mode="json") for item in items],
-        }
-    if check.kind == "item_location":
-        items = search.search_items(check.item_query or "", limit=3)
-        locations = search.search_locations(check.location_query or "", limit=5)
-        location_ids = {location.id for location in locations}
-        ok = bool(items) and items[0].location_id in location_ids
-        return {
-            "kind": check.kind,
-            "ok": ok,
-            "detail": {
-                "item_ids": [item.id for item in items],
-                "candidate_location_ids": sorted(location_ids),
-            },
-        }
-    raise AssertionError(f"unsupported check kind: {check.kind}")
 
 
 def _run_case(case: EvaluationCase, scenario: ScenarioCase) -> dict[str, Any]:
@@ -81,7 +40,7 @@ def _run_case(case: EvaluationCase, scenario: ScenarioCase) -> dict[str, Any]:
     try:
         with factory() as session:
             seed_inventory_fixture(session)
-            events_before = _event_count(session)
+            events_before = event_count(session)
             llm = ScenarioLLMClient(scenario)
             runner = AgentRunner(
                 session,
@@ -109,7 +68,11 @@ def _run_case(case: EvaluationCase, scenario: ScenarioCase) -> dict[str, Any]:
 
                 llm.assert_exhausted()
                 checks = [
-                    _check_expected(session, check, events_before=events_before)
+                    evaluate_expected_check(
+                        session,
+                        check,
+                        events_before=events_before,
+                    )
                     for check in case.checks
                 ]
                 return {
@@ -188,6 +151,15 @@ def run_suite(
             "case ids missing from scenario suite: " + ", ".join(missing_scenarios)
         )
 
+    missing_postconditions = sorted(
+        case_id for case_id in selected_ids if not corpus_by_id[case_id].checks
+    )
+    if missing_postconditions:
+        raise ValueError(
+            "application scenarios require at least one postcondition: "
+            + ", ".join(missing_postconditions)
+        )
+
     results = [
         _run_case(corpus_by_id[case_id], scenario_by_id[case_id])
         for case_id in selected_ids
@@ -204,6 +176,12 @@ def run_suite(
             "failed": sum(case["status"] == "failed" for case in results),
             "checks_passed": sum(
                 case["checks_passed"] is True for case in results
+            ),
+            "checks_failed": sum(
+                case["checks_passed"] is False for case in results
+            ),
+            "unchecked": sum(
+                case["checks_passed"] is None for case in results
             ),
         },
     }
@@ -227,7 +205,11 @@ def main() -> None:
         Path(args.output).write_text(rendered, encoding="utf-8")
     else:
         print(rendered, end="")
-    if report["summary"]["failed"]:
+    if (
+        report["summary"]["failed"]
+        or report["summary"]["checks_failed"]
+        or report["summary"]["unchecked"]
+    ):
         raise SystemExit(2)
 
 

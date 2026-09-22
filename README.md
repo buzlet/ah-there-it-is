@@ -130,7 +130,7 @@ Normal development uses `eval/scenarios-v1.json` and `ScenarioLLMClient`, not a 
 
 Scenario tool arguments can reference actual prior tool results, for example `${tool:search_items:result.0.id}`. IDs therefore come from the application's real search results rather than fixture constants. Scenarios can also require/forbid offered tools and assert facts about prior tool results. A broken search, wrong capability decision, failed mutation, or unexpected ambiguity fails deterministically.
 
-`eval/scenarios-v1.json` covers all 40 cases in `eval/corpus-v1.json`. CI requires the scenario and corpus ID sets to remain identical.
+`eval/scenarios-v1.json` covers all 40 cases in `eval/corpus-v1.json`. CI requires the scenario and corpus ID sets to remain identical. Every application scenario now also has at least one independent corpus postcondition. The shared provider-neutral checker verifies persisted location/null-location, state, quantity, description content, item existence, history-event counts, and no-mutation invariants after the agent loop. `scenario-eval` fails if any case fails, any postcondition fails, or a selected application scenario has no postcondition; the current suite is 40/40 automatically checked.
 
 Canonical commands:
 
