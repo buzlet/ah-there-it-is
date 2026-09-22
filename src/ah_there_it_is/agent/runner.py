@@ -75,7 +75,11 @@ class AgentRunner:
 
         input_messages = [message.model_dump(mode="json") for message in messages]
         tool_trace: list[dict[str, Any]] = []
-        dispatcher = ToolDispatcher(self.session, original_text=text)
+        dispatcher = ToolDispatcher(
+            self.session,
+            original_text=text,
+            autocommit=False,
+        )
         rounds = 0
 
         try:
@@ -106,7 +110,10 @@ class AgentRunner:
                 if not response.tool_calls:
                     final = response.content.strip()
                     assistant_message = self.conversations.add_message(
-                        conversation_id, "assistant", final
+                        conversation_id,
+                        "assistant",
+                        final,
+                        commit=False,
                     )
                     run = self._record_run(
                         conversation_id=conversation_id,
@@ -117,7 +124,9 @@ class AgentRunner:
                         final_content=final,
                         rounds=round_number,
                         status="completed",
+                        commit=False,
                     )
+                    self.session.commit()
                     return AgentRunResult(
                         conversation_id=conversation_id,
                         run_id=run.id,
@@ -152,6 +161,7 @@ class AgentRunner:
                 f"agent exceeded max_rounds={self.max_rounds} without a final response"
             )
         except Exception as exc:
+            self.session.rollback()
             self._record_run(
                 conversation_id=conversation_id,
                 user_message_id=user_message.id,
@@ -177,6 +187,7 @@ class AgentRunner:
         rounds: int,
         status: str,
         error: str | None = None,
+        commit: bool = True,
     ):
         info = self.llm.info
         prompt_hash = hashlib.sha256(self.system_prompt.encode("utf-8")).hexdigest()
@@ -196,4 +207,5 @@ class AgentRunner:
             rounds=rounds,
             status=status,
             error=error,
+            commit=commit,
         )
