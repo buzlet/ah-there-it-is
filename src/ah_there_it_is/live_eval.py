@@ -13,17 +13,17 @@ import time
 from pathlib import Path
 from typing import Any
 
-from sqlalchemy import func, select
+from sqlalchemy import select
 
 from ah_there_it_is.agent.factory import build_llm_factory
 from ah_there_it_is.agent.runner import AgentRunner, SYSTEM_PROMPT
 from ah_there_it_is.config import get_settings
-from ah_there_it_is.db.models import AgentRunLog, Base, Event
+from ah_there_it_is.db.models import AgentRunLog, Base
 from ah_there_it_is.db.search_schema import install_fts_schema
 from ah_there_it_is.db.session import create_db_engine, create_session_factory
-from ah_there_it_is.eval_corpus import EvaluationCase, ExpectedCheck, load_corpus
+from ah_there_it_is.eval_checks import event_count, evaluate_expected_check
+from ah_there_it_is.eval_corpus import EvaluationCase, load_corpus
 from ah_there_it_is.eval_fixture import FIXTURE_VERSION, seed_inventory_fixture
-from ah_there_it_is.services.search import SearchService
 
 
 def _load_prompt(prompt_path: str | None) -> str:
@@ -33,10 +33,6 @@ def _load_prompt(prompt_path: str | None) -> str:
     if settings.prompt_file:
         return Path(settings.prompt_file).read_text(encoding="utf-8")
     return SYSTEM_PROMPT
-
-
-def _event_count(session) -> int:
-    return int(session.scalar(select(func.count(Event.id))) or 0)
 
 
 def _summarize(cases: list[dict[str, Any]]) -> dict[str, int]:
@@ -58,50 +54,6 @@ def _write_report(path: str, report: dict[str, Any]) -> None:
         json.dumps(report, ensure_ascii=False, indent=2) + "\n",
         encoding="utf-8",
     )
-
-
-def _check_expected(session, check: ExpectedCheck, *, events_before: int) -> dict[str, Any]:
-    search = SearchService(session)
-    if check.kind == "no_mutation":
-        events_after = _event_count(session)
-        ok = events_after == events_before
-        return {
-            "kind": check.kind,
-            "ok": ok,
-            "detail": f"events {events_before} -> {events_after}",
-        }
-
-    if check.kind == "item_exists":
-        candidates = search.search_items(check.item_query or "", limit=3)
-        ok = bool(candidates)
-        return {
-            "kind": check.kind,
-            "ok": ok,
-            "detail": [candidate.model_dump(mode="json") for candidate in candidates],
-        }
-
-    if check.kind == "item_location":
-        items = search.search_items(check.item_query or "", limit=3)
-        locations = search.search_locations(check.location_query or "", limit=5)
-        if not items or not locations:
-            return {
-                "kind": check.kind,
-                "ok": False,
-                "detail": {"items": len(items), "locations": len(locations)},
-            }
-        item = items[0]
-        location_ids = {candidate.id for candidate in locations}
-        ok = item.location_id in location_ids
-        return {
-            "kind": check.kind,
-            "ok": ok,
-            "detail": {
-                "item": item.model_dump(mode="json"),
-                "candidate_location_ids": sorted(location_ids),
-            },
-        }
-
-    raise AssertionError(f"unsupported check kind: {check.kind}")
 
 
 def run_case(
@@ -128,7 +80,7 @@ def run_case(
     try:
         with factory() as session:
             seed_inventory_fixture(session)
-            events_before = _event_count(session)
+            events_before = event_count(session)
             llm = build_llm_factory(settings)()
             runner = AgentRunner(
                 session,
@@ -185,7 +137,11 @@ def run_case(
                     )
 
             checks = [
-                _check_expected(session, check, events_before=events_before)
+                evaluate_expected_check(
+                    session,
+                    check,
+                    events_before=events_before,
+                )
                 for check in case.checks
             ]
             close = getattr(llm, "close", None)
