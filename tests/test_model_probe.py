@@ -61,3 +61,29 @@ def test_model_probe_rejects_unadvertised_tool_name() -> None:
     assert result["passed"] is False
     assert any("expected first tool" in error for error in result["errors"])
     assert any("not advertised" in error for error in result["errors"])
+
+
+def test_model_probe_paces_cases(monkeypatch) -> None:
+    suite = load_probe_suite(PROBES)
+    client = ScriptedLLMClient(
+        [
+            LLMResponse(
+                tool_calls=(
+                    ToolCall(
+                        id="probe-1",
+                        name="search_items",
+                        arguments={"query": "GTX 1070"},
+                    ),
+                )
+            ),
+            LLMResponse(content="OK"),
+        ]
+    )
+    sleeps: list[float] = []
+    import ah_there_it_is.model_probe as probe_module
+    monkeypatch.setattr(probe_module.time, "sleep", sleeps.append)
+
+    report = run_probe_suite(client, suite, delay_seconds=3.2)
+
+    assert report["summary"]["passed"] == 2
+    assert sleeps == [3.2]
