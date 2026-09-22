@@ -726,6 +726,58 @@ def test_openai_compatible_adapter_preserves_backend_fingerprint() -> None:
     assert response.metadata["system_fingerprint"] == "fp_test_backend"
 
 
+def test_openai_compatible_adapter_records_whitelisted_rate_limit_headers() -> None:
+    def handler(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(
+            200,
+            headers={
+                "x-ratelimit-limit-requests": "1000",
+                "x-ratelimit-limit-tokens": "8000",
+                "x-ratelimit-remaining-requests": "998",
+                "x-ratelimit-remaining-tokens": "7123",
+                "x-ratelimit-reset-requests": "12h",
+                "x-ratelimit-reset-tokens": "4.2s",
+                "authorization": "must-not-be-recorded",
+                "x-unrelated": "ignore-me",
+            },
+            json={
+                "id": "rate-limit-metadata",
+                "choices": [
+                    {
+                        "finish_reason": "stop",
+                        "message": {"role": "assistant", "content": "OK"},
+                    }
+                ],
+            },
+            request=request,
+        )
+
+    http_client = httpx.Client(transport=httpx.MockTransport(handler))
+    client = OpenAICompatibleLLMClient(
+        OpenAICompatibleConfig(
+            base_url="https://api.example/v1",
+            model="test-model",
+        ),
+        client=http_client,
+    )
+    try:
+        response = client.complete([AgentMessage(role="user", content="x")], [])
+    finally:
+        http_client.close()
+
+    assert response.metadata["transport"]["rate_limit"] == {
+        "x-ratelimit-limit-requests": "1000",
+        "x-ratelimit-limit-tokens": "8000",
+        "x-ratelimit-remaining-requests": "998",
+        "x-ratelimit-remaining-tokens": "7123",
+        "x-ratelimit-reset-requests": "12h",
+        "x-ratelimit-reset-tokens": "4.2s",
+    }
+    serialized = json.dumps(response.metadata)
+    assert "must-not-be-recorded" not in serialized
+    assert "ignore-me" not in serialized
+
+
 def test_openai_compatible_adapter_reports_provider_and_client_timing() -> None:
     def handler(request: httpx.Request) -> httpx.Response:
         return httpx.Response(
