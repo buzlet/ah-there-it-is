@@ -137,6 +137,7 @@ def _case_metrics(case: dict[str, Any]) -> dict[str, Any]:
     checks = checks if isinstance(checks, list) else []
     return {
         "status": case.get("status"),
+        "error": case.get("error"),
         "checks_passed": case.get("checks_passed"),
         "checks_count": len(checks),
         "rounds": rounds,
@@ -224,6 +225,8 @@ def compare_reports(
     return {
         "baseline": baseline_identity,
         "variant": variant_identity,
+        "baseline_summary": baseline.get("summary"),
+        "variant_summary": variant.get("summary"),
         "comparability": {
             "same_provider": (
                 baseline_identity["llm_provider"] == variant_identity["llm_provider"]
