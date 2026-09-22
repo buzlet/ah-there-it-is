@@ -49,6 +49,7 @@ def build_llm_factory(settings: Settings) -> Callable[[], LLMClient]:
             extra_body=settings.llm_extra_body,
             max_retries=settings.llm_max_retries,
             retry_backoff_seconds=settings.llm_retry_backoff_seconds,
+            max_retry_delay_seconds=settings.llm_max_retry_delay_seconds,
         )
         return lambda: OpenAICompatibleLLMClient(config)
     raise ValueError(f"unsupported LLM provider {settings.llm_provider!r}")
