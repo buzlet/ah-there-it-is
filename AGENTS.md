@@ -175,11 +175,3 @@ Strengthen deterministic application postconditions before adding more product s
 7. Voice, Telegram, images, QR, MCP, PWA, and multi-user support remain deferred.
 
 
-
-1. Keep every new application behavior accompanied by a deterministic scenario (or focused unit test) before considering any live-model probe.
-2. Grow `model-probes-v1` only to cover provider-neutral protocol capabilities the application actually requires: tool selection, argument JSON, parallel calls if used, tool-result continuation, and final text.
-3. Keep provider adapters thin and independently replaceable; never compensate for one model's vocabulary/tool hallucinations inside business services.
-4. Use real-provider probes sparingly to validate adapters/models, not to discover application behavior.
-5. Reconsider embeddings only if deterministic corpus scenarios demonstrate retrieval cases that exact/normalized/path/FTS rules cannot express cleanly.
-6. Voice, Telegram, images, QR, MCP, PWA, and multi-user support remain out of scope until the text application pipeline is stable.
-
