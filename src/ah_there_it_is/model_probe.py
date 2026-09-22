@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import time
 from pathlib import Path
 from typing import Any
 
@@ -112,6 +113,7 @@ def run_probe_suite(
     suite: ModelProbeSuite,
     *,
     case_ids: list[str] | None = None,
+    delay_seconds: float = 0.0,
 ) -> dict[str, Any]:
     by_id = {case.id: case for case in suite.cases}
     selected = case_ids or [case.id for case in suite.cases]
@@ -119,7 +121,11 @@ def run_probe_suite(
     if missing:
         raise ValueError("unknown model probe ids: " + ", ".join(missing))
 
-    cases = [run_probe_case(client, by_id[case_id]) for case_id in selected]
+    cases: list[dict[str, Any]] = []
+    for index, case_id in enumerate(selected):
+        if index and delay_seconds > 0:
+            time.sleep(delay_seconds)
+        cases.append(run_probe_case(client, by_id[case_id]))
     return {
         "pipeline": "model-adapter-contract",
         "suite_version": suite.version,
@@ -138,6 +144,7 @@ def main() -> None:
     parser.add_argument("--suite", default="eval/model-probes-v1.json")
     parser.add_argument("--case", action="append", dest="case_ids")
     parser.add_argument("--output", default="model-probe.json")
+    parser.add_argument("--delay-seconds", type=float, default=0.0)
     args = parser.parse_args()
 
     settings = get_settings()
@@ -153,6 +160,7 @@ def main() -> None:
             client,
             load_probe_suite(args.suite),
             case_ids=args.case_ids,
+            delay_seconds=args.delay_seconds,
         )
     finally:
         close = getattr(client, "close", None)
