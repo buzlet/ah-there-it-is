@@ -4,7 +4,9 @@ from __future__ import annotations
 
 import argparse
 import json
+import time
 from pathlib import Path
+from collections.abc import Callable
 from typing import Any
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
@@ -179,12 +181,19 @@ def _tool_result_messages(
     return messages
 
 
-def run_probe_case(client: LLMClient, case: ModelProbeCase) -> dict[str, Any]:
+def run_probe_case(
+    client: LLMClient,
+    case: ModelProbeCase,
+    *,
+    before_request: Callable[[], None] | None = None,
+) -> dict[str, Any]:
     messages = list(case.messages)
     step_reports: list[dict[str, Any]] = []
     case_errors: list[str] = []
 
     for step_number, step in enumerate(case.steps, start=1):
+        if before_request is not None:
+            before_request()
         response = client.complete(messages, case.tools)
         errors = _validate_response(response, case.tools, step)
         step_reports.append(
@@ -231,6 +240,7 @@ def run_probe_suite(
     suite: ModelProbeSuite,
     *,
     case_ids: list[str] | None = None,
+    delay_seconds: float = 0.0,
 ) -> dict[str, Any]:
     by_id = {case.id: case for case in suite.cases}
     selected = case_ids or [case.id for case in suite.cases]
@@ -238,7 +248,22 @@ def run_probe_suite(
     if missing:
         raise ValueError("unknown model probe ids: " + ", ".join(missing))
 
-    cases = [run_probe_case(client, by_id[case_id]) for case_id in selected]
+    request_count = 0
+
+    def before_request() -> None:
+        nonlocal request_count
+        if request_count and delay_seconds > 0:
+            time.sleep(delay_seconds)
+        request_count += 1
+
+    cases = [
+        run_probe_case(
+            client,
+            by_id[case_id],
+            before_request=before_request,
+        )
+        for case_id in selected
+    ]
     return {
         "pipeline": "model-adapter-contract",
         "suite_version": suite.version,
@@ -257,6 +282,7 @@ def main() -> None:
     parser.add_argument("--suite", default="eval/model-probes-v1.json")
     parser.add_argument("--case", action="append", dest="case_ids")
     parser.add_argument("--output", default="model-probe.json")
+    parser.add_argument("--delay-seconds", type=float, default=0.0)
     args = parser.parse_args()
 
     settings = get_settings()
@@ -272,6 +298,7 @@ def main() -> None:
             client,
             load_probe_suite(args.suite),
             case_ids=args.case_ids,
+            delay_seconds=args.delay_seconds,
         )
     finally:
         close = getattr(client, "close", None)
