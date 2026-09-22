@@ -219,6 +219,7 @@ def main() -> None:
     parser.add_argument("--limit", type=int, default=None)
     parser.add_argument("--output")
     parser.add_argument("--repetitions", type=int, default=1)
+    parser.add_argument("--trial-start", type=int, default=1)
     parser.add_argument("--allow-heuristic", action="store_true")
     args = parser.parse_args()
 
@@ -244,6 +245,8 @@ def main() -> None:
         selected = selected[: args.limit]
     if args.repetitions < 1:
         raise SystemExit("--repetitions must be >= 1")
+    if args.trial_start < 1:
+        raise SystemExit("--trial-start must be >= 1")
 
     probe = build_llm_factory(settings)()
     try:
@@ -260,6 +263,7 @@ def main() -> None:
         "prompt_hash": hashlib.sha256(prompt.encode("utf-8")).hexdigest(),
         "provider": llm_info.model_dump(mode="json"),
         "repetitions": args.repetitions,
+        "trial_start": args.trial_start,
         "cases": [],
         "summary": _summarize([]),
     }
@@ -268,7 +272,10 @@ def main() -> None:
 
     total = len(selected) * args.repetitions
     index = 0
-    for trial in range(1, args.repetitions + 1):
+    for trial in range(
+        args.trial_start,
+        args.trial_start + args.repetitions,
+    ):
         for case in selected:
             index += 1
             execution_id = f"{case.id}#r{trial}"
