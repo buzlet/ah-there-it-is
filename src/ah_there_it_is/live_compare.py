@@ -54,6 +54,7 @@ def _case_metrics(case: dict[str, Any]) -> dict[str, Any]:
     client_wall_seconds = 0.0
     tool_calls: Counter[str] = Counter()
     tool_errors = 0
+    assistant_texts: list[str] = []
 
     turns = case.get("turns")
     if not isinstance(turns, list):
@@ -61,6 +62,9 @@ def _case_metrics(case: dict[str, Any]) -> dict[str, Any]:
     for turn in turns:
         if not isinstance(turn, dict):
             continue
+        assistant_text = turn.get("assistant")
+        if isinstance(assistant_text, str):
+            assistant_texts.append(assistant_text)
         trace = turn.get("tool_trace")
         if not isinstance(trace, list):
             continue
@@ -146,6 +150,7 @@ def _case_metrics(case: dict[str, Any]) -> dict[str, Any]:
         "tool_calls": dict(sorted(tool_calls.items())),
         "tool_call_count": sum(tool_calls.values()),
         "tool_errors": tool_errors,
+        "assistant_texts": assistant_texts,
     }
 
 
@@ -219,6 +224,19 @@ def compare_reports(
     return {
         "baseline": baseline_identity,
         "variant": variant_identity,
+        "comparability": {
+            "same_provider": (
+                baseline_identity["llm_provider"] == variant_identity["llm_provider"]
+            ),
+            "same_model": (
+                baseline_identity["llm_model"] == variant_identity["llm_model"]
+            ),
+            "same_provider_config": (
+                baseline_identity["llm_config_hash"]
+                == variant_identity["llm_config_hash"]
+            ),
+            "same_case_set": baseline_ids == variant_ids,
+        },
         "shared_case_count": len(shared),
         "missing_from_baseline": sorted(variant_ids - baseline_ids),
         "missing_from_variant": sorted(baseline_ids - variant_ids),
