@@ -3,7 +3,7 @@ from __future__ import annotations
 import pytest
 from pydantic import ValidationError
 
-from ah_there_it_is.eval_checks import event_count, evaluate_check, evaluate_checks
+from ah_there_it_is.eval_checks import event_count, evaluate_expected_check, evaluate_checks
 from ah_there_it_is.eval_corpus import ExpectedCheck
 from ah_there_it_is.eval_fixture import seed_inventory_fixture
 from ah_there_it_is.services.inventory import InventoryService
