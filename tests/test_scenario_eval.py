@@ -229,3 +229,75 @@ def test_scenario_suite_can_select_one_case() -> None:
     )
     assert report["summary"]["count"] == 1
     assert report["cases"][0]["case_id"] == "move-01"
+
+
+def test_scenario_mock_failed_turn_rolls_back_successful_mutation(
+    session,
+) -> None:
+    from sqlalchemy import func, select
+
+    from ah_there_it_is.agent.runner import AgentRunner
+    from ah_there_it_is.db.models import Event
+    from ah_there_it_is.services.evaluation import EvaluationService
+    from ah_there_it_is.services.inventory import InventoryService
+
+    inventory = InventoryService(session)
+    original = inventory.create_location("Scenario Original")
+    target = inventory.create_location("Scenario Target")
+    item = inventory.create_item("Scenario Atomic Widget", location_id=original.id)
+    events_before = int(session.scalar(select(func.count(Event.id))) or 0)
+
+    # Deliberately omit a final step. After the successful move, AgentRunner asks
+    # the mock for another model response and receives ScenarioMismatchError.
+    llm = ScenarioLLMClient(
+        ScenarioCase(
+            case_id="atomic-failure",
+            steps=[
+                ScenarioStep(
+                    tool_calls=[
+                        ScenarioToolCall(
+                            name="search_items",
+                            arguments={"query": "Scenario Atomic Widget"},
+                        )
+                    ]
+                ),
+                ScenarioStep(
+                    tool_calls=[
+                        ScenarioToolCall(
+                            name="search_locations",
+                            arguments={"query": "Scenario Target"},
+                        )
+                    ]
+                ),
+                ScenarioStep(
+                    tool_calls=[
+                        ScenarioToolCall(
+                            name="move_item",
+                            arguments={
+                                "item_id": "${tool:search_items:result.0.id}",
+                                "location_id": "${tool:search_locations:result.0.id}",
+                            },
+                        )
+                    ]
+                ),
+            ],
+        )
+    )
+
+    with pytest.raises(ScenarioMismatchError, match="has no step"):
+        AgentRunner(session, llm, max_rounds=8).run(
+            "Перемести Scenario Atomic Widget в Scenario Target"
+        )
+
+    session.expire_all()
+    assert inventory.get_item(item.id).current_location_id == original.id
+    assert int(session.scalar(select(func.count(Event.id))) or 0) == events_before
+
+    run = EvaluationService(session).recent_runs()[0]
+    assert run.status == "failed"
+    assert "ScenarioMismatchError" in (run.error or "")
+    assert any(
+        result["tool_name"] == "move_item" and result["result"]["ok"] is True
+        for round_trace in run.tool_trace
+        for result in round_trace["tool_results"]
+    )
