@@ -12,6 +12,7 @@ from ah_there_it_is.agent.openai_compatible import (
     OpenAICompatibleConfig,
     OpenAICompatibleLLMClient,
     ProviderProtocolError,
+    ProviderRequestError,
 )
 from ah_there_it_is.agent.protocol import AgentMessage, ToolCall, ToolDefinition
 
@@ -514,7 +515,52 @@ def test_openai_compatible_adapter_retries_transient_http_429(monkeypatch) -> No
     assert sleeps == []
 
 
-def test_openai_compatible_adapter_caps_retry_after(monkeypatch) -> None:
+def test_openai_compatible_adapter_refuses_excessive_retry_after(
+    monkeypatch,
+) -> None:
+    calls = 0
+    sleeps: list[float] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        nonlocal calls
+        calls += 1
+        return httpx.Response(
+            429,
+            headers={"Retry-After": "999"},
+            json={"error": "rate limit"},
+            request=request,
+        )
+
+    import ah_there_it_is.agent.openai_compatible as provider_module
+
+    monkeypatch.setattr(provider_module.time, "sleep", sleeps.append)
+    http_client = httpx.Client(transport=httpx.MockTransport(handler))
+    client = OpenAICompatibleLLMClient(
+        OpenAICompatibleConfig(
+            base_url="https://api.example/v1",
+            model="test-model",
+            max_retries=2,
+            retry_backoff_seconds=1,
+            max_retry_delay_seconds=3,
+        ),
+        client=http_client,
+    )
+    try:
+        with pytest.raises(
+            ProviderRequestError,
+            match="Retry-After 999s exceeds configured retry-delay cap 3s",
+        ):
+            client.complete([AgentMessage(role="user", content="x")], [])
+    finally:
+        http_client.close()
+
+    assert calls == 1
+    assert sleeps == []
+
+
+def test_openai_compatible_adapter_retries_retry_after_within_cap(
+    monkeypatch,
+) -> None:
     calls = 0
     sleeps: list[float] = []
 
@@ -524,14 +570,14 @@ def test_openai_compatible_adapter_caps_retry_after(monkeypatch) -> None:
         if calls == 1:
             return httpx.Response(
                 429,
-                headers={"Retry-After": "999"},
+                headers={"Retry-After": "2"},
                 json={"error": "rate limit"},
                 request=request,
             )
         return httpx.Response(
             200,
             json={
-                "id": "ok-after-cap",
+                "id": "ok-after-short-wait",
                 "choices": [
                     {
                         "finish_reason": "stop",
@@ -563,16 +609,15 @@ def test_openai_compatible_adapter_caps_retry_after(monkeypatch) -> None:
 
     assert response.content == "OK"
     assert calls == 2
-    assert sleeps == [3]
+    assert sleeps == [2]
     assert response.metadata["transport"]["retry_events"] == [
         {
             "kind": "http",
             "status": 429,
-            "delay_seconds": 3,
-            "retry_after_seconds": 999.0,
+            "delay_seconds": 2,
+            "retry_after_seconds": 2.0,
         }
     ]
-    assert client.info.config["max_retry_delay_seconds"] == 3
 
 
 def test_openai_compatible_adapter_sends_groq_style_extra_body() -> None:
