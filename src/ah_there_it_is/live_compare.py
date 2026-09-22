@@ -241,7 +241,13 @@ def compare_reports(
         "variant": variant_identity,
         "baseline_summary": baseline.get("summary"),
         "variant_summary": variant.get("summary"),
+        "baseline_abort": baseline.get("abort"),
+        "variant_abort": variant.get("abort"),
         "comparability": {
+            "both_unaborted": (
+                baseline.get("abort") is None
+                and variant.get("abort") is None
+            ),
             "same_provider": (
                 baseline_identity["llm_provider"] == variant_identity["llm_provider"]
             ),
