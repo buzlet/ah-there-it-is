@@ -151,6 +151,8 @@ class OpenAICompatibleLLMClient:
 
         metadata: dict[str, Any] = {
             "response_id": data.get("id"),
+            "response_model": data.get("model"),
+            "system_fingerprint": data.get("system_fingerprint"),
             "finish_reason": choice.get("finish_reason"),
             "transport": transport,
         }
