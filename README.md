@@ -51,6 +51,7 @@ just serve
 just eval-export evaluation-cases.json
 just experiment-replay strict-v2 prompts/inventory-v2-strict.txt inventory-v2 50
 just provider-smoke
+just live-compare baseline.json variant.json live-compare.json
 ```
 
 If `just` is unavailable in a constrained sandbox, execute the exact underlying recipe command rather than adding a network dependency to install it.
@@ -113,7 +114,7 @@ The `/experiments` UI shows aggregate completion/divergence/failure metrics, rou
 - `GROQ_API_KEY` as an **Environment secret**;
 - `GROQ_MODEL=qwen/qwen3.8-27b` and `GROQ_BASE_URL=https://api.groq.com/openai/v1` as Environment variables.
 
-Normal CI jobs never receive provider secrets. Manual `workflow_dispatch` selects `groq` or `gemini` plus a `smoke` or `representative` suite; only the selected provider job runs and receives its own secret. `smoke` runs `find-01` + `move-01`; `representative` adds `create-01`, `ambiguity-01`, and `history-01`. Groq/Qwen live evaluation uses temperature 0.6, top_p 0.95, `max_completion_tokens=256`, `reasoning_effort=none`, and hidden reasoning. These settings are captured in run metadata. The smaller completion budget and instruct mode are deliberate: measured free-tier limits are 7000 input tokens/minute and 1000 output tokens/minute.
+Normal CI jobs never receive provider secrets. Manual `workflow_dispatch` selects `groq` or `gemini`, a `smoke` or `representative` suite, and `prompt_variant=v1|v2-strict`; only the selected provider job runs and receives its own secret. Artifact names include the prompt variant so baseline and variant reports remain distinct. `smoke` runs `find-01` + `move-01`; `representative` adds `create-01`, `ambiguity-01`, and `history-01`. Groq/Qwen live evaluation uses temperature 0.6, top_p 0.95, `max_completion_tokens=256`, `reasoning_effort=none`, and hidden reasoning. These settings are captured in run metadata. The smaller completion budget and instruct mode are deliberate: measured free-tier limits are 7000 input tokens/minute and 1000 output tokens/minute.
 
 ## Current scope
 
@@ -130,6 +131,7 @@ Canonical repeated commands are in `Justfile`:
 - `just corpus-check` validates corpus/fixture compatibility and unique case IDs.
 - `just live-eval` runs the first configured cases against the provider selected by `AH_THERE_IT_IS_LLM_*` and writes `live-eval.json`.
 - `just provider-smoke` remains the lightweight connectivity-only check.
+- `just live-compare baseline.json variant.json comparison.json` creates a descriptive case-by-case comparison with exact provider-config fingerprints, rounds, checks, token usage, provider/client time, retry delay, tool usage/errors, and both assistant texts. It deliberately does not rank prompts or choose a winner.
 
 `live-eval` intentionally refuses the offline heuristic provider unless `--allow-heuristic` is passed explicitly. The heuristic mode exists only to test harness plumbing; it is not a model-quality result.
 

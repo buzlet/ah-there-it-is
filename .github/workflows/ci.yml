@@ -24,6 +24,14 @@ permissions:
         options:
           - smoke
           - representative
+      prompt_variant:
+        description: System prompt variant
+        required: true
+        default: v1
+        type: choice
+        options:
+          - v1
+          - v2-strict
 
 jobs:
   test:
@@ -81,15 +89,21 @@ jobs:
           else
             CASES=(--case find-01 --case move-01)
           fi
+          if [ "${{ inputs.prompt_variant }}" = "v2-strict" ]; then
+            PROMPT_ARGS=(--prompt prompts/inventory-v2-strict.txt --version inventory-v2-strict)
+          else
+            PROMPT_ARGS=(--prompt prompts/inventory-v1.txt --version inventory-v1)
+          fi
           python -m ah_there_it_is.live_eval \
             --corpus eval/corpus-v1.json \
             "${CASES[@]}" \
+            "${PROMPT_ARGS[@]}" \
             --output live-eval.json
       - name: Upload live evaluation report
         if: ${{ always() && github.event_name == 'workflow_dispatch' }}
         uses: actions/upload-artifact@v4
         with:
-          name: live-eval-report-gemini
+          name: live-eval-report-gemini-${{ inputs.prompt_variant }}
           path: live-eval.json
           if-no-files-found: ignore
 
@@ -132,14 +146,20 @@ jobs:
           else
             CASES=(--case find-01 --case move-01)
           fi
+          if [ "${{ inputs.prompt_variant }}" = "v2-strict" ]; then
+            PROMPT_ARGS=(--prompt prompts/inventory-v2-strict.txt --version inventory-v2-strict)
+          else
+            PROMPT_ARGS=(--prompt prompts/inventory-v1.txt --version inventory-v1)
+          fi
           python -m ah_there_it_is.live_eval \
             --corpus eval/corpus-v1.json \
             "${CASES[@]}" \
+            "${PROMPT_ARGS[@]}" \
             --output live-eval.json
       - name: Upload live evaluation report
         if: ${{ always() && github.event_name == 'workflow_dispatch' }}
         uses: actions/upload-artifact@v4
         with:
-          name: live-eval-report-groq
+          name: live-eval-report-groq-${{ inputs.prompt_variant }}
           path: live-eval.json
           if-no-files-found: ignore
