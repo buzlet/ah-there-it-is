@@ -103,6 +103,7 @@ jobs:
           python -m ah_there_it_is.model_probe \
             --suite eval/model-probes-v1.json \
             "${CASE_ARGS[@]}" \
+            --delay-seconds 3.2 \
             --output model-probe.json
       - uses: actions/upload-artifact@v4
         if: always()
