@@ -130,7 +130,7 @@ Normal development uses `eval/scenarios-v1.json` and `ScenarioLLMClient`, not a 
 
 Scenario tool arguments can reference actual prior tool results, for example `${tool:search_items:result.0.id}`. IDs therefore come from the application's real search results rather than fixture constants. Scenarios can also require/forbid offered tools and assert facts about prior tool results. A broken search, wrong capability decision, failed mutation, or unexpected ambiguity fails deterministically.
 
-`eval/scenarios-v1.json` covers all 40 cases in `eval/corpus-v1.json`. CI requires the scenario and corpus ID sets to remain identical. Every application scenario now also has at least one independent corpus postcondition. The shared provider-neutral checker verifies persisted location/null-location, state, quantity, description content, item existence, history-event counts, and no-mutation invariants after the agent loop. `scenario-eval` fails if any case fails, any postcondition fails, or a selected application scenario has no postcondition; the current suite is 40/40 automatically checked.
+`eval/scenarios-v1.json` covers all 40 cases in `eval/corpus-v1.json`. CI requires the scenario and corpus ID sets to remain identical. Every application scenario now also has at least one independent corpus postcondition. The shared provider-neutral checker verifies persisted location/null-location, state, quantity, description content, structured attributes, category absence, item existence, exact event-count deltas, typed item events with optional source/destination locations, history-event counts, and no-mutation invariants after the agent loop. `scenario-eval` fails if any case fails, any postcondition fails, or a selected application scenario has no postcondition; the current suite is 40/40 automatically checked.
 
 Canonical commands:
 
@@ -178,7 +178,7 @@ Native Gemini and OpenAI-compatible adapters remain replaceable implementations 
 
 ## Current scope
 
-Stages 0–5 are complete. Stage 6 has established a provider-independent application regression pipeline covering the full 40-case corpus and a separate provider/model contract pipeline. Further application work should extend deterministic scenarios first. Real-provider probes are optional adapter verification.
+Stages 0–7 are complete. The application regression pipeline covers the full 40-case corpus with independent persisted-state/event postconditions, while provider/model compatibility remains a separate contract pipeline. Stage 8 focuses on turn-level transaction atomicity so a failed agent request cannot leave partial inventory mutations. Real-provider probes remain optional adapter verification.
 
 Voice, Telegram, images, QR, MCP, PWA, embeddings, and multi-user support remain out of scope until the text workflow is stable.
 
