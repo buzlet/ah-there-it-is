@@ -162,16 +162,26 @@ Stage 6 was deliberately restructured after live-provider work began coupling ap
 - That evidence is intentionally decoupled from application correctness. A provider outage, quota exhaustion, invalid generated tool name, or stochastic answer must not turn application CI red.
 - Current stable target: all 40 corpus scenarios pass deterministically through the real application stack with `ScenarioLLMClient`; provider-contract tests pass separately with real provider jobs skipped unless manually requested.
 
-### Stage 7 — next
+### Stage 7 — complete
 
-Strengthen deterministic application postconditions before adding more product surface:
+- Added a shared `eval_checks` state oracle used by both `scenario_eval` and historical `live_eval`; success semantics can no longer drift between mock-driven development and optional end-to-end research.
+- Extended corpus checks with item-without-location, exact state, quantity, description fragments, structured attribute equality, missing category, exact event-count delta, and item-history/event checks with optional from/to location constraints.
+- Added state/event postconditions for move, take, create, update, clarification/no-op, history, and safety scenarios.
+- Idempotent update cases explicitly prove no new event is written while the already-known fact remains stored.
+- Create cases prove requested state/location, no invented category, one mutation event, and the correct `item_created` destination.
+- Move/take cases prove final location plus the corresponding `item_moved` / `item_taken` history transition.
+- Structured read-only checks also cover quantity and JSON attributes.
+- All 40 cases in `eval/corpus-v1.json` now contain at least one automated postcondition; CI asserts the 40-case scenario suite completes with all 40 postconditions passing.
+- Application tests remain entirely provider-independent; provider-contract remains separate and live provider jobs are manual-only.
 
-1. Extend corpus checks beyond `item_location`, `item_exists`, and `no_mutation` to cover exact item state, quantity, description/attribute facts, location-null/taken items, and event/history expectations.
-2. Give every mutation/history corpus case an explicit state-based postcondition; scenario tool-call success alone must not be treated as sufficient evidence.
-3. Keep scenario scripts provider-independent and resolve IDs only from actual tool results.
-4. Add application behavior only together with deterministic scenario/postcondition coverage.
-5. Keep provider adapters and real-model probes in the separate provider-contract pipeline; no provider quirk may change business behavior.
-6. Reconsider embeddings only if deterministic corpus scenarios demonstrate retrieval needs the current exact/normalized/path/FTS rules cannot express cleanly.
-7. Voice, Telegram, images, QR, MCP, PWA, and multi-user support remain deferred.
+### Stage 8 — next
 
+Add local-first data portability and recovery without involving an LLM:
 
+1. Define a versioned inventory snapshot format containing locations, categories, items, aliases, tags, current placement, and event history.
+2. Add deterministic export and import/restore services plus CLI/Just commands.
+3. Preserve relationships and history on round-trip while rejecting malformed, incompatible, or internally inconsistent snapshots before mutating the destination database.
+4. Restore transactionally: failed validation/import must leave the existing database unchanged.
+5. Add round-trip tests from the deterministic fixture and a larger generated inventory, including nested trees and shared tags.
+6. Keep provider/model pipelines completely outside backup/restore code.
+7. Leave voice, Telegram, images, QR, MCP, PWA, embeddings, and multi-user support deferred until data portability is stable.
