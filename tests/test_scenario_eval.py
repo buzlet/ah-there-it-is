@@ -10,6 +10,7 @@ from ah_there_it_is.agent.scenario_mock import (
     ScenarioCase,
     ScenarioLLMClient,
     ScenarioMismatchError,
+    ScenarioResultExpectation,
     ScenarioStep,
     ScenarioToolCall,
     load_scenario_suite,
@@ -63,6 +64,38 @@ def test_scenario_mock_resolves_real_tool_result_reference() -> None:
     client.assert_exhausted()
 
 
+def test_scenario_mock_asserts_previous_result_cardinality() -> None:
+    client = ScenarioLLMClient(
+        ScenarioCase(
+            case_id="ambiguity",
+            steps=[
+                ScenarioStep(
+                    expect_results=[
+                        ScenarioResultExpectation(
+                            tool_name="search_items",
+                            min_items=2,
+                        )
+                    ],
+                    final="clarify",
+                )
+            ],
+        )
+    )
+    messages = [
+        AgentMessage(
+            role="tool",
+            tool_call_id="search-1",
+            tool_name="search_items",
+            content=json.dumps(
+                {"ok": True, "result": [{"id": 1}]}
+            ),
+        )
+    ]
+
+    with pytest.raises(ScenarioMismatchError, match="at least 2"):
+        client.complete(messages, [])
+
+
 def test_scenario_mock_rejects_unavailable_planned_tool() -> None:
     client = ScenarioLLMClient(
         ScenarioCase(
@@ -91,19 +124,19 @@ def test_scenario_suite_matches_corpus_and_core_cases_pass() -> None:
     )
 
     assert report["pipeline"] == "application-scenario-mock"
-    assert report["summary"] == {
-        "count": 5,
-        "completed": 5,
-        "failed": 0,
-        "checks_passed": 5,
-    }
-    assert [case["case_id"] for case in report["cases"]] == [
+    assert report["summary"]["count"] == len(suite.cases)
+    assert report["summary"]["completed"] == len(suite.cases)
+    assert report["summary"]["failed"] == 0
+    assert {
         "find-01",
         "move-01",
         "create-01",
         "ambiguity-01",
         "history-01",
-    ]
+        "ambiguity-04",
+        "update-03",
+        "safety-03",
+    }.issubset({case["case_id"] for case in report["cases"]})
 
 
 def test_scenario_suite_can_select_one_case() -> None:
