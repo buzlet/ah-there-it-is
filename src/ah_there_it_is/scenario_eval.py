@@ -151,6 +151,15 @@ def run_suite(
             "case ids missing from scenario suite: " + ", ".join(missing_scenarios)
         )
 
+    missing_postconditions = sorted(
+        case_id for case_id in selected_ids if not corpus_by_id[case_id].checks
+    )
+    if missing_postconditions:
+        raise ValueError(
+            "application scenarios require at least one postcondition: "
+            + ", ".join(missing_postconditions)
+        )
+
     results = [
         _run_case(corpus_by_id[case_id], scenario_by_id[case_id])
         for case_id in selected_ids
@@ -167,6 +176,12 @@ def run_suite(
             "failed": sum(case["status"] == "failed" for case in results),
             "checks_passed": sum(
                 case["checks_passed"] is True for case in results
+            ),
+            "checks_failed": sum(
+                case["checks_passed"] is False for case in results
+            ),
+            "unchecked": sum(
+                case["checks_passed"] is None for case in results
             ),
         },
     }
@@ -190,7 +205,11 @@ def main() -> None:
         Path(args.output).write_text(rendered, encoding="utf-8")
     else:
         print(rendered, end="")
-    if report["summary"]["failed"]:
+    if (
+        report["summary"]["failed"]
+        or report["summary"]["checks_failed"]
+        or report["summary"]["unchecked"]
+    ):
         raise SystemExit(2)
 
 
