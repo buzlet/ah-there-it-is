@@ -51,6 +51,8 @@ def _report(
                                             "total_tokens": prompt_tokens + 7,
                                         },
                                         "provider_server_seconds": 0.2,
+                                        "response_model": "qwen",
+                                        "system_fingerprint": "fp_fixture",
                                         "transport": {
                                             "client_wall_seconds": 0.4,
                                             "retry_events": [
@@ -127,6 +129,9 @@ def test_compare_reports_is_descriptive_and_has_metric_deltas() -> None:
     assert case["baseline"]["tool_errors"] == 1
     assert case["baseline"]["assistant_texts"] == ["inventory-v1 answer"]
     assert case["variant"]["assistant_texts"] == ["inventory-v2-strict answer"]
+    assert case["baseline"]["response_models"] == ["qwen"]
+    assert case["baseline"]["system_fingerprints"] == ["fp_fixture"]
+    assert case["backend_fingerprint_changed"] is False
     assert case["delta_variant_minus_baseline"]["wall_seconds"] == -0.75
     assert case["delta_variant_minus_baseline"]["prompt_tokens"] == -20.0
     assert case["checks_changed"] is False
