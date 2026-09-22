@@ -101,3 +101,67 @@ def test_failed_agent_run_is_logged_for_evaluation(session: Session) -> None:
     assert runs[0].status == "failed"
     assert "AgentLoopLimitError" in (runs[0].error or "")
     assert runs[0].tool_trace
+
+
+def test_failed_agent_turn_rolls_back_prior_inventory_mutation(session: Session) -> None:
+    from sqlalchemy import func, select
+
+    from ah_there_it_is.db.models import Event
+    from ah_there_it_is.services.inventory import InventoryService
+
+    inventory = InventoryService(session)
+    original = inventory.create_location("Original")
+    target = inventory.create_location("Target")
+    item = inventory.create_item("Atomic Widget", location_id=original.id)
+    events_before = int(session.scalar(select(func.count(Event.id))) or 0)
+
+    llm = ScriptedLLMClient(
+        [
+            LLMResponse(
+                tool_calls=(
+                    ToolCall(
+                        id="search-item",
+                        name="search_items",
+                        arguments={"query": "Atomic Widget"},
+                    ),
+                )
+            ),
+            LLMResponse(
+                tool_calls=(
+                    ToolCall(
+                        id="search-location",
+                        name="search_locations",
+                        arguments={"query": "Target"},
+                    ),
+                )
+            ),
+            LLMResponse(
+                tool_calls=(
+                    ToolCall(
+                        id="move",
+                        name="move_item",
+                        arguments={"item_id": item.id, "location_id": target.id},
+                    ),
+                )
+            ),
+        ]
+    )
+
+    with pytest.raises(AgentLoopLimitError):
+        AgentRunner(session, llm, max_rounds=3).run(
+            "Перемести Atomic Widget в Target"
+        )
+
+    session.expire_all()
+    assert inventory.get_item(item.id).current_location_id == original.id
+    assert int(session.scalar(select(func.count(Event.id))) or 0) == events_before
+
+    runs = EvaluationService(session).recent_runs()
+    assert len(runs) == 1
+    assert runs[0].status == "failed"
+    assert "AgentLoopLimitError" in (runs[0].error or "")
+    assert any(
+        result["tool_name"] == "move_item" and result["result"]["ok"] is True
+        for round_trace in runs[0].tool_trace
+        for result in round_trace["tool_results"]
+    )
