@@ -24,8 +24,9 @@ _UNSET = _Unset()
 class InventoryService:
     """Own inventory validation and transaction boundaries for one DB session."""
 
-    def __init__(self, session: Session) -> None:
+    def __init__(self, session: Session, *, autocommit: bool = True) -> None:
         self.session = session
+        self.autocommit = autocommit
 
     def create_category(
         self,
@@ -341,9 +342,13 @@ class InventoryService:
 
     def _commit(self, entity: Any) -> None:
         try:
-            self.session.commit()
+            if self.autocommit:
+                self.session.commit()
+            else:
+                self.session.flush()
         except Exception:
-            self.session.rollback()
+            if self.autocommit:
+                self.session.rollback()
             raise
         self.session.refresh(entity)
 
