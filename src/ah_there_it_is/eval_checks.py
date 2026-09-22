@@ -1,4 +1,4 @@
-"""Provider-neutral postcondition checks for evaluation scenarios."""
+"""Shared deterministic postcondition evaluator for evaluation pipelines."""
 
 from __future__ import annotations
 
@@ -17,6 +17,36 @@ def event_count(session: Session) -> int:
     return int(session.scalar(select(func.count(Event.id))) or 0)
 
 
+def _item_detail(session: Session, query: str) -> tuple[Any | None, list[Any]]:
+    search = SearchService(session)
+    candidates = search.search_items(query, limit=10)
+    if not candidates:
+        return None, candidates
+    item = InventoryService(session).get_item(candidates[0].id)
+    return item, candidates
+
+
+def _location_ids(session: Session, query: str | None) -> set[int]:
+    if not query:
+        return set()
+    return {
+        candidate.id
+        for candidate in SearchService(session).search_locations(query, limit=10)
+    }
+
+
+def _event_dict(event: Event) -> dict[str, Any]:
+    return {
+        "id": event.id,
+        "event_type": event.event_type,
+        "item_id": event.item_id,
+        "from_location_id": event.from_location_id,
+        "to_location_id": event.to_location_id,
+        "payload": event.payload,
+        "original_text": event.original_text,
+    }
+
+
 def evaluate_expected_check(
     session: Session,
     check: ExpectedCheck,
@@ -24,42 +54,57 @@ def evaluate_expected_check(
     events_before: int,
 ) -> dict[str, Any]:
     search = SearchService(session)
-    inventory = InventoryService(session)
 
     if check.kind == "no_mutation":
-        events_after = event_count(session)
+        after = event_count(session)
         return {
             "kind": check.kind,
-            "ok": events_after == events_before,
-            "detail": f"events {events_before} -> {events_after}",
+            "ok": after == events_before,
+            "detail": {"before": events_before, "after": after},
         }
 
-    items = (
-        search.search_items(check.item_query or "", limit=3)
-        if check.item_query
-        else []
-    )
+    if check.kind == "event_count_delta":
+        after = event_count(session)
+        actual = after - events_before
+        return {
+            "kind": check.kind,
+            "ok": actual == check.expected_delta,
+            "detail": {
+                "before": events_before,
+                "after": after,
+                "actual_delta": actual,
+                "expected_delta": check.expected_delta,
+            },
+        }
 
     if check.kind == "item_exists":
+        candidates = search.search_items(check.item_query or "", limit=10)
         return {
             "kind": check.kind,
-            "ok": bool(items),
-            "detail": [item.model_dump(mode="json") for item in items],
+            "ok": bool(candidates),
+            "detail": [
+                candidate.model_dump(mode="json")
+                for candidate in candidates
+            ],
         }
 
-    if not items:
+    item, candidates = _item_detail(session, check.item_query or "")
+    if item is None:
         return {
             "kind": check.kind,
             "ok": False,
-            "detail": {"item_query": check.item_query, "items": 0},
+            "detail": {
+                "item_query": check.item_query,
+                "candidates": [],
+            },
         }
 
-    candidate = items[0]
-    item = inventory.get_item(candidate.id)
+    candidate_detail = [
+        candidate.model_dump(mode="json") for candidate in candidates
+    ]
 
     if check.kind == "item_location":
-        locations = search.search_locations(check.location_query or "", limit=5)
-        location_ids = {location.id for location in locations}
+        location_ids = _location_ids(session, check.location_query)
         return {
             "kind": check.kind,
             "ok": item.current_location_id in location_ids,
@@ -67,6 +112,7 @@ def evaluate_expected_check(
                 "item_id": item.id,
                 "actual_location_id": item.current_location_id,
                 "candidate_location_ids": sorted(location_ids),
+                "item_candidates": candidate_detail,
             },
         }
 
@@ -110,13 +156,13 @@ def evaluate_expected_check(
             "ok": needle.casefold() in description.casefold(),
             "detail": {
                 "item_id": item.id,
-                "description": description,
-                "expected_text": needle,
+                "description": item.description,
+                "contains": needle,
             },
         }
 
     if check.kind == "item_history_min_events":
-        events = inventory.get_item_history(item.id)
+        events = InventoryService(session).get_item_history(item.id)
         minimum = check.min_events or 0
         return {
             "kind": check.kind,
@@ -128,4 +174,74 @@ def evaluate_expected_check(
             },
         }
 
+    if check.kind == "item_attribute_equals":
+        actual = item.attributes.get(check.attribute_key or "")
+        return {
+            "kind": check.kind,
+            "ok": actual == check.expected_value,
+            "detail": {
+                "item_id": item.id,
+                "attribute": check.attribute_key,
+                "actual": actual,
+                "expected": check.expected_value,
+            },
+        }
+
+    if check.kind == "item_category_none":
+        return {
+            "kind": check.kind,
+            "ok": item.category_id is None,
+            "detail": {
+                "item_id": item.id,
+                "actual_category_id": item.category_id,
+            },
+        }
+
+    if check.kind == "item_event":
+        stmt = (
+            select(Event)
+            .where(Event.item_id == item.id)
+            .order_by(Event.id.asc())
+        )
+        if check.event_type is not None:
+            stmt = stmt.where(Event.event_type == check.event_type)
+        events = list(session.scalars(stmt))
+        from_ids = _location_ids(session, check.from_location_query)
+        to_ids = _location_ids(session, check.to_location_query)
+        matching = [
+            event
+            for event in events
+            if (
+                not check.from_location_query
+                or event.from_location_id in from_ids
+            )
+            and (
+                not check.to_location_query
+                or event.to_location_id in to_ids
+            )
+        ]
+        return {
+            "kind": check.kind,
+            "ok": len(matching) >= check.min_count,
+            "detail": {
+                "item_id": item.id,
+                "event_type": check.event_type,
+                "min_count": check.min_count,
+                "matching": [_event_dict(event) for event in matching],
+                "all_matching_type": [_event_dict(event) for event in events],
+            },
+        }
+
     raise AssertionError(f"unsupported check kind: {check.kind}")
+
+
+def evaluate_checks(
+    session: Session,
+    checks: list[ExpectedCheck],
+    *,
+    events_before: int,
+) -> list[dict[str, Any]]:
+    return [
+        evaluate_expected_check(session, check, events_before=events_before)
+        for check in checks
+    ]
