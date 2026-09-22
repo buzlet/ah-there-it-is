@@ -253,6 +253,7 @@ class OpenAICompatibleLLMClient:
                 "attempts": attempts,
                 "http_version": response.http_version,
                 "retry_events": retry_events,
+                "rate_limit": self._rate_limit_metadata(response.headers),
             }
 
         raise AssertionError("retry loop exhausted unexpectedly")
@@ -266,6 +267,22 @@ class OpenAICompatibleLLMClient:
         if self.config.api_key:
             headers["Authorization"] = f"Bearer {self.config.api_key}"
         return headers
+
+    @staticmethod
+    def _rate_limit_metadata(headers: httpx.Headers) -> dict[str, str]:
+        allowed = (
+            "x-ratelimit-limit-requests",
+            "x-ratelimit-limit-tokens",
+            "x-ratelimit-remaining-requests",
+            "x-ratelimit-remaining-tokens",
+            "x-ratelimit-reset-requests",
+            "x-ratelimit-reset-tokens",
+        )
+        return {
+            name: value
+            for name in allowed
+            if (value := headers.get(name)) is not None
+        }
 
     @staticmethod
     def _parse_retry_after(retry_after: str | None) -> float | None:
