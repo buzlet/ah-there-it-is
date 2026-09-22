@@ -3,24 +3,62 @@
 from __future__ import annotations
 
 import argparse
+from collections import Counter
 import json
 from pathlib import Path
 from typing import Any
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 from ah_there_it_is.agent.factory import build_llm_factory
-from ah_there_it_is.agent.protocol import AgentMessage, LLMClient, ToolDefinition
+from ah_there_it_is.agent.protocol import (
+    AgentMessage,
+    LLMClient,
+    LLMResponse,
+    ToolCall,
+    ToolDefinition,
+)
 from ah_there_it_is.config import get_settings
 
 
 class ProbeExpectation(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
-    tool_name: str | None = None
-    required_arguments: list[str] = Field(default_factory=list)
-    no_tool_calls: bool = False
+    tool_names: list[str] | None = None
+    required_arguments: dict[str, list[str]] = Field(default_factory=dict)
+    argument_equals: dict[str, dict[str, Any]] = Field(default_factory=dict)
     require_text: bool = False
+
+
+class ProbeToolResult(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    tool_name: str
+    content: Any
+
+
+class ModelProbeStep(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    tools: list[ToolDefinition] = Field(default_factory=list)
+    expect: ProbeExpectation
+    tool_results: list[ProbeToolResult] = Field(default_factory=list)
+
+    @model_validator(mode="after")
+    def _tool_results_require_expected_calls(self) -> "ModelProbeStep":
+        expected = self.expect.tool_names
+        if self.tool_results and expected is None:
+            raise ValueError("tool_results require explicit expected tool_names")
+        if expected is not None:
+            missing = sorted(
+                {result.tool_name for result in self.tool_results} - set(expected)
+            )
+            if missing:
+                raise ValueError(
+                    "tool_results reference tools not in expected tool_names: "
+                    + ", ".join(missing)
+                )
+        return self
 
 
 class ModelProbeCase(BaseModel):
@@ -28,8 +66,7 @@ class ModelProbeCase(BaseModel):
 
     id: str
     messages: list[AgentMessage] = Field(min_length=1)
-    tools: list[ToolDefinition] = Field(default_factory=list)
-    expect: ProbeExpectation
+    steps: list[ModelProbeStep] = Field(min_length=1)
 
 
 class ModelProbeSuite(BaseModel):
@@ -49,61 +86,144 @@ def load_probe_suite(path: str | Path) -> ModelProbeSuite:
     return suite
 
 
-def run_probe_case(client: LLMClient, case: ModelProbeCase) -> dict[str, Any]:
-    response = client.complete(case.messages, case.tools)
+def _validate_response(
+    response: LLMResponse,
+    step: ModelProbeStep,
+) -> list[str]:
     errors: list[str] = []
-    expectation = case.expect
+    expectation = step.expect
+    actual_names = [call.name for call in response.tool_calls]
 
-    if expectation.no_tool_calls and response.tool_calls:
-        errors.append(
-            "expected no tool calls, got "
-            + ", ".join(call.name for call in response.tool_calls)
-        )
-
-    matched = None
-    if expectation.tool_name is not None:
-        if not response.tool_calls:
-            errors.append(f"expected tool {expectation.tool_name!r}, got no tool call")
-        else:
-            matched = response.tool_calls[0]
-            if matched.name != expectation.tool_name:
-                errors.append(
-                    f"expected first tool {expectation.tool_name!r}, "
-                    f"got {matched.name!r}"
-                )
-            missing_arguments = [
-                name
-                for name in expectation.required_arguments
-                if name not in matched.arguments
-            ]
-            if missing_arguments:
-                errors.append(
-                    "missing required tool arguments: "
-                    + ", ".join(missing_arguments)
-                )
+    if expectation.tool_names is not None:
+        if Counter(actual_names) != Counter(expectation.tool_names):
+            errors.append(
+                "expected tool calls "
+                f"{expectation.tool_names!r}, got {actual_names!r}"
+            )
 
     if expectation.require_text and not response.content.strip():
         errors.append("expected non-empty assistant text")
 
-    advertised = {tool.name for tool in case.tools}
-    unknown = [
-        call.name for call in response.tool_calls if call.name not in advertised
-    ]
+    advertised = {tool.name for tool in step.tools}
+    unknown = [name for name in actual_names if name not in advertised]
     if unknown:
         errors.append(
             "model returned tool names not advertised by the probe: "
             + ", ".join(unknown)
         )
 
+    calls_by_name: dict[str, list[ToolCall]] = {}
+    for call in response.tool_calls:
+        calls_by_name.setdefault(call.name, []).append(call)
+
+    for tool_name, required in expectation.required_arguments.items():
+        calls = calls_by_name.get(tool_name, [])
+        if not calls:
+            errors.append(
+                f"cannot validate arguments for missing tool {tool_name!r}"
+            )
+            continue
+        for argument in required:
+            if argument not in calls[0].arguments:
+                errors.append(
+                    f"tool {tool_name!r} missing required argument {argument!r}"
+                )
+
+    for tool_name, expected_arguments in expectation.argument_equals.items():
+        calls = calls_by_name.get(tool_name, [])
+        if not calls:
+            errors.append(
+                f"cannot compare arguments for missing tool {tool_name!r}"
+            )
+            continue
+        for key, expected in expected_arguments.items():
+            actual = calls[0].arguments.get(key)
+            if actual != expected:
+                errors.append(
+                    f"tool {tool_name!r} argument {key!r}: "
+                    f"expected {expected!r}, got {actual!r}"
+                )
+
+    return errors
+
+
+def _append_turn(
+    messages: list[AgentMessage],
+    response: LLMResponse,
+    step: ModelProbeStep,
+) -> list[str]:
+    errors: list[str] = []
+    messages.append(
+        AgentMessage(
+            role="assistant",
+            content=response.content,
+            tool_calls=response.tool_calls,
+        )
+    )
+    calls_by_name: dict[str, list[ToolCall]] = {}
+    for call in response.tool_calls:
+        calls_by_name.setdefault(call.name, []).append(call)
+
+    for result in step.tool_results:
+        matches = calls_by_name.get(result.tool_name, [])
+        if len(matches) != 1:
+            errors.append(
+                f"tool result for {result.tool_name!r} requires exactly one "
+                f"matching call, got {len(matches)}"
+            )
+            continue
+        call = matches[0]
+        content = (
+            result.content
+            if isinstance(result.content, str)
+            else json.dumps(
+                result.content,
+                ensure_ascii=False,
+                sort_keys=True,
+                default=str,
+            )
+        )
+        messages.append(
+            AgentMessage(
+                role="tool",
+                content=content,
+                tool_call_id=call.id,
+                tool_name=call.name,
+            )
+        )
+    return errors
+
+
+def run_probe_case(client: LLMClient, case: ModelProbeCase) -> dict[str, Any]:
+    messages = list(case.messages)
+    all_errors: list[str] = []
+    step_reports: list[dict[str, Any]] = []
+
+    for index, step in enumerate(case.steps, start=1):
+        response = client.complete(messages, step.tools)
+        errors = _validate_response(response, step)
+        errors.extend(_append_turn(messages, response, step))
+        all_errors.extend(f"step {index}: {error}" for error in errors)
+        step_reports.append(
+            {
+                "step": index,
+                "passed": not errors,
+                "errors": errors,
+                "content": response.content,
+                "tool_calls": [
+                    call.model_dump(mode="json") for call in response.tool_calls
+                ],
+                "metadata": response.metadata,
+            }
+        )
+        if errors:
+            break
+
     return {
         "case_id": case.id,
-        "passed": not errors,
-        "errors": errors,
-        "content": response.content,
-        "tool_calls": [
-            call.model_dump(mode="json") for call in response.tool_calls
-        ],
-        "metadata": response.metadata,
+        "passed": not all_errors and len(step_reports) == len(case.steps),
+        "errors": all_errors,
+        "steps": step_reports,
     }
 
 
