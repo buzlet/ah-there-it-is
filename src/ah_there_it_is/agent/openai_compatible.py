@@ -31,6 +31,7 @@ class OpenAICompatibleConfig:
     extra_body: dict[str, Any] | None = None
     max_retries: int = 2
     retry_backoff_seconds: float = 1.0
+    max_retry_delay_seconds: float = 60.0
 
 
 class OpenAICompatibleLLMClient:
@@ -56,6 +57,8 @@ class OpenAICompatibleLLMClient:
             raise ValueError("max_retries must be >= 0")
         if config.retry_backoff_seconds < 0:
             raise ValueError("retry_backoff_seconds must be >= 0")
+        if config.max_retry_delay_seconds < 0:
+            raise ValueError("max_retry_delay_seconds must be >= 0")
         self.config = config
         self._owns_client = client is None
         self._client = client or httpx.Client(
@@ -75,6 +78,7 @@ class OpenAICompatibleLLMClient:
             "timeout_seconds": self.config.timeout_seconds,
             "max_retries": self.config.max_retries,
             "retry_backoff_seconds": self.config.retry_backoff_seconds,
+            "max_retry_delay_seconds": self.config.max_retry_delay_seconds,
             "transport": "httpx-persistent",
         }
         if self.config.temperature is not None:
@@ -189,7 +193,7 @@ class OpenAICompatibleLLMClient:
             except httpx.TimeoutException as exc:
                 if attempt >= self.config.max_retries:
                     raise ProviderRequestError("provider request timed out") from exc
-                delay = self._retry_sleep(attempt)
+                delay, _ = self._retry_sleep(attempt)
                 retry_events.append(
                     {"kind": "timeout", "delay_seconds": round(delay, 6)}
                 )
@@ -199,7 +203,7 @@ class OpenAICompatibleLLMClient:
                     raise ProviderRequestError(
                         f"provider request failed: {exc}"
                     ) from exc
-                delay = self._retry_sleep(attempt)
+                delay, _ = self._retry_sleep(attempt)
                 retry_events.append(
                     {
                         "kind": "request_error",
@@ -218,16 +222,17 @@ class OpenAICompatibleLLMClient:
                         f"provider HTTP {response.status_code}: "
                         f"{detail or response.reason_phrase}"
                     )
-                delay = self._retry_sleep(
+                delay, retry_after = self._retry_sleep(
                     attempt, response.headers.get("Retry-After")
                 )
-                retry_events.append(
-                    {
-                        "kind": "http",
-                        "status": response.status_code,
-                        "delay_seconds": round(delay, 6),
-                    }
-                )
+                event: dict[str, Any] = {
+                    "kind": "http",
+                    "status": response.status_code,
+                    "delay_seconds": round(delay, 6),
+                }
+                if retry_after is not None:
+                    event["retry_after_seconds"] = round(retry_after, 6)
+                retry_events.append(event)
                 continue
 
             wall = time.perf_counter() - started
@@ -250,16 +255,23 @@ class OpenAICompatibleLLMClient:
             headers["Authorization"] = f"Bearer {self.config.api_key}"
         return headers
 
-    def _retry_sleep(self, attempt: int, retry_after: str | None = None) -> float:
+    def _retry_sleep(
+        self,
+        attempt: int,
+        retry_after: str | None = None,
+    ) -> tuple[float, float | None]:
         delay = self.config.retry_backoff_seconds * (2**attempt)
+        retry_after_seconds: float | None = None
         if retry_after:
             try:
-                delay = max(delay, float(retry_after))
+                retry_after_seconds = max(0.0, float(retry_after))
+                delay = max(delay, retry_after_seconds)
             except ValueError:
                 pass
+        delay = min(delay, self.config.max_retry_delay_seconds)
         if delay > 0:
             time.sleep(delay)
-        return delay
+        return delay, retry_after_seconds
 
     def _endpoint(self) -> str:
         base = self.config.base_url.rstrip("/")
