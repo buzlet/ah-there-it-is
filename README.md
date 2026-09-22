@@ -162,7 +162,7 @@ The executable scenario suite has already exposed application bugs without invol
 - tree queries such as `Кабинет Шкаф` previously tied the intended node with descendants sharing the same ancestry tokens; `exact_path` now ranks the exact normalized path above descendant containment while bare `Шкаф` remains ambiguous;
 - a two-token create search such as `DisplayPort-HDMI` previously returned an unrelated HDMI cable from OR-based FTS; multi-token FTS now requires at least two overlapping query tokens.
 
-These fixes live in deterministic search and are model-independent.
+These fixes live in deterministic search and are model-independent. These scenarios now also share one state oracle between scenario and historical live evaluation. The oracle checks stored location (including no location), item state, quantity, description fragments, structured attributes, missing categories, event-count deltas, and item history/event transitions. Every corpus case has at least one automated postcondition, so a future case cannot quietly fall back to “the tool call looked plausible.”
 
 ## CI and external verification
 
@@ -175,7 +175,7 @@ Native Gemini and OpenAI-compatible adapters remain replaceable implementations 
 
 ## Current scope
 
-Stages 0–5 are complete. Stage 6 has established a provider-independent application regression pipeline covering the full 40-case corpus and a separate provider/model contract pipeline. Further application work should extend deterministic scenarios first. Real-provider probes are optional adapter verification.
+Stages 0–7 are complete. The application regression pipeline is provider-independent, the provider/model contract pipeline is separate, and all 40 versioned corpus cases now have deterministic state-based postconditions in addition to scenario tool-flow contracts. Real-provider probes are optional adapter verification, never an application-development gate.
 
 Voice, Telegram, images, QR, MCP, PWA, embeddings, and multi-user support remain out of scope until the text workflow is stable.
 
