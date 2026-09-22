@@ -131,6 +131,7 @@ jobs:
           AH_THERE_IT_IS_LLM_TIMEOUT_SECONDS: '30'
           AH_THERE_IT_IS_LLM_MAX_RETRIES: '2'
           AH_THERE_IT_IS_LLM_RETRY_BACKOFF_SECONDS: '1'
+          AH_THERE_IT_IS_LLM_MAX_RETRY_DELAY_SECONDS: '10'
           AH_THERE_IT_IS_LLM_TEMPERATURE: '0.2'
           AH_THERE_IT_IS_LLM_EXTRA_BODY_JSON: '{"max_completion_tokens":256,"top_p":0.95,"reasoning_effort":"none","reasoning_format":"hidden","seed":424242,"disable_tool_validation":true}'
         run: |
