@@ -11,7 +11,11 @@ from urllib.error import HTTPError, URLError
 from urllib.parse import quote
 from urllib.request import Request, urlopen
 
-from ah_there_it_is.agent.errors import ProviderProtocolError, ProviderRequestError
+from ah_there_it_is.agent.errors import (
+    ProviderProtocolError,
+    ProviderRateLimitError,
+    ProviderRequestError,
+)
 from ah_there_it_is.agent.protocol import (
     AgentMessage,
     LLMClientInfo,
@@ -155,6 +159,19 @@ class GeminiLLMClient:
                     return response.read().decode("utf-8")
             except HTTPError as exc:
                 detail = exc.read().decode("utf-8", errors="replace")[:4000]
+                if exc.code == 429:
+                    retry_after: float | None = None
+                    if exc.headers:
+                        raw_retry_after = exc.headers.get("Retry-After")
+                        if raw_retry_after:
+                            try:
+                                retry_after = max(0.0, float(raw_retry_after))
+                            except ValueError:
+                                pass
+                    raise ProviderRateLimitError(
+                        f"provider HTTP 429: {detail or exc.reason}",
+                        retry_after_seconds=retry_after,
+                    ) from exc
                 if exc.code not in transient_statuses or attempt >= self.config.max_retries:
                     raise ProviderRequestError(
                         f"provider HTTP {exc.code}: {detail or exc.reason}"
