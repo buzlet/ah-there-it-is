@@ -128,7 +128,7 @@
 - Added GitHub Actions CI on Ubuntu 24.04 / Python 3.12 and 3.13 using the canonical `just` commands, plus a manual live-provider smoke job gated by repository variables/secrets.
 - Stage 5 application/package version is `0.2.0`.
 
-### Stage 6 — in progress
+### Stage 6 — complete
 
 Stage 6 was deliberately restructured after live-provider work began coupling application progress to model quirks and quotas.
 
@@ -149,7 +149,7 @@ Stage 6 was deliberately restructured after live-provider work began coupling ap
 #### Provider/model pipeline
 
 - Added `model_probe`, which exercises only `LLMClient.complete(messages, tools)` with static protocol cases. It does not create an inventory database, invoke `ToolDispatcher`, or execute application mutations.
-- Added `eval/model-probes-v1.json` plus local tests for correct advertised tool names/arguments and plain-text completion.
+- `eval/model-probes-v1.json` now covers the complete provider-neutral protocol surface currently required by the application: single tool selection with JSON arguments, multiple independent tool calls in one response, single-tool result continuation, parallel-tool result continuation, and final plain text. Multi-round probes preserve returned `ToolCall` objects in memory, including provider-only opaque state, while synthetic tool results keep the probe independent from inventory business logic.
 - `provider-contract` runs adapter/model-contract unit tests independently from application tests.
 - `.github/workflows/ci.yml` is now `application-ci`: Python 3.12/3.13 checks plus the complete scenario suite, with no provider secrets or live-model jobs.
 - `.github/workflows/provider-contract.yml` is separate: local adapter-contract tests run on push/PR; real Groq/Gemini probes are manual-only through the protected `live-llm-test` environment.
@@ -162,7 +162,19 @@ Stage 6 was deliberately restructured after live-provider work began coupling ap
 - That evidence is intentionally decoupled from application correctness. A provider outage, quota exhaustion, invalid generated tool name, or stochastic answer must not turn application CI red.
 - Current stable target: all 40 corpus scenarios pass deterministically through the real application stack with `ScenarioLLMClient`; provider-contract tests pass separately with real provider jobs skipped unless manually requested.
 
-#### Next
+### Stage 7 — next
+
+Strengthen deterministic application postconditions before adding more product surface:
+
+1. Extend corpus checks beyond `item_location`, `item_exists`, and `no_mutation` to cover exact item state, quantity, description/attribute facts, location-null/taken items, and event/history expectations.
+2. Give every mutation/history corpus case an explicit state-based postcondition; scenario tool-call success alone must not be treated as sufficient evidence.
+3. Keep scenario scripts provider-independent and resolve IDs only from actual tool results.
+4. Add application behavior only together with deterministic scenario/postcondition coverage.
+5. Keep provider adapters and real-model probes in the separate provider-contract pipeline; no provider quirk may change business behavior.
+6. Reconsider embeddings only if deterministic corpus scenarios demonstrate retrieval needs the current exact/normalized/path/FTS rules cannot express cleanly.
+7. Voice, Telegram, images, QR, MCP, PWA, and multi-user support remain deferred.
+
+
 
 1. Keep every new application behavior accompanied by a deterministic scenario (or focused unit test) before considering any live-model probe.
 2. Grow `model-probes-v1` only to cover provider-neutral protocol capabilities the application actually requires: tool selection, argument JSON, parallel calls if used, tool-result continuation, and final text.
