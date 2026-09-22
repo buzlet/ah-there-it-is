@@ -23,7 +23,17 @@ permissions:
         type: choice
         options:
           - smoke
+          - tool-discipline
           - representative
+      repetitions:
+        description: Repeat each selected live case
+        required: true
+        default: '1'
+        type: choice
+        options:
+          - '1'
+          - '2'
+          - '3'
       prompt_variant:
         description: System prompt variant
         required: true
@@ -86,6 +96,8 @@ jobs:
               --case ambiguity-01
               --case history-01
             )
+          elif [ "${{ inputs.suite }}" = "tool-discipline" ]; then
+            CASES=(--case find-01 --case create-01 --case ambiguity-01)
           else
             CASES=(--case find-01 --case move-01)
           fi
@@ -98,6 +110,8 @@ jobs:
             --corpus eval/corpus-v1.json \
             "${CASES[@]}" \
             "${PROMPT_ARGS[@]}" \
+            --repetitions "${{ inputs.repetitions }}" \
+            --repetitions "${{ inputs.repetitions }}" \
             --output live-eval.json
       - name: Upload live evaluation report
         if: ${{ always() && github.event_name == 'workflow_dispatch' }}
@@ -143,6 +157,8 @@ jobs:
               --case ambiguity-01
               --case history-01
             )
+          elif [ "${{ inputs.suite }}" = "tool-discipline" ]; then
+            CASES=(--case find-01 --case create-01 --case ambiguity-01)
           else
             CASES=(--case find-01 --case move-01)
           fi
