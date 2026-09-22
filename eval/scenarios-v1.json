@@ -92,6 +92,218 @@
       ]
     },
     {
+      "case_id": "find-03",
+      "steps": [
+        {
+          "expect_tools": [
+            "search_items"
+          ],
+          "tool_calls": [
+            {
+              "name": "search_items",
+              "arguments": {
+                "query": "программатор BIOS"
+              }
+            }
+          ]
+        },
+        {
+          "expect_tools": [
+            "get_item"
+          ],
+          "expect_results": [
+            {
+              "tool_name": "search_items",
+              "path": "result",
+              "min_items": 1
+            }
+          ],
+          "tool_calls": [
+            {
+              "name": "get_item",
+              "arguments": {
+                "id": "${tool:search_items:result.0.id}"
+              }
+            }
+          ]
+        },
+        {
+          "expect_results": [
+            {
+              "tool_name": "get_item",
+              "path": "result.name",
+              "equals": "CH341A programmer"
+            }
+          ],
+          "final": "Программатор найден."
+        }
+      ]
+    },
+    {
+      "case_id": "find-04",
+      "steps": [
+        {
+          "expect_tools": [
+            "search_items"
+          ],
+          "tool_calls": [
+            {
+              "name": "search_items",
+              "arguments": {
+                "query": "основной мультиметр"
+              }
+            }
+          ]
+        },
+        {
+          "expect_tools": [
+            "get_item"
+          ],
+          "tool_calls": [
+            {
+              "name": "get_item",
+              "arguments": {
+                "id": "${tool:search_items:result.0.id}"
+              }
+            }
+          ]
+        },
+        {
+          "expect_results": [
+            {
+              "tool_name": "get_item",
+              "path": "result.name",
+              "equals": "UNI-T UT61E+"
+            }
+          ],
+          "final": "Основной мультиметр найден."
+        }
+      ]
+    },
+    {
+      "case_id": "find-05",
+      "steps": [
+        {
+          "expect_tools": [
+            "search_items"
+          ],
+          "tool_calls": [
+            {
+              "name": "search_items",
+              "arguments": {
+                "query": "красный мультиметр"
+              }
+            }
+          ]
+        },
+        {
+          "expect_tools": [
+            "get_item"
+          ],
+          "tool_calls": [
+            {
+              "name": "get_item",
+              "arguments": {
+                "id": "${tool:search_items:result.0.id}"
+              }
+            }
+          ]
+        },
+        {
+          "expect_results": [
+            {
+              "tool_name": "get_item",
+              "path": "result.name",
+              "equals": "DT-830B"
+            }
+          ],
+          "final": "Красный мультиметр найден."
+        }
+      ]
+    },
+    {
+      "case_id": "find-06",
+      "steps": [
+        {
+          "expect_tools": [
+            "search_items"
+          ],
+          "tool_calls": [
+            {
+              "name": "search_items",
+              "arguments": {
+                "query": "Chieftec 750W"
+              }
+            }
+          ]
+        },
+        {
+          "expect_tools": [
+            "get_item"
+          ],
+          "tool_calls": [
+            {
+              "name": "get_item",
+              "arguments": {
+                "id": "${tool:search_items:result.0.id}"
+              }
+            }
+          ]
+        },
+        {
+          "expect_results": [
+            {
+              "tool_name": "get_item",
+              "path": "result.name",
+              "equals": "Chieftec 750W PSU"
+            }
+          ],
+          "final": "Блок питания Chieftec найден."
+        }
+      ]
+    },
+    {
+      "case_id": "find-07",
+      "steps": [
+        {
+          "expect_tools": [
+            "search_items"
+          ],
+          "tool_calls": [
+            {
+              "name": "search_items",
+              "arguments": {
+                "query": "HDMI 2 метра"
+              }
+            }
+          ]
+        },
+        {
+          "expect_tools": [
+            "get_item"
+          ],
+          "tool_calls": [
+            {
+              "name": "get_item",
+              "arguments": {
+                "id": "${tool:search_items:result.0.id}"
+              }
+            }
+          ]
+        },
+        {
+          "expect_results": [
+            {
+              "tool_name": "get_item",
+              "path": "result.quantity",
+              "equals": 3
+            }
+          ],
+          "final": "HDMI-кабели найдены."
+        }
+      ]
+    },
+    {
       "case_id": "find-08",
       "steps": [
         {
@@ -245,6 +457,146 @@
       ]
     },
     {
+      "case_id": "move-03",
+      "steps": [
+        {
+          "expect_tools": [
+            "search_items"
+          ],
+          "tool_calls": [
+            {
+              "name": "search_items",
+              "arguments": {
+                "query": "USB-SATA переходник"
+              }
+            }
+          ]
+        },
+        {
+          "expect_tools": [
+            "search_locations",
+            "move_item"
+          ],
+          "tool_calls": [
+            {
+              "name": "search_locations",
+              "arguments": {
+                "query": "Кабинет Шкаф Полка 1"
+              }
+            }
+          ]
+        },
+        {
+          "expect_tools": [
+            "move_item"
+          ],
+          "tool_calls": [
+            {
+              "name": "move_item",
+              "arguments": {
+                "item_id": "${tool:search_items:result.0.id}",
+                "location_id": "${tool:search_locations:result.0.id}"
+              }
+            }
+          ]
+        },
+        {
+          "final": "USB-SATA переходник перемещён на полку 1 шкафа кабинета."
+        }
+      ]
+    },
+    {
+      "case_id": "move-04",
+      "steps": [
+        {
+          "expect_tools": [
+            "search_items"
+          ],
+          "tool_calls": [
+            {
+              "name": "search_items",
+              "arguments": {
+                "query": "GTX 750 Ti"
+              }
+            }
+          ]
+        },
+        {
+          "expect_tools": [
+            "search_locations",
+            "move_item"
+          ],
+          "tool_calls": [
+            {
+              "name": "search_locations",
+              "arguments": {
+                "query": "Балкон Стеллаж Полка 2"
+              }
+            }
+          ]
+        },
+        {
+          "expect_tools": [
+            "move_item"
+          ],
+          "tool_calls": [
+            {
+              "name": "move_item",
+              "arguments": {
+                "item_id": "${tool:search_items:result.0.id}",
+                "location_id": "${tool:search_locations:result.0.id}"
+              }
+            }
+          ]
+        },
+        {
+          "final": "GTX 750 Ti перемещена на вторую полку стеллажа."
+        }
+      ]
+    },
+    {
+      "case_id": "move-05",
+      "steps": [
+        {
+          "expect_tools": [
+            "search_items"
+          ],
+          "tool_calls": [
+            {
+              "name": "search_items",
+              "arguments": {
+                "query": "красный мультиметр"
+              }
+            }
+          ]
+        },
+        {
+          "expect_tools": [
+            "move_item"
+          ],
+          "tool_calls": [
+            {
+              "name": "move_item",
+              "arguments": {
+                "item_id": "${tool:search_items:result.0.id}",
+                "location_id": null
+              }
+            }
+          ]
+        },
+        {
+          "expect_results": [
+            {
+              "tool_name": "move_item",
+              "path": "result.location_id",
+              "equals": null
+            }
+          ],
+          "final": "Красный мультиметр отмечен как взятый из хранения."
+        }
+      ]
+    },
+    {
       "case_id": "create-01",
       "steps": [
         {
@@ -304,6 +656,241 @@
             }
           ],
           "final": "USB-C hub Anker 7-в-1 добавлен в правый ящик."
+        }
+      ]
+    },
+    {
+      "case_id": "create-02",
+      "steps": [
+        {
+          "expect_tools": [
+            "search_items"
+          ],
+          "tool_calls": [
+            {
+              "name": "search_items",
+              "arguments": {
+                "query": "DisplayPort-HDMI"
+              }
+            }
+          ]
+        },
+        {
+          "expect_tools": [
+            "create_item",
+            "search_locations"
+          ],
+          "expect_results": [
+            {
+              "tool_name": "search_items",
+              "path": "result",
+              "max_items": 0
+            }
+          ],
+          "tool_calls": [
+            {
+              "name": "search_locations",
+              "arguments": {
+                "query": "Правый ящик"
+              }
+            }
+          ]
+        },
+        {
+          "expect_tools": [
+            "create_item"
+          ],
+          "tool_calls": [
+            {
+              "name": "create_item",
+              "arguments": {
+                "name": "DisplayPort-HDMI",
+                "state": "working",
+                "location_id": "${tool:search_locations:result.0.id}"
+              }
+            }
+          ]
+        },
+        {
+          "final": "DisplayPort-HDMI добавлен."
+        }
+      ]
+    },
+    {
+      "case_id": "create-03",
+      "steps": [
+        {
+          "expect_tools": [
+            "search_items"
+          ],
+          "tool_calls": [
+            {
+              "name": "search_items",
+              "arguments": {
+                "query": "USB-C 1 метр"
+              }
+            }
+          ]
+        },
+        {
+          "expect_tools": [
+            "create_item",
+            "search_locations"
+          ],
+          "expect_results": [
+            {
+              "tool_name": "search_items",
+              "path": "result",
+              "max_items": 0
+            }
+          ],
+          "tool_calls": [
+            {
+              "name": "search_locations",
+              "arguments": {
+                "query": "Правый ящик"
+              }
+            }
+          ]
+        },
+        {
+          "expect_tools": [
+            "create_item"
+          ],
+          "tool_calls": [
+            {
+              "name": "create_item",
+              "arguments": {
+                "name": "USB-C 1 метр",
+                "state": "new",
+                "location_id": "${tool:search_locations:result.0.id}"
+              }
+            }
+          ]
+        },
+        {
+          "final": "Новый кабель USB-C добавлен."
+        }
+      ]
+    },
+    {
+      "case_id": "create-04",
+      "steps": [
+        {
+          "expect_tools": [
+            "search_items"
+          ],
+          "tool_calls": [
+            {
+              "name": "search_items",
+              "arguments": {
+                "query": "Seasonic 550W"
+              }
+            }
+          ]
+        },
+        {
+          "expect_tools": [
+            "create_item",
+            "search_locations"
+          ],
+          "expect_results": [
+            {
+              "tool_name": "search_items",
+              "path": "result",
+              "max_items": 0
+            }
+          ],
+          "tool_calls": [
+            {
+              "name": "search_locations",
+              "arguments": {
+                "query": "Коробка старого железа"
+              }
+            }
+          ]
+        },
+        {
+          "expect_tools": [
+            "create_item"
+          ],
+          "tool_calls": [
+            {
+              "name": "create_item",
+              "arguments": {
+                "name": "Seasonic 550W",
+                "state": "broken",
+                "location_id": "${tool:search_locations:result.0.id}"
+              }
+            }
+          ]
+        },
+        {
+          "final": "Seasonic 550W добавлен как неисправный."
+        }
+      ]
+    },
+    {
+      "case_id": "create-05",
+      "steps": [
+        {
+          "expect_tools": [
+            "search_items"
+          ],
+          "tool_calls": [
+            {
+              "name": "search_items",
+              "arguments": {
+                "query": "TS100"
+              }
+            }
+          ]
+        },
+        {
+          "expect_tools": [
+            "create_item",
+            "search_locations"
+          ],
+          "expect_results": [
+            {
+              "tool_name": "search_items",
+              "path": "result",
+              "max_items": 0
+            }
+          ],
+          "tool_calls": [
+            {
+              "name": "search_locations",
+              "arguments": {
+                "query": "Кабинет Шкаф"
+              }
+            }
+          ]
+        },
+        {
+          "expect_tools": [
+            "create_item"
+          ],
+          "tool_calls": [
+            {
+              "name": "create_item",
+              "arguments": {
+                "name": "TS100",
+                "state": "working",
+                "location_id": "${tool:search_locations:result.0.id}"
+              }
+            }
+          ]
+        },
+        {
+          "expect_results": [
+            {
+              "tool_name": "create_item",
+              "path": "result.category_id",
+              "equals": null
+            }
+          ],
+          "final": "TS100 добавлен без выдуманной категории."
         }
       ]
     },
@@ -380,6 +967,51 @@
             }
           ],
           "final": "Неоднозначны и мультиметр, и шкаф. Нужны уточнения."
+        }
+      ]
+    },
+    {
+      "case_id": "ambiguity-03",
+      "steps": [
+        {
+          "expect_tools": [
+            "search_items"
+          ],
+          "tool_calls": [
+            {
+              "name": "search_items",
+              "arguments": {
+                "query": "UNI-T"
+              }
+            }
+          ]
+        },
+        {
+          "expect_tools": [
+            "search_locations",
+            "move_item"
+          ],
+          "tool_calls": [
+            {
+              "name": "search_locations",
+              "arguments": {
+                "query": "Шкаф"
+              }
+            }
+          ]
+        },
+        {
+          "forbid_tools": [
+            "move_item"
+          ],
+          "expect_results": [
+            {
+              "tool_name": "search_locations",
+              "path": "result",
+              "min_items": 2
+            }
+          ],
+          "final": "Найдено несколько шкафов. Уточните, какой именно."
         }
       ]
     },
@@ -469,6 +1101,79 @@
       ]
     },
     {
+      "case_id": "ambiguity-05",
+      "steps": [
+        {
+          "expect_tools": [
+            "search_items"
+          ],
+          "tool_calls": [
+            {
+              "name": "search_items",
+              "arguments": {
+                "query": "видеокарта"
+              }
+            }
+          ]
+        },
+        {
+          "forbid_tools": [
+            "move_item"
+          ],
+          "expect_results": [
+            {
+              "tool_name": "search_items",
+              "path": "result",
+              "min_items": 2
+            }
+          ],
+          "final": "Найдено несколько видеокарт. Уточните, какую именно."
+        }
+      ]
+    },
+    {
+      "case_id": "update-01",
+      "steps": [
+        {
+          "expect_tools": [
+            "search_items"
+          ],
+          "tool_calls": [
+            {
+              "name": "search_items",
+              "arguments": {
+                "query": "GTX 1070"
+              }
+            }
+          ]
+        },
+        {
+          "expect_tools": [
+            "get_item"
+          ],
+          "tool_calls": [
+            {
+              "name": "get_item",
+              "arguments": {
+                "id": "${tool:search_items:result.0.id}"
+              }
+            }
+          ]
+        },
+        {
+          "expect_results": [
+            {
+              "tool_name": "get_item",
+              "path": "result.description",
+              "equals": "Рабочая видеокарта, один вентилятор иногда шумит."
+            }
+          ],
+          "forbid_tools": [],
+          "final": "Эта информация о шумящем вентиляторе уже сохранена."
+        }
+      ]
+    },
+    {
       "case_id": "update-02",
       "steps": [
         {
@@ -554,6 +1259,47 @@
       ]
     },
     {
+      "case_id": "update-04",
+      "steps": [
+        {
+          "expect_tools": [
+            "search_items"
+          ],
+          "tool_calls": [
+            {
+              "name": "search_items",
+              "arguments": {
+                "query": "ORICO"
+              }
+            }
+          ]
+        },
+        {
+          "expect_tools": [
+            "get_item"
+          ],
+          "tool_calls": [
+            {
+              "name": "get_item",
+              "arguments": {
+                "id": "${tool:search_items:result.0.id}"
+              }
+            }
+          ]
+        },
+        {
+          "expect_results": [
+            {
+              "tool_name": "get_item",
+              "path": "result.description",
+              "equals": "Переходник для подключения SATA HDD/SSD по USB 3.0."
+            }
+          ],
+          "final": "Совместимость с SSD уже указана."
+        }
+      ]
+    },
+    {
       "case_id": "history-01",
       "steps": [
         {
@@ -591,6 +1337,132 @@
             }
           ],
           "final": "История Chieftec 750W получена из журнала инвентаря."
+        }
+      ]
+    },
+    {
+      "case_id": "history-02",
+      "steps": [
+        {
+          "expect_tools": [
+            "search_items"
+          ],
+          "tool_calls": [
+            {
+              "name": "search_items",
+              "arguments": {
+                "query": "GTX 1070"
+              }
+            }
+          ]
+        },
+        {
+          "expect_tools": [
+            "get_item_history"
+          ],
+          "tool_calls": [
+            {
+              "name": "get_item_history",
+              "arguments": {
+                "item_id": "${tool:search_items:result.0.id}"
+              }
+            }
+          ]
+        },
+        {
+          "expect_results": [
+            {
+              "tool_name": "get_item_history",
+              "path": "result",
+              "min_items": 1
+            }
+          ],
+          "final": "История GTX 1070 получена."
+        }
+      ]
+    },
+    {
+      "case_id": "history-03",
+      "steps": [
+        {
+          "expect_tools": [
+            "search_items"
+          ],
+          "tool_calls": [
+            {
+              "name": "search_items",
+              "arguments": {
+                "query": "CH341A"
+              }
+            }
+          ]
+        },
+        {
+          "expect_tools": [
+            "search_locations",
+            "move_item"
+          ],
+          "tool_calls": [
+            {
+              "name": "search_locations",
+              "arguments": {
+                "query": "Средний ящик"
+              }
+            }
+          ]
+        },
+        {
+          "expect_tools": [
+            "move_item"
+          ],
+          "tool_calls": [
+            {
+              "name": "move_item",
+              "arguments": {
+                "item_id": "${tool:search_items:result.0.id}",
+                "location_id": "${tool:search_locations:result.0.id}"
+              }
+            }
+          ]
+        },
+        {
+          "final": "CH341A перемещён."
+        },
+        {
+          "expect_tools": [
+            "search_items"
+          ],
+          "tool_calls": [
+            {
+              "name": "search_items",
+              "arguments": {
+                "query": "CH341A"
+              }
+            }
+          ]
+        },
+        {
+          "expect_tools": [
+            "get_item_history"
+          ],
+          "tool_calls": [
+            {
+              "name": "get_item_history",
+              "arguments": {
+                "item_id": "${tool:search_items:result.0.id}"
+              }
+            }
+          ]
+        },
+        {
+          "expect_results": [
+            {
+              "tool_name": "get_item_history",
+              "path": "result",
+              "min_items": 2
+            }
+          ],
+          "final": "Предыдущее место взято из истории."
         }
       ]
     },
@@ -660,6 +1532,190 @@
             }
           ],
           "final": "Есть несколько мест с названием Полка 1. Уточните расположение."
+        }
+      ]
+    },
+    {
+      "case_id": "location-03",
+      "steps": [
+        {
+          "expect_tools": [
+            "search_locations"
+          ],
+          "tool_calls": [
+            {
+              "name": "search_locations",
+              "arguments": {
+                "query": "Балкон Стеллаж Полка 1"
+              }
+            }
+          ]
+        },
+        {
+          "expect_tools": [
+            "list_location"
+          ],
+          "tool_calls": [
+            {
+              "name": "list_location",
+              "arguments": {
+                "location_id": "${tool:search_locations:result.0.id}"
+              }
+            }
+          ]
+        },
+        {
+          "final": "Содержимое первой полки стеллажа получено."
+        }
+      ]
+    },
+    {
+      "case_id": "language-01",
+      "steps": [
+        {
+          "expect_tools": [
+            "search_items"
+          ],
+          "tool_calls": [
+            {
+              "name": "search_items",
+              "arguments": {
+                "query": "USB/SATA"
+              }
+            }
+          ]
+        },
+        {
+          "expect_tools": [
+            "get_item"
+          ],
+          "tool_calls": [
+            {
+              "name": "get_item",
+              "arguments": {
+                "id": "${tool:search_items:result.0.id}"
+              }
+            }
+          ]
+        },
+        {
+          "final": "USB/SATA адаптер найден."
+        }
+      ]
+    },
+    {
+      "case_id": "language-02",
+      "steps": [
+        {
+          "expect_tools": [
+            "search_items"
+          ],
+          "tool_calls": [
+            {
+              "name": "search_items",
+              "arguments": {
+                "query": "ch341a"
+              }
+            }
+          ]
+        },
+        {
+          "expect_tools": [
+            "get_item"
+          ],
+          "tool_calls": [
+            {
+              "name": "get_item",
+              "arguments": {
+                "id": "${tool:search_items:result.0.id}"
+              }
+            }
+          ]
+        },
+        {
+          "final": "CH341A найден."
+        }
+      ]
+    },
+    {
+      "case_id": "language-03",
+      "steps": [
+        {
+          "expect_tools": [
+            "search_items"
+          ],
+          "tool_calls": [
+            {
+              "name": "search_items",
+              "arguments": {
+                "query": "гигабайт 1070"
+              }
+            }
+          ]
+        },
+        {
+          "expect_tools": [
+            "get_item"
+          ],
+          "tool_calls": [
+            {
+              "name": "get_item",
+              "arguments": {
+                "id": "${tool:search_items:result.0.id}"
+              }
+            }
+          ]
+        },
+        {
+          "final": "Gigabyte GTX 1070 найдена."
+        }
+      ]
+    },
+    {
+      "case_id": "language-04",
+      "steps": [
+        {
+          "expect_tools": [
+            "search_items"
+          ],
+          "tool_calls": [
+            {
+              "name": "search_items",
+              "arguments": {
+                "query": "SATA HDD USB"
+              }
+            }
+          ]
+        },
+        {
+          "expect_tools": [
+            "get_item"
+          ],
+          "expect_results": [
+            {
+              "tool_name": "search_items",
+              "path": "result",
+              "min_items": 1
+            }
+          ],
+          "tool_calls": [
+            {
+              "name": "get_item",
+              "arguments": {
+                "id": "${tool:search_items:result.0.id}"
+              }
+            }
+          ]
+        },
+        {
+          "expect_results": [
+            {
+              "tool_name": "get_item",
+              "path": "result.name",
+              "equals": "ORICO USB 3.0 SATA adapter"
+            }
+          ],
+          "final": "Переходник найден по описательному запросу."
         }
       ]
     },
