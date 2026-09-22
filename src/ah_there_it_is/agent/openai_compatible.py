@@ -10,7 +10,11 @@ from typing import Any
 
 import httpx
 
-from ah_there_it_is.agent.errors import ProviderProtocolError, ProviderRequestError
+from ah_there_it_is.agent.errors import (
+    ProviderProtocolError,
+    ProviderRateLimitError,
+    ProviderRequestError,
+)
 from ah_there_it_is.agent.protocol import (
     AgentMessage,
     LLMClientInfo,
@@ -214,6 +218,43 @@ class OpenAICompatibleLLMClient:
 
             if response.status_code >= 400:
                 detail = response.text[:4000]
+                retry_after_header = response.headers.get("Retry-After")
+                retry_after = self._parse_retry_after(retry_after_header)
+
+                if response.status_code == 429:
+                    message = (
+                        f"provider HTTP 429: {detail or response.reason_phrase}"
+                    )
+                    if (
+                        retry_after is not None
+                        and retry_after > self.config.max_retry_delay_seconds
+                    ):
+                        raise ProviderRateLimitError(
+                            "provider HTTP 429: "
+                            f"Retry-After {retry_after:g}s exceeds configured "
+                            f"retry-delay cap "
+                            f"{self.config.max_retry_delay_seconds:g}s; "
+                            f"{detail or response.reason_phrase}",
+                            retry_after_seconds=retry_after,
+                        )
+                    if attempt >= self.config.max_retries:
+                        raise ProviderRateLimitError(
+                            message,
+                            retry_after_seconds=retry_after,
+                        )
+                    delay, retry_after = self._retry_sleep(
+                        attempt, retry_after_header
+                    )
+                    event: dict[str, Any] = {
+                        "kind": "http",
+                        "status": response.status_code,
+                        "delay_seconds": round(delay, 6),
+                    }
+                    if retry_after is not None:
+                        event["retry_after_seconds"] = round(retry_after, 6)
+                    retry_events.append(event)
+                    continue
+
                 if (
                     response.status_code not in transient_statuses
                     or attempt >= self.config.max_retries
@@ -222,22 +263,10 @@ class OpenAICompatibleLLMClient:
                         f"provider HTTP {response.status_code}: "
                         f"{detail or response.reason_phrase}"
                     )
-                retry_after_header = response.headers.get("Retry-After")
-                retry_after = self._parse_retry_after(retry_after_header)
-                if (
-                    retry_after is not None
-                    and retry_after > self.config.max_retry_delay_seconds
-                ):
-                    raise ProviderRequestError(
-                        f"provider HTTP {response.status_code}: "
-                        f"Retry-After {retry_after:g}s exceeds configured "
-                        f"retry-delay cap {self.config.max_retry_delay_seconds:g}s; "
-                        f"{detail or response.reason_phrase}"
-                    )
                 delay, retry_after = self._retry_sleep(
                     attempt, retry_after_header
                 )
-                event: dict[str, Any] = {
+                event = {
                     "kind": "http",
                     "status": response.status_code,
                     "delay_seconds": round(delay, 6),
