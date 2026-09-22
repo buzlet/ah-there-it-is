@@ -502,11 +502,77 @@ def test_openai_compatible_adapter_retries_transient_http_429(monkeypatch) -> No
     assert response.content == "OK"
     assert response.metadata["transport"]["attempts"] == 2
     assert response.metadata["transport"]["retry_events"] == [
-        {"kind": "http", "status": 429, "delay_seconds": 0.0}
+        {
+            "kind": "http",
+            "status": 429,
+            "delay_seconds": 0.0,
+            "retry_after_seconds": 0.0,
+        }
     ]
     assert response.metadata["transport"]["client_wall_seconds"] >= 0
     assert calls == 2
     assert sleeps == []
+
+
+def test_openai_compatible_adapter_caps_retry_after(monkeypatch) -> None:
+    calls = 0
+    sleeps: list[float] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        nonlocal calls
+        calls += 1
+        if calls == 1:
+            return httpx.Response(
+                429,
+                headers={"Retry-After": "999"},
+                json={"error": "rate limit"},
+                request=request,
+            )
+        return httpx.Response(
+            200,
+            json={
+                "id": "ok-after-cap",
+                "choices": [
+                    {
+                        "finish_reason": "stop",
+                        "message": {"role": "assistant", "content": "OK"},
+                    }
+                ],
+            },
+            request=request,
+        )
+
+    import ah_there_it_is.agent.openai_compatible as provider_module
+
+    monkeypatch.setattr(provider_module.time, "sleep", sleeps.append)
+    http_client = httpx.Client(transport=httpx.MockTransport(handler))
+    client = OpenAICompatibleLLMClient(
+        OpenAICompatibleConfig(
+            base_url="https://api.example/v1",
+            model="test-model",
+            max_retries=1,
+            retry_backoff_seconds=1,
+            max_retry_delay_seconds=3,
+        ),
+        client=http_client,
+    )
+    try:
+        response = client.complete([AgentMessage(role="user", content="x")], [])
+    finally:
+        http_client.close()
+
+    assert response.content == "OK"
+    assert calls == 2
+    assert sleeps == [3]
+    assert response.metadata["transport"]["retry_events"] == [
+        {
+            "kind": "http",
+            "status": 429,
+            "delay_seconds": 3,
+            "retry_after_seconds": 999.0,
+        }
+    ]
+    assert client.info.config["max_retry_delay_seconds"] == 3
 
 
 def test_openai_compatible_adapter_sends_groq_style_extra_body() -> None:
