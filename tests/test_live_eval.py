@@ -158,6 +158,117 @@ def test_failed_live_case_never_counts_automatic_checks_as_passed(monkeypatch) -
     assert result["checks_passed"] is False
 
 
+def test_failed_rate_limit_case_is_classified(monkeypatch) -> None:
+    from ah_there_it_is.agent.errors import ProviderRateLimitError
+    from ah_there_it_is.agent.runner import AgentRunner
+    from ah_there_it_is.config import get_settings
+    from ah_there_it_is.eval_corpus import EvaluationCase, ExpectedCheck
+
+    monkeypatch.setenv("AH_THERE_IT_IS_LLM_PROVIDER", "heuristic")
+    monkeypatch.setattr(
+        AgentRunner,
+        "run",
+        lambda *args, **kwargs: (_ for _ in ()).throw(
+            ProviderRateLimitError(
+                "provider HTTP 429: quota",
+                retry_after_seconds=120.0,
+            )
+        ),
+    )
+    get_settings.cache_clear()
+    try:
+        result = run_case(
+            EvaluationCase(
+                id="rate-limited",
+                group="plumbing",
+                turns=["Где GTX 1070?"],
+                focus="Quota classification.",
+                checks=[ExpectedCheck(kind="no_mutation")],
+            ),
+            prompt="test",
+            prompt_version="test",
+            allow_heuristic=True,
+        )
+    finally:
+        get_settings.cache_clear()
+
+    assert result["status"] == "failed"
+    assert result["failure_kind"] == "provider_rate_limit"
+    assert result["provider_retry_after_seconds"] == 120.0
+    assert result["checks_passed"] is False
+
+
+def test_live_eval_main_aborts_remaining_cases_after_provider_quota(
+    monkeypatch,
+    tmp_path,
+    capsys,
+) -> None:
+    import ah_there_it_is.live_eval as live_eval
+    from ah_there_it_is.config import get_settings
+
+    output = tmp_path / "aborted.json"
+    calls: list[str] = []
+
+    def fake_run_case(case, **kwargs):
+        calls.append(case.id)
+        return {
+            "case_id": case.id,
+            "group": case.group,
+            "focus": case.focus,
+            "status": "failed",
+            "error": "ProviderRateLimitError: provider HTTP 429: quota",
+            "failure_kind": "provider_rate_limit",
+            "provider_retry_after_seconds": 600.0,
+            "turns": [],
+            "checks": [],
+            "wall_seconds": 0.01,
+            "checks_passed": None,
+        }
+
+    monkeypatch.setenv("AH_THERE_IT_IS_LLM_PROVIDER", "heuristic")
+    monkeypatch.setattr(live_eval, "run_case", fake_run_case)
+    monkeypatch.setattr(
+        sys,
+        "argv",
+        [
+            "live_eval",
+            "--corpus",
+            str(CORPUS),
+            "--case",
+            "find-01",
+            "--case",
+            "create-01",
+            "--case",
+            "ambiguity-01",
+            "--output",
+            str(output),
+            "--allow-heuristic",
+        ],
+    )
+    get_settings.cache_clear()
+    try:
+        try:
+            live_eval.main()
+        except SystemExit as exc:
+            assert exc.code == 2
+    finally:
+        get_settings.cache_clear()
+
+    report = json.loads(output.read_text(encoding="utf-8"))
+    captured = capsys.readouterr().out
+
+    assert calls == ["find-01"]
+    assert report["selected_case_count"] == 3
+    assert report["summary"]["count"] == 1
+    assert report["abort"] == {
+        "kind": "provider_rate_limit",
+        "after_case_id": "find-01",
+        "retry_after_seconds": 600.0,
+        "remaining_case_ids": ["create-01", "ambiguity-01"],
+    }
+    assert "batch aborted after provider rate limit" in captured
+
+
 def test_live_eval_main_writes_progress_and_report(monkeypatch, tmp_path, capsys) -> None:
     import ah_there_it_is.live_eval as live_eval
     from ah_there_it_is.config import get_settings
