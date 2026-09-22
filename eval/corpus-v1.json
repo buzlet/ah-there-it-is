@@ -12,6 +12,12 @@
       "checks": [
         {
           "kind": "no_mutation"
+        },
+        {
+          "kind": "item_attribute_equals",
+          "item_query": "GTX 1070",
+          "attribute_key": "memory_gb",
+          "expected_value": 8
         }
       ]
     },
@@ -77,6 +83,12 @@
       "checks": [
         {
           "kind": "no_mutation"
+        },
+        {
+          "kind": "item_attribute_equals",
+          "item_query": "Chieftec 750W",
+          "attribute_key": "power_w",
+          "expected_value": 750
         }
       ]
     },
@@ -90,6 +102,11 @@
       "checks": [
         {
           "kind": "no_mutation"
+        },
+        {
+          "kind": "item_quantity",
+          "item_query": "HDMI 2 метра",
+          "quantity": 3
         }
       ]
     },
@@ -118,6 +135,17 @@
           "kind": "item_location",
           "item_query": "CH341A",
           "location_query": "Средний ящик"
+        },
+        {
+          "kind": "event_count_delta",
+          "expected_delta": 1
+        },
+        {
+          "kind": "item_event",
+          "item_query": "CH341A",
+          "event_type": "item_moved",
+          "from_location_query": "Правый ящик",
+          "to_location_query": "Средний ящик"
         }
       ]
     },
@@ -133,6 +161,17 @@
           "kind": "item_location",
           "item_query": "Chieftec 750W",
           "location_query": "Балкон Шкаф"
+        },
+        {
+          "kind": "event_count_delta",
+          "expected_delta": 1
+        },
+        {
+          "kind": "item_event",
+          "item_query": "Chieftec 750W",
+          "event_type": "item_moved",
+          "from_location_query": "Коробка старого железа",
+          "to_location_query": "Балкон Шкаф"
         }
       ]
     },
@@ -148,6 +187,17 @@
           "kind": "item_location",
           "item_query": "USB-SATA",
           "location_query": "Кабинет Шкаф Полка 1"
+        },
+        {
+          "kind": "event_count_delta",
+          "expected_delta": 1
+        },
+        {
+          "kind": "item_event",
+          "item_query": "USB-SATA",
+          "event_type": "item_moved",
+          "from_location_query": "Правый ящик",
+          "to_location_query": "Кабинет Шкаф Полка 1"
         }
       ]
     },
@@ -163,6 +213,17 @@
           "kind": "item_location",
           "item_query": "GTX 750 Ti",
           "location_query": "Балкон Стеллаж Полка 2"
+        },
+        {
+          "kind": "event_count_delta",
+          "expected_delta": 1
+        },
+        {
+          "kind": "item_event",
+          "item_query": "GTX 750 Ti",
+          "event_type": "item_moved",
+          "from_location_query": "Балкон Стеллаж Полка 1",
+          "to_location_query": "Балкон Стеллаж Полка 2"
         }
       ]
     },
@@ -173,7 +234,22 @@
         "Достал красный мультиметр."
       ],
       "focus": "Take item out of storage; location becomes unknown/none.",
-      "checks": []
+      "checks": [
+        {
+          "kind": "item_location_none",
+          "item_query": "красный мультиметр"
+        },
+        {
+          "kind": "event_count_delta",
+          "expected_delta": 1
+        },
+        {
+          "kind": "item_event",
+          "item_query": "красный мультиметр",
+          "event_type": "item_taken",
+          "from_location_query": "Балкон Шкаф"
+        }
+      ]
     },
     {
       "id": "create-01",
@@ -186,6 +262,30 @@
         {
           "kind": "item_exists",
           "item_query": "Anker 7-в-1"
+        },
+        {
+          "kind": "item_location",
+          "item_query": "Anker 7-в-1",
+          "location_query": "Правый ящик"
+        },
+        {
+          "kind": "item_state",
+          "item_query": "Anker 7-в-1",
+          "state": "unknown"
+        },
+        {
+          "kind": "item_category_none",
+          "item_query": "Anker 7-в-1"
+        },
+        {
+          "kind": "event_count_delta",
+          "expected_delta": 1
+        },
+        {
+          "kind": "item_event",
+          "item_query": "Anker 7-в-1",
+          "event_type": "item_created",
+          "to_location_query": "Правый ящик"
         }
       ]
     },
@@ -200,6 +300,30 @@
         {
           "kind": "item_exists",
           "item_query": "DisplayPort-HDMI"
+        },
+        {
+          "kind": "item_location",
+          "item_query": "DisplayPort-HDMI",
+          "location_query": "Правый ящик"
+        },
+        {
+          "kind": "item_state",
+          "item_query": "DisplayPort-HDMI",
+          "state": "working"
+        },
+        {
+          "kind": "item_category_none",
+          "item_query": "DisplayPort-HDMI"
+        },
+        {
+          "kind": "event_count_delta",
+          "expected_delta": 1
+        },
+        {
+          "kind": "item_event",
+          "item_query": "DisplayPort-HDMI",
+          "event_type": "item_created",
+          "to_location_query": "Правый ящик"
         }
       ]
     },
@@ -214,6 +338,30 @@
         {
           "kind": "item_exists",
           "item_query": "USB-C 1 метр"
+        },
+        {
+          "kind": "item_location",
+          "item_query": "USB-C 1 метр",
+          "location_query": "Правый ящик"
+        },
+        {
+          "kind": "item_state",
+          "item_query": "USB-C 1 метр",
+          "state": "new"
+        },
+        {
+          "kind": "item_category_none",
+          "item_query": "USB-C 1 метр"
+        },
+        {
+          "kind": "event_count_delta",
+          "expected_delta": 1
+        },
+        {
+          "kind": "item_event",
+          "item_query": "USB-C 1 метр",
+          "event_type": "item_created",
+          "to_location_query": "Правый ящик"
         }
       ]
     },
@@ -228,6 +376,30 @@
         {
           "kind": "item_exists",
           "item_query": "Seasonic 550W"
+        },
+        {
+          "kind": "item_location",
+          "item_query": "Seasonic 550W",
+          "location_query": "Коробка старого железа"
+        },
+        {
+          "kind": "item_state",
+          "item_query": "Seasonic 550W",
+          "state": "broken"
+        },
+        {
+          "kind": "item_category_none",
+          "item_query": "Seasonic 550W"
+        },
+        {
+          "kind": "event_count_delta",
+          "expected_delta": 1
+        },
+        {
+          "kind": "item_event",
+          "item_query": "Seasonic 550W",
+          "event_type": "item_created",
+          "to_location_query": "Коробка старого железа"
         }
       ]
     },
@@ -242,6 +414,30 @@
         {
           "kind": "item_exists",
           "item_query": "TS100"
+        },
+        {
+          "kind": "item_location",
+          "item_query": "TS100",
+          "location_query": "Кабинет Шкаф"
+        },
+        {
+          "kind": "item_state",
+          "item_query": "TS100",
+          "state": "working"
+        },
+        {
+          "kind": "item_category_none",
+          "item_query": "TS100"
+        },
+        {
+          "kind": "event_count_delta",
+          "expected_delta": 1
+        },
+        {
+          "kind": "item_event",
+          "item_query": "TS100",
+          "event_type": "item_created",
+          "to_location_query": "Кабинет Шкаф"
         }
       ]
     },
@@ -297,6 +493,9 @@
           "kind": "item_location",
           "item_query": "UNI-T",
           "location_query": "Кабинет Шкаф"
+        },
+        {
+          "kind": "no_mutation"
         }
       ]
     },
@@ -320,7 +519,16 @@
         "У GTX 1070 иногда шумит один вентилятор, добавь это в описание."
       ],
       "focus": "Recognize that the fan-noise detail is already present; avoid a redundant update.",
-      "checks": []
+      "checks": [
+        {
+          "kind": "no_mutation"
+        },
+        {
+          "kind": "item_description_contains",
+          "item_query": "GTX 1070",
+          "text": "вентилятор иногда шумит"
+        }
+      ]
     },
     {
       "id": "update-02",
@@ -329,7 +537,27 @@
         "Красный DT-830B неисправен, щупы порваны."
       ],
       "focus": "State/description update on an existing uniquely resolved item.",
-      "checks": []
+      "checks": [
+        {
+          "kind": "item_state",
+          "item_query": "DT-830B",
+          "state": "broken"
+        },
+        {
+          "kind": "item_description_contains",
+          "item_query": "DT-830B",
+          "text": "щупы порваны"
+        },
+        {
+          "kind": "event_count_delta",
+          "expected_delta": 1
+        },
+        {
+          "kind": "item_event",
+          "item_query": "DT-830B",
+          "event_type": "item_updated"
+        }
+      ]
     },
     {
       "id": "update-03",
@@ -338,7 +566,22 @@
         "У HDMI кабелей количество теперь два."
       ],
       "focus": "Quantity update on existing grouped item.",
-      "checks": []
+      "checks": [
+        {
+          "kind": "item_quantity",
+          "item_query": "HDMI 2 метра",
+          "quantity": 2
+        },
+        {
+          "kind": "event_count_delta",
+          "expected_delta": 1
+        },
+        {
+          "kind": "item_event",
+          "item_query": "HDMI 2 метра",
+          "event_type": "item_updated"
+        }
+      ]
     },
     {
       "id": "update-04",
@@ -347,7 +590,16 @@
         "Переходник ORICO ещё подходит для SSD, добавь это как информацию."
       ],
       "focus": "Recognize that SSD compatibility is already present; avoid a redundant update.",
-      "checks": []
+      "checks": [
+        {
+          "kind": "no_mutation"
+        },
+        {
+          "kind": "item_description_contains",
+          "item_query": "ORICO",
+          "text": "SSD"
+        }
+      ]
     },
     {
       "id": "history-01",
@@ -359,6 +611,12 @@
       "checks": [
         {
           "kind": "no_mutation"
+        },
+        {
+          "kind": "item_event",
+          "item_query": "Chieftec 750W",
+          "event_type": "item_created",
+          "to_location_query": "Коробка старого железа"
         }
       ]
     },
@@ -372,6 +630,12 @@
       "checks": [
         {
           "kind": "no_mutation"
+        },
+        {
+          "kind": "item_event",
+          "item_query": "GTX 1070",
+          "event_type": "item_created",
+          "to_location_query": "Коробка старого железа"
         }
       ]
     },
@@ -383,7 +647,24 @@
         "Где он лежал до этого?"
       ],
       "focus": "Conversation reference plus newly-created move history.",
-      "checks": []
+      "checks": [
+        {
+          "kind": "item_location",
+          "item_query": "CH341A",
+          "location_query": "Средний ящик"
+        },
+        {
+          "kind": "event_count_delta",
+          "expected_delta": 1
+        },
+        {
+          "kind": "item_event",
+          "item_query": "CH341A",
+          "event_type": "item_moved",
+          "from_location_query": "Правый ящик",
+          "to_location_query": "Средний ящик"
+        }
+      ]
     },
     {
       "id": "location-01",
@@ -514,6 +795,17 @@
           "kind": "item_location",
           "item_query": "CH341A",
           "location_query": "Средний ящик"
+        },
+        {
+          "kind": "event_count_delta",
+          "expected_delta": 1
+        },
+        {
+          "kind": "item_event",
+          "item_query": "CH341A",
+          "event_type": "item_moved",
+          "from_location_query": "Правый ящик",
+          "to_location_query": "Средний ящик"
         }
       ]
     }
