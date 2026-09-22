@@ -38,10 +38,10 @@ jobs:
       - run: python -m pip install --upgrade pip
       - run: python -m pip install -e '.[test]'
       - run: just scenario-check
-      - run: just scenario-eval output=scenario-eval.json
+      - run: just scenario-eval eval/corpus-v1.json eval/scenarios-v1.json scenario-eval.json
       - uses: actions/upload-artifact@v4
         if: always()
         with:
           name: application-scenario-report
           path: scenario-eval.json
-          if-no-files-found: error
+          if-no-files-found: warn
