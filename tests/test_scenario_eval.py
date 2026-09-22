@@ -96,6 +96,30 @@ def test_scenario_mock_asserts_previous_result_cardinality() -> None:
         client.complete(messages, [])
 
 
+def test_scenario_mock_rejects_forbidden_available_tool() -> None:
+    client = ScenarioLLMClient(
+        ScenarioCase(
+            case_id="forbidden",
+            steps=[
+                ScenarioStep(
+                    forbid_tools=["move_item"],
+                    final="clarify",
+                )
+            ],
+        )
+    )
+    tools = [
+        ToolDefinition(
+            name="move_item",
+            description="move",
+            input_schema={"type": "object"},
+        )
+    ]
+
+    with pytest.raises(ScenarioMismatchError, match="forbidden tools"):
+        client.complete([], tools)
+
+
 def test_scenario_mock_rejects_unavailable_planned_tool() -> None:
     client = ScenarioLLMClient(
         ScenarioCase(
