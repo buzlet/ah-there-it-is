@@ -142,7 +142,7 @@ just scenario-eval
 
 Provider adapters and real model behavior are tested independently of application business logic.
 
-`model_probe.py` calls only the `LLMClient` contract with static `AgentMessage[]` and `ToolDefinition[]`. It does not create an inventory database, run `ToolDispatcher`, or execute mutations. This answers a narrower question: can a configured adapter/model return protocol-valid text/tool calls for the advertised schemas?
+`model_probe.py` calls only the `LLMClient` contract with static `AgentMessage[]` and `ToolDefinition[]`. It does not create an inventory database, run `ToolDispatcher`, or execute mutations. The probe suite covers a single tool call with JSON arguments, multiple independent tool calls in one response, tool-result continuation, parallel-result continuation, and final plain text. Multi-round probes preserve the exact returned `ToolCall` object in memory, including provider-only opaque state, before feeding synthetic tool results into the next `LLMClient.complete()` call. This answers a narrow question: can a configured adapter/model obey the provider-neutral protocol the application actually requires?
 
 Canonical commands:
 
