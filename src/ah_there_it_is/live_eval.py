@@ -35,6 +35,29 @@ def _load_prompt(prompt_path: str | None) -> str:
     return SYSTEM_PROMPT
 
 
+def _summarize(cases: list[dict[str, Any]]) -> dict[str, int]:
+    checked_cases = [
+        case for case in cases if case["checks_passed"] is not None
+    ]
+    return {
+        "count": len(cases),
+        "completed": sum(case["status"] == "completed" for case in cases),
+        "failed": sum(case["status"] == "failed" for case in cases),
+        "automatically_checked": len(checked_cases),
+        "automatic_checks_passed": sum(
+            case["checks_passed"] is True for case in checked_cases
+        ),
+        "manual_review_required": len(cases) - len(checked_cases),
+    }
+
+
+def _write_report(path: str, report: dict[str, Any]) -> None:
+    Path(path).write_text(
+        json.dumps(report, ensure_ascii=False, indent=2) + "\n",
+        encoding="utf-8",
+    )
+
+
 def run_case(
     case: EvaluationCase,
     *,
