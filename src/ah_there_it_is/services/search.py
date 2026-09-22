@@ -26,6 +26,7 @@ class SearchService:
     EXACT_NAME = 1000
     EXACT_ALIAS = 950
     EXACT_ATTRIBUTE = 925
+    EXACT_PATH = 975
     NORMALIZED_NAME = 900
     NORMALIZED_ALIAS = 875
     EXACT_TAG = 825
@@ -172,7 +173,7 @@ class SearchService:
 
     def _fts_overlap_ok(self, item: Item, search_key: str) -> bool:
         query_tokens = set(search_key.split())
-        if len(query_tokens) < 3:
+        if len(query_tokens) < 2:
             return True
         searchable_parts = [
             normalize_search_text(item.name),
@@ -232,6 +233,14 @@ class SearchService:
             path_search = normalize_search_text(path)
             if node.normalized_name == identity:
                 score, match = self.EXACT_NAME, "exact_name"
+            elif (
+                search_key
+                and (
+                    path_search == search_key
+                    or path_search.endswith(" " + search_key)
+                )
+            ):
+                score, match = self.EXACT_PATH, "exact_path"
             elif leaf_search == search_key:
                 score, match = self.NORMALIZED_NAME, "normalized_name"
             elif search_key and search_key in leaf_search:

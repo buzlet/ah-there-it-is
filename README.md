@@ -52,6 +52,10 @@ just eval-export evaluation-cases.json
 just experiment-replay strict-v2 prompts/inventory-v2-strict.txt inventory-v2 50
 just provider-smoke
 just live-compare baseline.json variant.json live-compare.json
+just scenario-check
+just scenario-eval
+just provider-contract
+just model-probe
 ```
 
 If `just` is unavailable in a constrained sandbox, execute the exact underlying recipe command rather than adding a network dependency to install it.
@@ -105,34 +109,73 @@ If the variant asks for a different search, arguments, tool order, or extra tool
 
 The `/experiments` UI shows aggregate completion/divergence/failure metrics, rounds, human ratings, pairwise review counts, a simple clarification heuristic, and tool/mutation error rates. `/experiments/{id}` provides baseline-versus-variant review with `baseline`, `variant`, `tie`, or `both_bad` plus an optional 1–5 variant rating.
 
+## Development pipelines
+
+Application correctness and model/provider behavior are deliberately separate concerns.
+
+### Application pipeline
+
+Normal development uses `eval/scenarios-v1.json` and `ScenarioLLMClient`, not a network model. The scenario mock declares the model-side decisions while the real application still runs:
+
+- `AgentRunner` and dynamic capability gating;
+- deterministic search;
+- real `ToolDispatcher` validation;
+- real SQLite fixture state;
+- real service-layer reads and mutations;
+- history/event recording;
+- multi-turn conversation state.
+
+Scenario tool arguments can reference actual prior tool results, for example `${tool:search_items:result.0.id}`. IDs therefore come from the application's real search results rather than fixture constants. Scenarios can also require/forbid offered tools and assert facts about prior tool results. A broken search, wrong capability decision, failed mutation, or unexpected ambiguity fails deterministically.
+
+`eval/scenarios-v1.json` covers all 40 cases in `eval/corpus-v1.json`. CI requires the scenario and corpus ID sets to remain identical.
+
+Canonical commands:
+
+```bash
+just scenario-check
+just scenario-eval
+```
+
+`.github/workflows/ci.yml` is the **application-ci** workflow. It has no model API secrets or live-model jobs. It runs ordinary tests on Python 3.12/3.13 plus the complete offline scenario suite.
+
+### Provider/model pipeline
+
+Provider adapters and real model behavior are tested independently of application business logic.
+
+`model_probe.py` calls only the `LLMClient` contract with static `AgentMessage[]` and `ToolDefinition[]`. It does not create an inventory database, run `ToolDispatcher`, or execute mutations. This answers a narrower question: can a configured adapter/model return protocol-valid text/tool calls for the advertised schemas?
+
+Canonical commands:
+
+```bash
+just provider-contract
+just model-probe
+```
+
+`.github/workflows/provider-contract.yml` runs local adapter-contract tests on push/PR. Real Groq/Gemini probes are manual `workflow_dispatch` jobs using the protected `live-llm-test` environment; they never gate application CI.
+
+The older `live_eval` / `live_compare` tools remain available for deliberate end-to-end research and prompt/model experiments. Their results are evidence about a provider/model configuration, not a prerequisite for application development or correctness.
+
+## Deterministic retrieval evidence
+
+The executable scenario suite has already exposed application bugs without involving a real model:
+
+- tree queries such as `Кабинет Шкаф` previously tied the intended node with descendants sharing the same ancestry tokens; `exact_path` now ranks the exact normalized path above descendant containment while bare `Шкаф` remains ambiguous;
+- a two-token create search such as `DisplayPort-HDMI` previously returned an unrelated HDMI cable from OR-based FTS; multi-token FTS now requires at least two overlapping query tokens.
+
+These fixes live in deterministic search and are model-independent.
+
 ## CI and external verification
 
-`.github/workflows/ci.yml` runs the canonical `just` checks on Ubuntu 24.04 with Python 3.12 and 3.13. The manual `live-gemini-smoke` job uses the protected GitHub Environment `live-llm-test`. Configure there:
+Normal application CI receives no provider secrets. Provider secrets/variables remain confined to manual jobs in `.github/workflows/provider-contract.yml`:
 
-- `GEMINI_API_KEY` as an **Environment secret**;
-- `GEMINI_MODEL` and `GEMINI_BASE_URL` as Environment variables;
-- `GROQ_API_KEY` as an **Environment secret**;
-- `GROQ_MODEL=qwen/qwen3.8-27b` and `GROQ_BASE_URL=https://api.groq.com/openai/v1` as Environment variables.
+- `GEMINI_API_KEY`, `GEMINI_MODEL`, `GEMINI_BASE_URL`;
+- `GROQ_API_KEY`, `GROQ_MODEL`, `GROQ_BASE_URL`.
 
-Normal CI jobs never receive provider secrets. Manual `workflow_dispatch` selects `groq` or `gemini`, a `smoke` or `representative` suite, and `prompt_variant=v1|v2-strict`; only the selected provider job runs and receives its own secret. Artifact names include the prompt variant so baseline and variant reports remain distinct. `smoke` runs `find-01` + `move-01`; `representative` adds `create-01`, `ambiguity-01`, and `history-01`. Groq/Qwen live evaluation uses temperature 0.6, top_p 0.95, `max_completion_tokens=256`, `reasoning_effort=none`, and hidden reasoning. These settings are captured in run metadata. The smaller completion budget and instruct mode are deliberate: measured free-tier limits are 7000 input tokens/minute and 1000 output tokens/minute.
+Native Gemini and OpenAI-compatible adapters remain replaceable implementations behind the same `LLMClient` boundary. Provider-specific protocol work belongs in adapter/contract tests, not in inventory scenarios.
 
 ## Current scope
 
-Stages 0–5 are implemented and Stage 6 live-provider validation is in progress: project bootstrap, domain persistence, deterministic search, bounded agent/tool layer, text-only web/evaluation MVP, replaceable OpenAI-compatible provider adapter, and controlled prompt/model experiments. Voice, Telegram, images, QR, MCP, PWA, and embeddings remain out of scope until live text-model evaluation produces evidence that they are worth adding.
+Stages 0–5 are complete. Stage 6 has established a provider-independent application regression pipeline covering the full 40-case corpus and a separate provider/model contract pipeline. Further application work should extend deterministic scenarios first. Real-provider probes are optional adapter verification.
 
-## Stage 6 live evaluation
+Voice, Telegram, images, QR, MCP, PWA, embeddings, and multi-user support remain out of scope until the text workflow is stable.
 
-Real-model validation uses a deterministic fixture and a versioned corpus rather than the live inventory database.
-
-The committed corpus is `eval/corpus-v1.json` (40 cases). Each case starts from `inventory-fixture-v1`, so prompt/model comparisons see the same initial categories, locations, items, ambiguity, aliases, and history. The harness creates a fresh temporary SQLite database per case and never points at the normal application database.
-
-Canonical repeated commands are in `Justfile`:
-
-- `just corpus-check` validates corpus/fixture compatibility and unique case IDs.
-- `just live-eval` runs the first configured cases against the provider selected by `AH_THERE_IT_IS_LLM_*` and writes `live-eval.json`.
-- `just provider-smoke` remains the lightweight connectivity-only check.
-- `just live-compare baseline.json variant.json comparison.json` creates a descriptive case-by-case comparison with exact provider-config fingerprints, rounds, checks, token usage, provider/client time, retry delay, tool usage/errors, and both assistant texts. It deliberately does not rank prompts or choose a winner.
-
-`live-eval` intentionally refuses the offline heuristic provider unless `--allow-heuristic` is passed explicitly. The heuristic mode exists only to test harness plumbing; it is not a model-quality result.
-
-The GitHub Actions manual provider jobs use the `live-llm-test` environment and run bounded smoke/representative suites before uploading JSON reports. Normal CI is green on Python 3.12/3.13. Live Gemini and Groq runs have confirmed complete `AgentRunner` tool loops. Groq diagnostics now record persistent-transport wall time, provider server time, attempts, and retry events; the latest smoke reduced `move-01` from 8 rounds to 3 after deterministic natural-phrase location fallback was added. The representative Groq subset subsequently exposed one create-path failure; after filtering single-token FTS noise, tightening create metadata rules, and accepting token-order-equivalent prior name searches, `create-01` completed in 3 rounds / 1.36 s with the item stored at the correct location and optional metadata left unknown/unset.

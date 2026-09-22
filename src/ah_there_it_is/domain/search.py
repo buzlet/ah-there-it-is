@@ -10,6 +10,7 @@ MatchType = Literal[
     "exact_name",
     "exact_alias",
     "exact_attribute",
+    "exact_path",
     "normalized_name",
     "normalized_alias",
     "exact_tag",

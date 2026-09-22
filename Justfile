@@ -54,3 +54,15 @@ live-eval corpus="eval/corpus-v1.json" limit="5" output="live-eval.json":
 
 live-compare baseline variant output="live-compare.json":
     python -m ah_there_it_is.live_compare "{{baseline}}" "{{variant}}" --output "{{output}}"
+
+scenario-check scenarios="eval/scenarios-v1.json":
+    python -c "from ah_there_it_is.agent.scenario_mock import load_scenario_suite; s=load_scenario_suite('{{scenarios}}'); print(f'{s.version}: {len(s.cases)} scenarios')"
+
+scenario-eval corpus="eval/corpus-v1.json" scenarios="eval/scenarios-v1.json" output="scenario-eval.json":
+    python -m ah_there_it_is.scenario_eval --corpus "{{corpus}}" --scenarios "{{scenarios}}" --output "{{output}}"
+
+model-probe suite="eval/model-probes-v1.json" output="model-probe.json":
+    python -m ah_there_it_is.model_probe --suite "{{suite}}" --output "{{output}}"
+
+provider-contract:
+    python -m pytest tests/test_provider.py tests/test_model_probe.py

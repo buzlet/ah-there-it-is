@@ -41,9 +41,10 @@ def test_exact_name_and_alias_outrank_fts(session: Session) -> None:
     alias_results = search.search_items("Chieftec PSU")
     assert alias_results[0].id == alias.id
     assert alias_results[0].match_type == "exact_alias"
-    assert alias_results[0].score > next(
+    fts_scores = [
         result.score for result in alias_results if result.match_type == "fts"
-    )
+    ]
+    assert all(alias_results[0].score > score for score in fts_scores)
 
 
 def test_search_name_separator_variants_without_merging_identity(session: Session) -> None:
@@ -87,6 +88,27 @@ def test_item_search_uses_attributes_description_tags_and_updates_fts(session: S
     assert search.search_items("nvidia") == []
 
 
+def test_two_token_fts_query_rejects_single_token_noise(session: Session) -> None:
+    inventory = InventoryService(session)
+    search = SearchService(session)
+
+    inventory.create_item(
+        "HDMI cable 2m",
+        description="Обычный HDMI кабель.",
+        tags=["HDMI", "cable"],
+    )
+    adapter = inventory.create_item(
+        "DisplayPort to HDMI adapter",
+        description="Переходник DisplayPort HDMI.",
+        tags=["DisplayPort", "HDMI"],
+    )
+
+    results = search.search_items("DisplayPort-HDMI")
+
+    assert [result.id for result in results] == [adapter.id]
+    assert all(result.name != "HDMI cable 2m" for result in results)
+
+
 def test_duplicate_location_leaf_names_are_returned_with_paths(session: Session) -> None:
     inventory = InventoryService(session)
     search = SearchService(session)
@@ -115,6 +137,30 @@ def test_tree_search_can_use_ancestry_to_disambiguate(session: Session) -> None:
     assert len(results) == 1
     assert results[0].id == balcony_shelf.id
     assert results[0].path == "Балкон / Полка 2"
+
+
+def test_tree_search_exact_path_outranks_descendant_with_same_ancestry(
+    session: Session,
+) -> None:
+    inventory = InventoryService(session)
+    search = SearchService(session)
+
+    home = inventory.create_location("Квартира")
+    office = inventory.create_location("Кабинет", parent_id=home.id)
+    cabinet = inventory.create_location("Шкаф", parent_id=office.id)
+    inventory.create_location("Полка 1", parent_id=cabinet.id)
+
+    balcony = inventory.create_location("Балкон", parent_id=home.id)
+    inventory.create_location("Шкаф", parent_id=balcony.id)
+
+    results = search.search_locations("Кабинет Шкаф")
+
+    assert results[0].id == cabinet.id
+    assert results[0].path == "Квартира / Кабинет / Шкаф"
+    assert results[0].match_type == "exact_path"
+    assert results[0].score == SearchService.EXACT_PATH
+    assert len(results) >= 2
+    assert results[0].score - results[1].score >= 50
 
 
 def test_tree_search_prefers_specific_leaf_inside_natural_phrase(session: Session) -> None:
