@@ -10,7 +10,7 @@
         },
         {
           "role": "user",
-          "content": "Find GTX 1070 in my inventory."
+          "content": "Call search_items to find GTX 1070. Do not answer from memory."
         }
       ],
       "tools": [
@@ -27,10 +27,170 @@
           }
         }
       ],
-      "expect": {
-        "tool_name": "search_items",
-        "required_arguments": ["query"]
-      }
+      "steps": [
+        {
+          "expect_tool_calls": [
+            {"name": "search_items", "required_arguments": ["query"]}
+          ]
+        }
+      ]
+    },
+    {
+      "id": "parallel-search-basic",
+      "messages": [
+        {
+          "role": "system",
+          "content": "This is a tool-contract test. When explicitly asked, issue all independent requested tool calls in the same response."
+        },
+        {
+          "role": "user",
+          "content": "Call both search_items for CH341A and search_locations for Middle Drawer now. Do not answer yet."
+        }
+      ],
+      "tools": [
+        {
+          "name": "search_items",
+          "description": "Search inventory items.",
+          "input_schema": {
+            "type": "object",
+            "properties": {"query": {"type": "string"}},
+            "required": ["query"],
+            "additionalProperties": false
+          }
+        },
+        {
+          "name": "search_locations",
+          "description": "Search inventory locations.",
+          "input_schema": {
+            "type": "object",
+            "properties": {"query": {"type": "string"}},
+            "required": ["query"],
+            "additionalProperties": false
+          }
+        }
+      ],
+      "steps": [
+        {
+          "expect_tool_calls": [
+            {"name": "search_items", "required_arguments": ["query"]},
+            {"name": "search_locations", "required_arguments": ["query"]}
+          ]
+        }
+      ]
+    },
+    {
+      "id": "tool-result-continuation",
+      "messages": [
+        {
+          "role": "system",
+          "content": "Use tools for inventory facts. After receiving a tool result, answer from that result."
+        },
+        {
+          "role": "user",
+          "content": "Where is GTX 1070?"
+        }
+      ],
+      "tools": [
+        {
+          "name": "search_items",
+          "description": "Search inventory items.",
+          "input_schema": {
+            "type": "object",
+            "properties": {"query": {"type": "string"}},
+            "required": ["query"],
+            "additionalProperties": false
+          }
+        }
+      ],
+      "steps": [
+        {
+          "expect_tool_calls": [
+            {"name": "search_items", "required_arguments": ["query"]}
+          ],
+          "tool_results": [
+            {
+              "tool_name": "search_items",
+              "payload": {
+                "ok": true,
+                "result": [
+                  {
+                    "id": 7,
+                    "name": "Gigabyte GTX 1070",
+                    "location_path": "Apartment / Balcony / Rack / Old hardware box"
+                  }
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "no_tool_calls": true,
+          "require_text": true
+        }
+      ]
+    },
+    {
+      "id": "parallel-result-continuation",
+      "messages": [
+        {
+          "role": "system",
+          "content": "This is a tool-contract test. Issue both independent tools, then answer only after both results are supplied."
+        },
+        {
+          "role": "user",
+          "content": "Call search_items for CH341A and search_locations for Middle Drawer, then tell me that both results were received."
+        }
+      ],
+      "tools": [
+        {
+          "name": "search_items",
+          "description": "Search inventory items.",
+          "input_schema": {
+            "type": "object",
+            "properties": {"query": {"type": "string"}},
+            "required": ["query"],
+            "additionalProperties": false
+          }
+        },
+        {
+          "name": "search_locations",
+          "description": "Search inventory locations.",
+          "input_schema": {
+            "type": "object",
+            "properties": {"query": {"type": "string"}},
+            "required": ["query"],
+            "additionalProperties": false
+          }
+        }
+      ],
+      "steps": [
+        {
+          "expect_tool_calls": [
+            {"name": "search_items", "required_arguments": ["query"]},
+            {"name": "search_locations", "required_arguments": ["query"]}
+          ],
+          "tool_results": [
+            {
+              "tool_name": "search_items",
+              "payload": {
+                "ok": true,
+                "result": [{"id": 8, "name": "CH341A programmer"}]
+              }
+            },
+            {
+              "tool_name": "search_locations",
+              "payload": {
+                "ok": true,
+                "result": [{"id": 12, "name": "Middle Drawer"}]
+              }
+            }
+          ]
+        },
+        {
+          "no_tool_calls": true,
+          "require_text": true
+        }
+      ]
     },
     {
       "id": "final-text-basic",
@@ -45,10 +205,12 @@
         }
       ],
       "tools": [],
-      "expect": {
-        "no_tool_calls": true,
-        "require_text": true
-      }
+      "steps": [
+        {
+          "no_tool_calls": true,
+          "require_text": true
+        }
+      ]
     }
   ]
 }

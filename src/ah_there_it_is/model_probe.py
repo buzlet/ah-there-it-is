@@ -1,4 +1,4 @@
-"""Probe a configured model/adapter contract without running application logic."""
+"""Probe a configured model/adapter contract without application business logic."""
 
 from __future__ import annotations
 
@@ -7,20 +7,61 @@ import json
 from pathlib import Path
 from typing import Any
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 from ah_there_it_is.agent.factory import build_llm_factory
-from ah_there_it_is.agent.protocol import AgentMessage, LLMClient, ToolDefinition
+from ah_there_it_is.agent.protocol import (
+    AgentMessage,
+    LLMClient,
+    LLMResponse,
+    ToolCall,
+    ToolDefinition,
+)
 from ah_there_it_is.config import get_settings
 
 
-class ProbeExpectation(BaseModel):
+class ExpectedToolCall(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
-    tool_name: str | None = None
+    name: str
     required_arguments: list[str] = Field(default_factory=list)
+
+
+class SyntheticToolResult(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    tool_name: str
+    payload: Any
+
+
+class ProbeStep(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    expect_tool_calls: list[ExpectedToolCall] = Field(default_factory=list)
     no_tool_calls: bool = False
     require_text: bool = False
+    allow_extra_tool_calls: bool = False
+    tool_results: list[SyntheticToolResult] = Field(default_factory=list)
+
+    @model_validator(mode="after")
+    def _validate_contract(self) -> "ProbeStep":
+        if self.no_tool_calls and self.expect_tool_calls:
+            raise ValueError(
+                "no_tool_calls cannot be combined with expect_tool_calls"
+            )
+        expected_names = [call.name for call in self.expect_tool_calls]
+        if len(expected_names) != len(set(expected_names)):
+            raise ValueError("expected tool names must be unique within a step")
+        result_names = [result.tool_name for result in self.tool_results]
+        if len(result_names) != len(set(result_names)):
+            raise ValueError("synthetic tool-result names must be unique")
+        unknown_results = sorted(set(result_names) - set(expected_names))
+        if unknown_results:
+            raise ValueError(
+                "synthetic tool results require matching expected tool calls: "
+                + ", ".join(unknown_results)
+            )
+        return self
 
 
 class ModelProbeCase(BaseModel):
@@ -29,7 +70,7 @@ class ModelProbeCase(BaseModel):
     id: str
     messages: list[AgentMessage] = Field(min_length=1)
     tools: list[ToolDefinition] = Field(default_factory=list)
-    expect: ProbeExpectation
+    steps: list[ProbeStep] = Field(min_length=1)
 
 
 class ModelProbeSuite(BaseModel):
@@ -49,43 +90,14 @@ def load_probe_suite(path: str | Path) -> ModelProbeSuite:
     return suite
 
 
-def run_probe_case(client: LLMClient, case: ModelProbeCase) -> dict[str, Any]:
-    response = client.complete(case.messages, case.tools)
+def _validate_response(
+    response: LLMResponse,
+    tools: list[ToolDefinition],
+    step: ProbeStep,
+) -> list[str]:
     errors: list[str] = []
-    expectation = case.expect
+    advertised = {tool.name for tool in tools}
 
-    if expectation.no_tool_calls and response.tool_calls:
-        errors.append(
-            "expected no tool calls, got "
-            + ", ".join(call.name for call in response.tool_calls)
-        )
-
-    matched = None
-    if expectation.tool_name is not None:
-        if not response.tool_calls:
-            errors.append(f"expected tool {expectation.tool_name!r}, got no tool call")
-        else:
-            matched = response.tool_calls[0]
-            if matched.name != expectation.tool_name:
-                errors.append(
-                    f"expected first tool {expectation.tool_name!r}, "
-                    f"got {matched.name!r}"
-                )
-            missing_arguments = [
-                name
-                for name in expectation.required_arguments
-                if name not in matched.arguments
-            ]
-            if missing_arguments:
-                errors.append(
-                    "missing required tool arguments: "
-                    + ", ".join(missing_arguments)
-                )
-
-    if expectation.require_text and not response.content.strip():
-        errors.append("expected non-empty assistant text")
-
-    advertised = {tool.name for tool in case.tools}
     unknown = [
         call.name for call in response.tool_calls if call.name not in advertised
     ]
@@ -95,15 +107,122 @@ def run_probe_case(client: LLMClient, case: ModelProbeCase) -> dict[str, Any]:
             + ", ".join(unknown)
         )
 
+    if step.no_tool_calls and response.tool_calls:
+        errors.append(
+            "expected no tool calls, got "
+            + ", ".join(call.name for call in response.tool_calls)
+        )
+
+    matched_indexes: set[int] = set()
+    for expected in step.expect_tool_calls:
+        match_index = next(
+            (
+                index
+                for index, call in enumerate(response.tool_calls)
+                if index not in matched_indexes and call.name == expected.name
+            ),
+            None,
+        )
+        if match_index is None:
+            errors.append(f"expected tool {expected.name!r}, got no matching call")
+            continue
+        matched_indexes.add(match_index)
+        call = response.tool_calls[match_index]
+        missing = [
+            name for name in expected.required_arguments
+            if name not in call.arguments
+        ]
+        if missing:
+            errors.append(
+                f"tool {expected.name!r} missing required arguments: "
+                + ", ".join(missing)
+            )
+
+    if (
+        step.expect_tool_calls
+        and not step.allow_extra_tool_calls
+        and len(response.tool_calls) != len(step.expect_tool_calls)
+    ):
+        errors.append(
+            f"expected exactly {len(step.expect_tool_calls)} tool call(s), "
+            f"got {len(response.tool_calls)}"
+        )
+
+    if step.require_text and not response.content.strip():
+        errors.append("expected non-empty assistant text")
+
+    return errors
+
+
+def _tool_result_messages(
+    response: LLMResponse,
+    step: ProbeStep,
+) -> list[AgentMessage]:
+    results_by_name = {result.tool_name: result for result in step.tool_results}
+    messages: list[AgentMessage] = []
+    for call in response.tool_calls:
+        result = results_by_name.get(call.name)
+        if result is None:
+            continue
+        messages.append(
+            AgentMessage(
+                role="tool",
+                content=json.dumps(
+                    result.payload,
+                    ensure_ascii=False,
+                    sort_keys=True,
+                ),
+                tool_call_id=call.id,
+                tool_name=call.name,
+            )
+        )
+    return messages
+
+
+def run_probe_case(client: LLMClient, case: ModelProbeCase) -> dict[str, Any]:
+    messages = list(case.messages)
+    step_reports: list[dict[str, Any]] = []
+    case_errors: list[str] = []
+
+    for step_number, step in enumerate(case.steps, start=1):
+        response = client.complete(messages, case.tools)
+        errors = _validate_response(response, case.tools, step)
+        step_reports.append(
+            {
+                "step": step_number,
+                "passed": not errors,
+                "errors": errors,
+                "content": response.content,
+                "tool_calls": [
+                    call.model_dump(mode="json")
+                    for call in response.tool_calls
+                ],
+                "metadata": response.metadata,
+            }
+        )
+        if errors:
+            case_errors.extend(
+                f"step {step_number}: {error}" for error in errors
+            )
+            break
+
+        # Preserve the exact provider-neutral ToolCall returned by the adapter.
+        # Provider-only opaque state remains attached in memory and can be
+        # round-tripped by provider adapters without leaking into JSON reports.
+        messages.append(
+            AgentMessage(
+                role="assistant",
+                content=response.content,
+                tool_calls=response.tool_calls,
+            )
+        )
+        messages.extend(_tool_result_messages(response, step))
+
     return {
         "case_id": case.id,
-        "passed": not errors,
-        "errors": errors,
-        "content": response.content,
-        "tool_calls": [
-            call.model_dump(mode="json") for call in response.tool_calls
-        ],
-        "metadata": response.metadata,
+        "passed": not case_errors and len(step_reports) == len(case.steps),
+        "errors": case_errors,
+        "steps": step_reports,
     }
 
 
