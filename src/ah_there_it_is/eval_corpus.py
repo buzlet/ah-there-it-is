@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import json
 from pathlib import Path
-from typing import Literal
+from typing import Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
@@ -20,6 +20,10 @@ class ExpectedCheck(BaseModel):
         "item_quantity",
         "item_description_contains",
         "item_history_min_events",
+        "item_attribute_equals",
+        "item_category_none",
+        "event_count_delta",
+        "item_event",
         "no_mutation",
     ]
     item_query: str | None = None
@@ -28,6 +32,13 @@ class ExpectedCheck(BaseModel):
     quantity: int | None = Field(default=None, ge=1)
     text: str | None = None
     min_events: int | None = Field(default=None, ge=0)
+    attribute_key: str | None = None
+    expected_value: Any = None
+    expected_delta: int | None = Field(default=None, ge=0)
+    event_type: str | None = None
+    from_location_query: str | None = None
+    to_location_query: str | None = None
+    min_count: int = Field(default=1, ge=1)
 
     @model_validator(mode="after")
     def _validate_kind_fields(self) -> "ExpectedCheck":
@@ -39,6 +50,9 @@ class ExpectedCheck(BaseModel):
             "item_quantity",
             "item_description_contains",
             "item_history_min_events",
+            "item_attribute_equals",
+            "item_category_none",
+            "item_event",
         }
         if self.kind in item_kinds and not self.item_query:
             raise ValueError(f"{self.kind} requires item_query")
@@ -52,6 +66,12 @@ class ExpectedCheck(BaseModel):
             raise ValueError("item_description_contains requires text")
         if self.kind == "item_history_min_events" and self.min_events is None:
             raise ValueError("item_history_min_events requires min_events")
+        if self.kind == "item_attribute_equals" and not self.attribute_key:
+            raise ValueError("item_attribute_equals requires attribute_key")
+        if self.kind == "event_count_delta" and self.expected_delta is None:
+            raise ValueError("event_count_delta requires expected_delta")
+        if self.kind == "item_event" and not self.event_type:
+            raise ValueError("item_event requires event_type")
         return self
 
 
