@@ -6,6 +6,7 @@ from pathlib import Path
 import pytest
 
 from ah_there_it_is.agent.protocol import AgentMessage, ToolDefinition
+from ah_there_it_is.eval_corpus import load_corpus
 from ah_there_it_is.agent.scenario_mock import (
     ScenarioCase,
     ScenarioLLMClient,
