@@ -55,6 +55,8 @@ def _case_metrics(case: dict[str, Any]) -> dict[str, Any]:
     tool_calls: Counter[str] = Counter()
     tool_errors = 0
     assistant_texts: list[str] = []
+    response_models: set[str] = set()
+    system_fingerprints: set[str] = set()
 
     turns = case.get("turns")
     if not isinstance(turns, list):
@@ -75,6 +77,12 @@ def _case_metrics(case: dict[str, Any]) -> dict[str, Any]:
             assistant = assistant if isinstance(assistant, dict) else {}
             metadata = assistant.get("metadata")
             metadata = metadata if isinstance(metadata, dict) else {}
+            response_model = metadata.get("response_model")
+            if isinstance(response_model, str) and response_model:
+                response_models.add(response_model)
+            system_fingerprint = metadata.get("system_fingerprint")
+            if isinstance(system_fingerprint, str) and system_fingerprint:
+                system_fingerprints.add(system_fingerprint)
             usage = metadata.get("usage")
             usage = usage if isinstance(usage, dict) else {}
             prompt_tokens += _usage_number(
@@ -152,6 +160,8 @@ def _case_metrics(case: dict[str, Any]) -> dict[str, Any]:
         "tool_call_count": sum(tool_calls.values()),
         "tool_errors": tool_errors,
         "assistant_texts": assistant_texts,
+        "response_models": sorted(response_models),
+        "system_fingerprints": sorted(system_fingerprints),
     }
 
 
@@ -218,6 +228,10 @@ def compare_reports(
                 "checks_changed": (
                     baseline_metrics["checks_passed"]
                     != variant_metrics["checks_passed"]
+                ),
+                "backend_fingerprint_changed": (
+                    baseline_metrics["system_fingerprints"]
+                    != variant_metrics["system_fingerprints"]
                 ),
             }
         )
