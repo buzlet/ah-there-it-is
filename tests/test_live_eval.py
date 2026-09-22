@@ -177,6 +177,8 @@ def test_live_eval_main_writes_progress_and_report(monkeypatch, tmp_path, capsys
             str(output),
             "--repetitions",
             "2",
+            "--trial-start",
+            "2",
             "--allow-heuristic",
         ],
     )
@@ -189,12 +191,13 @@ def test_live_eval_main_writes_progress_and_report(monkeypatch, tmp_path, capsys
     report = json.loads(output.read_text(encoding="utf-8"))
     captured = capsys.readouterr().out
     assert report["repetitions"] == 2
+    assert report["trial_start"] == 2
     assert report["summary"]["count"] == 2
     assert [case["case_id"] for case in report["cases"]] == ["find-01", "find-01"]
-    assert [case["trial"] for case in report["cases"]] == [1, 2]
+    assert [case["trial"] for case in report["cases"]] == [2, 3]
     assert [case["execution_id"] for case in report["cases"]] == [
-        "find-01#r1",
         "find-01#r2",
+        "find-01#r3",
     ]
-    assert "[live-eval] case 1/2 start find-01 trial=1" in captured
-    assert "[live-eval] case 2/2 done find-01 trial=2" in captured
+    assert "[live-eval] case 1/2 start find-01 trial=2" in captured
+    assert "[live-eval] case 2/2 done find-01 trial=3" in captured
