@@ -34,6 +34,15 @@ permissions:
           - '1'
           - '2'
           - '3'
+      trial_start:
+        description: First trial number in the report
+        required: true
+        default: '1'
+        type: choice
+        options:
+          - '1'
+          - '2'
+          - '3'
       prompt_variant:
         description: System prompt variant
         required: true
@@ -111,6 +120,8 @@ jobs:
             "${CASES[@]}" \
             "${PROMPT_ARGS[@]}" \
             --repetitions "${{ inputs.repetitions || '1' }}" \
+            --trial-start "${{ inputs.trial_start || '1' }}" \
+            --trial-start "${{ inputs.trial_start || '1' }}" \
             --output live-eval.json
       - name: Upload live evaluation report
         if: ${{ always() && github.event_name == 'workflow_dispatch' }}
