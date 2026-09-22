@@ -15,6 +15,7 @@ from typing import Any
 
 from sqlalchemy import func, select
 
+from ah_there_it_is.agent.errors import ProviderRateLimitError, ProviderRequestError
 from ah_there_it_is.agent.factory import build_llm_factory
 from ah_there_it_is.agent.runner import AgentRunner, SYSTEM_PROMPT
 from ah_there_it_is.config import get_settings
@@ -141,6 +142,8 @@ def run_case(
             turns: list[dict[str, Any]] = []
             status = "completed"
             error: str | None = None
+            failure_kind: str | None = None
+            provider_retry_after_seconds: float | None = None
 
             try:
                 for user_text in case.turns:
@@ -163,6 +166,13 @@ def run_case(
             except Exception as exc:  # live harness must report, not hide, provider/tool failures
                 status = "failed"
                 error = f"{type(exc).__name__}: {exc}"
+                if isinstance(exc, ProviderRateLimitError):
+                    failure_kind = "provider_rate_limit"
+                    provider_retry_after_seconds = exc.retry_after_seconds
+                elif isinstance(exc, ProviderRequestError):
+                    failure_kind = "provider_request"
+                else:
+                    failure_kind = "agent_or_tool"
                 latest = session.scalar(
                     select(AgentRunLog).order_by(AgentRunLog.id.desc()).limit(1)
                 )
@@ -197,6 +207,8 @@ def run_case(
                 "focus": case.focus,
                 "status": status,
                 "error": error,
+                "failure_kind": failure_kind,
+                "provider_retry_after_seconds": provider_retry_after_seconds,
                 "turns": turns,
                 "checks": checks,
                 "wall_seconds": round(time.perf_counter() - case_started, 6),
@@ -256,8 +268,10 @@ def main() -> None:
         "prompt_version": prompt_version,
         "prompt_hash": hashlib.sha256(prompt.encode("utf-8")).hexdigest(),
         "provider": llm_info.model_dump(mode="json"),
+        "selected_case_count": len(selected),
         "cases": [],
         "summary": _summarize([]),
+        "abort": None,
     }
     if args.output:
         _write_report(args.output, report)
@@ -286,6 +300,25 @@ def main() -> None:
             f"wall={result['wall_seconds']:.3f}s{error_suffix}",
             flush=True,
         )
+
+        if result.get("failure_kind") == "provider_rate_limit":
+            remaining = [pending.id for pending in selected[index:]]
+            report["abort"] = {
+                "kind": "provider_rate_limit",
+                "after_case_id": case.id,
+                "retry_after_seconds": result.get(
+                    "provider_retry_after_seconds"
+                ),
+                "remaining_case_ids": remaining,
+            }
+            if args.output:
+                _write_report(args.output, report)
+            print(
+                "[live-eval] batch aborted after provider rate limit; "
+                f"remaining={remaining}",
+                flush=True,
+            )
+            break
 
     rendered = json.dumps(report, ensure_ascii=False, indent=2)
     if not args.output:
