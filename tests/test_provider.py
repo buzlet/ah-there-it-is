@@ -259,6 +259,32 @@ def test_gemini_adapter_serializes_tools_and_preserves_thought_signature() -> No
     assert response.content == "Нашёл."
 
 
+def test_gemini_adapter_merges_generation_config_extra_body() -> None:
+    from ah_there_it_is.agent.gemini import GeminiConfig, GeminiLLMClient
+
+    client = GeminiLLMClient(
+        GeminiConfig(
+            base_url="http://localhost",
+            model="gemma-4-31b-it",
+            temperature=0.2,
+            extra_body={
+                "generationConfig": {
+                    "thinkingConfig": {"thinkingLevel": "HIGH"}
+                }
+            },
+        )
+    )
+    body = client._request_body(  # noqa: SLF001 - serialization invariant
+        [AgentMessage(role="user", content="test")],
+        [],
+    )
+
+    assert body["generationConfig"] == {
+        "temperature": 0.2,
+        "thinkingConfig": {"thinkingLevel": "HIGH"},
+    }
+
+
 def test_gemini_adapter_groups_parallel_tool_responses() -> None:
     from ah_there_it_is.agent.gemini import GeminiConfig, GeminiLLMClient
 

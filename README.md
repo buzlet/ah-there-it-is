@@ -64,16 +64,19 @@ If `just` is unavailable in a constrained sandbox, execute the exact underlying 
 
 Offline development still defaults to `HeuristicLLMClient`. Two real-provider adapters are available.
 
-Native Gemini `generateContent`:
+Native Google Gemini API / Gemma 4:
 
 ```bash
 export AH_THERE_IT_IS_LLM_PROVIDER=gemini
 export AH_THERE_IT_IS_LLM_PROVIDER_NAME=gemini
-export AH_THERE_IT_IS_LLM_MODEL=gemini-flash-latest
+export AH_THERE_IT_IS_LLM_MODEL=gemma-4-31b-it
 export AH_THERE_IT_IS_LLM_API_KEY=secret
+export AH_THERE_IT_IS_LLM_EXTRA_BODY_JSON='{"generationConfig":{"thinkingConfig":{"thinkingLevel":"HIGH"}}}'
 ```
 
-The Gemini adapter uses the native REST protocol, including `functionCall` / `functionResponse` IDs and Gemini 3 `thoughtSignature` round-tripping during the active tool loop. Opaque provider state is deliberately excluded from persisted tool-call DTOs.
+The native Google adapter uses `generateContent` and provider-native `functionCall` / `functionResponse`. Provider-only opaque state such as thought signatures is round-tripped in memory and excluded from persisted generic tool-call DTOs. `generationConfig` extras are merged safely with ordinary configured values such as temperature instead of requiring model-specific branches in application code.
+
+The manual Google model-probe job currently targets `vars.GEMINI_MODEL` (with `gemma-4-31b-it` as its fallback) and waits 3.2 seconds between every model request, including multi-step function-calling continuations. This keeps the probe below 20 RPM. The application pipeline has no such pacing because it never calls a network model.
 
 For a hosted or local OpenAI-compatible endpoint:
 

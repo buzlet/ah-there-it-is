@@ -211,23 +211,41 @@ class GeminiLLMClient:
                 }
             ]
             body["toolConfig"] = {"functionCallingConfig": {"mode": "AUTO"}}
+        generation_config: dict[str, Any] = {}
         if self.config.temperature is not None:
-            body["generationConfig"] = {"temperature": self.config.temperature}
-        if self.config.extra_body:
+            generation_config["temperature"] = self.config.temperature
+
+        extra_body = dict(self.config.extra_body or {})
+        extra_generation = extra_body.pop("generationConfig", None)
+        if extra_generation is not None:
+            if not isinstance(extra_generation, dict):
+                raise ValueError("extra_body generationConfig must be an object")
+            duplicate_generation = set(generation_config).intersection(
+                extra_generation
+            )
+            if duplicate_generation:
+                raise ValueError(
+                    "extra_body generationConfig cannot override configured keys: "
+                    + ", ".join(sorted(duplicate_generation))
+                )
+            generation_config.update(extra_generation)
+        if generation_config:
+            body["generationConfig"] = generation_config
+
+        if extra_body:
             protected = {
                 "contents",
                 "systemInstruction",
                 "tools",
                 "toolConfig",
-                "generationConfig",
             }
-            collision = protected.intersection(self.config.extra_body)
+            collision = protected.intersection(extra_body)
             if collision:
                 raise ValueError(
                     "extra_body cannot override protected keys: "
                     + ", ".join(sorted(collision))
                 )
-            body.update(self.config.extra_body)
+            body.update(extra_body)
         return body
 
     def _contents(self, messages: Sequence[AgentMessage]) -> list[dict[str, Any]]:
