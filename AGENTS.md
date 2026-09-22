@@ -164,16 +164,26 @@ Stage 6 was deliberately restructured after live-provider work began coupling ap
 - That evidence is intentionally decoupled from application correctness. A provider outage, quota exhaustion, invalid generated tool name, or stochastic answer must not turn application CI red.
 - Current stable target: all 40 corpus scenarios pass deterministically through the real application stack with `ScenarioLLMClient`; provider-contract tests pass separately with real provider jobs skipped unless manually requested.
 
-### Stage 7 — next
+### Stage 7 — complete
 
-Strengthen deterministic application postconditions before adding more product surface:
+- Extended the provider-neutral corpus postcondition vocabulary with exact item attributes, explicit category absence, global event-count deltas, and typed item-event assertions including optional source/destination location constraints.
+- Kept the existing location, null-location, state, quantity, description, history-count, existence, and no-mutation checks; all checks operate on persisted application state after the scenario finishes.
+- Mutation scenarios now verify effects independently from the scripted tool sequence. Every move checks final location plus exactly one expected movement/take event; every create checks the created item state/location/category policy plus exactly one creation event; material updates check state/quantity/description plus their update event.
+- Read-only, ambiguity, safety, and idempotent-update cases retain explicit no-mutation checks so a scenario cannot pass merely because the mock produced a plausible final sentence.
+- History scenarios now assert actual persisted event evidence rather than relying only on a successful history-tool call.
+- `eval/corpus-v1.json` still contains the same 40 provider-independent cases and remains ID-aligned with `eval/scenarios-v1.json`.
+- Added focused unit coverage for the shared postcondition evaluator.
+- Final Stage 7 application CI is green on Python 3.12 and 3.13, and the complete 40-case scenario suite passes all independent postconditions. Provider-contract CI is separately green; real Groq/Gemini jobs remain manual-only and were not used to establish application correctness.
 
-1. Extend corpus checks beyond `item_location`, `item_exists`, and `no_mutation` to cover exact item state, quantity, description/attribute facts, location-null/taken items, and event/history expectations.
-2. Give every mutation/history corpus case an explicit state-based postcondition; scenario tool-call success alone must not be treated as sufficient evidence.
-3. Keep scenario scripts provider-independent and resolve IDs only from actual tool results.
-4. Add application behavior only together with deterministic scenario/postcondition coverage.
-5. Keep provider adapters and real-model probes in the separate provider-contract pipeline; no provider quirk may change business behavior.
-6. Reconsider embeddings only if deterministic corpus scenarios demonstrate retrieval needs the current exact/normalized/path/FTS rules cannot express cleanly.
-7. Voice, Telegram, images, QR, MCP, PWA, and multi-user support remain deferred.
+### Stage 8 — next
 
+Make one user request an atomic application transaction:
 
+1. A failed `AgentRunner.run()` must not leave partial inventory mutations or history events from that turn.
+2. Add deterministic failure scenarios where a valid mutation is followed by an unavailable tool, invalid follow-up, or loop failure; persisted item state/event count must remain unchanged after the failed turn.
+3. Keep successful turns committing their complete mutation/history set exactly once.
+4. Define the transaction boundary in the application/service layer, not in an LLM/provider adapter and not by compensating actions after failure.
+5. Preserve conversation/evaluation failure logging without accidentally committing business mutations.
+6. Add rollback/commit regression tests for create, move, and update paths before changing any product surface.
+7. Keep provider/model probes independent and optional; Stage 8 must be fully executable with `ScenarioLLMClient`.
+8. Continue deferring embeddings and additional channels until the text workflow has atomic, deterministic application semantics.
