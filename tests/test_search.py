@@ -117,6 +117,30 @@ def test_tree_search_can_use_ancestry_to_disambiguate(session: Session) -> None:
     assert results[0].path == "Балкон / Полка 2"
 
 
+def test_tree_search_exact_path_outranks_descendant_with_same_ancestry(
+    session: Session,
+) -> None:
+    inventory = InventoryService(session)
+    search = SearchService(session)
+
+    home = inventory.create_location("Квартира")
+    office = inventory.create_location("Кабинет", parent_id=home.id)
+    cabinet = inventory.create_location("Шкаф", parent_id=office.id)
+    inventory.create_location("Полка 1", parent_id=cabinet.id)
+
+    balcony = inventory.create_location("Балкон", parent_id=home.id)
+    inventory.create_location("Шкаф", parent_id=balcony.id)
+
+    results = search.search_locations("Кабинет Шкаф")
+
+    assert results[0].id == cabinet.id
+    assert results[0].path == "Квартира / Кабинет / Шкаф"
+    assert results[0].match_type == "exact_path"
+    assert results[0].score == SearchService.EXACT_PATH
+    assert len(results) >= 2
+    assert results[0].score - results[1].score >= 50
+
+
 def test_tree_search_prefers_specific_leaf_inside_natural_phrase(session: Session) -> None:
     inventory = InventoryService(session)
     search = SearchService(session)
