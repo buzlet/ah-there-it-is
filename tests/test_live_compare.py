@@ -24,10 +24,16 @@ def _report(
             "model": "qwen",
             "config": {"temperature": temperature, "nested": {"x": 1}},
         },
+        "summary": {
+            "count": 1,
+            "completed": int(status == "completed"),
+            "failed": int(status == "failed"),
+        },
         "cases": [
             {
                 "case_id": "find-01",
                 "status": status,
+                "error": None if status == "completed" else "ProviderRequestError: test",
                 "checks_passed": checks_passed,
                 "checks": [{"kind": "item_location", "ok": True}],
                 "wall_seconds": wall,
@@ -103,6 +109,8 @@ def test_compare_reports_is_descriptive_and_has_metric_deltas() -> None:
     case = result["cases"][0]
 
     assert result["shared_case_count"] == 1
+    assert result["baseline_summary"]["count"] == 1
+    assert result["variant_summary"]["count"] == 1
     assert "winner" not in result
     assert "does not rank" in result["note"]
     assert result["baseline"]["llm_config_hash"] != result["variant"]["llm_config_hash"]
@@ -112,6 +120,7 @@ def test_compare_reports_is_descriptive_and_has_metric_deltas() -> None:
         "same_provider_config": False,
         "same_case_set": True,
     }
+    assert case["baseline"]["error"] is None
     assert case["baseline"]["prompt_tokens"] == 100
     assert case["baseline"]["retry_delay_seconds"] == 1.5
     assert case["baseline"]["tool_calls"] == {"search_items": 1}
