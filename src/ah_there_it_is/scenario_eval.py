@@ -15,7 +15,7 @@ from ah_there_it_is.agent.scenario_mock import (
     ScenarioLLMClient,
     load_scenario_suite,
 )
-from ah_there_it_is.db.models import Base, Event
+from ah_there_it_is.db.models import AgentRunLog, Base, Event
 from ah_there_it_is.db.search_schema import install_fts_schema
 from ah_there_it_is.db.session import create_db_engine, create_session_factory
 from ah_there_it_is.eval_corpus import EvaluationCase, ExpectedCheck, load_corpus
@@ -77,6 +77,7 @@ def _run_case(case: EvaluationCase, scenario: ScenarioCase) -> dict[str, Any]:
         install_fts_schema(connection)
     factory = create_session_factory(engine)
 
+    turns: list[dict[str, Any]] = []
     try:
         with factory() as session:
             seed_inventory_fixture(session)
@@ -90,42 +91,66 @@ def _run_case(case: EvaluationCase, scenario: ScenarioCase) -> dict[str, Any]:
                 prompt_version="scenario-mock-v1",
             )
             conversation_id: int | None = None
-            turns: list[dict[str, Any]] = []
 
-            for user_text in case.turns:
-                result = runner.run(user_text, conversation_id=conversation_id)
-                conversation_id = result.conversation_id
-                run_log = runner.evaluation.get_run(result.run_id)
-                turns.append(
-                    {
-                        "user": user_text,
-                        "assistant": result.content,
-                        "rounds": result.rounds,
-                        "tool_trace": run_log.tool_trace,
-                    }
+            try:
+                for user_text in case.turns:
+                    result = runner.run(user_text, conversation_id=conversation_id)
+                    conversation_id = result.conversation_id
+                    run_log = runner.evaluation.get_run(result.run_id)
+                    turns.append(
+                        {
+                            "user": user_text,
+                            "assistant": result.content,
+                            "rounds": result.rounds,
+                            "status": run_log.status,
+                            "tool_trace": run_log.tool_trace,
+                        }
+                    )
+
+                llm.assert_exhausted()
+                checks = [
+                    _check_expected(session, check, events_before=events_before)
+                    for check in case.checks
+                ]
+                return {
+                    "case_id": case.id,
+                    "status": "completed",
+                    "turns": turns,
+                    "checks": checks,
+                    "checks_passed": (
+                        all(check["ok"] for check in checks) if checks else None
+                    ),
+                }
+            except Exception as exc:
+                latest = session.scalar(
+                    select(AgentRunLog).order_by(AgentRunLog.id.desc()).limit(1)
                 )
-
-            llm.assert_exhausted()
-            checks = [
-                _check_expected(session, check, events_before=events_before)
-                for check in case.checks
-            ]
-            return {
-                "case_id": case.id,
-                "status": "completed",
-                "turns": turns,
-                "checks": checks,
-                "checks_passed": all(check["ok"] for check in checks) if checks else None,
-            }
-    except Exception as exc:
-        return {
-            "case_id": case.id,
-            "status": "failed",
-            "error": f"{type(exc).__name__}: {exc}",
-            "turns": [],
-            "checks": [],
-            "checks_passed": False,
-        }
+                if latest is not None and not any(
+                    turn.get("run_id") == latest.id for turn in turns
+                ):
+                    turns.append(
+                        {
+                            "user": (
+                                case.turns[len(turns)]
+                                if len(turns) < len(case.turns)
+                                else None
+                            ),
+                            "assistant": latest.final_content,
+                            "run_id": latest.id,
+                            "rounds": latest.rounds,
+                            "status": latest.status,
+                            "error": latest.error,
+                            "tool_trace": latest.tool_trace,
+                        }
+                    )
+                return {
+                    "case_id": case.id,
+                    "status": "failed",
+                    "error": f"{type(exc).__name__}: {exc}",
+                    "turns": turns,
+                    "checks": [],
+                    "checks_passed": False,
+                }
     finally:
         engine.dispose()
 
