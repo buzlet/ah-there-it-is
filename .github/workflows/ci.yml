@@ -23,6 +23,7 @@ permissions:
         type: choice
         options:
           - smoke
+          - tool-discipline
           - representative
       prompt_variant:
         description: System prompt variant
@@ -86,6 +87,8 @@ jobs:
               --case ambiguity-01
               --case history-01
             )
+          elif [ "${{ inputs.suite }}" = "tool-discipline" ]; then
+            CASES=(--case find-01 --case create-01 --case ambiguity-01)
           else
             CASES=(--case find-01 --case move-01)
           fi
@@ -143,6 +146,8 @@ jobs:
               --case ambiguity-01
               --case history-01
             )
+          elif [ "${{ inputs.suite }}" = "tool-discipline" ]; then
+            CASES=(--case find-01 --case create-01 --case ambiguity-01)
           else
             CASES=(--case find-01 --case move-01)
           fi
