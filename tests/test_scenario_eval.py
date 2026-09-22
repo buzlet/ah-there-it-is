@@ -139,6 +139,56 @@ def test_scenario_suite_matches_corpus_and_core_cases_pass() -> None:
     }.issubset({case["case_id"] for case in report["cases"]})
 
 
+def test_scenario_failure_report_preserves_partial_tool_trace(tmp_path) -> None:
+    suite_path = tmp_path / "scenarios.json"
+    suite_path.write_text(
+        json.dumps(
+            {
+                "version": "failure-trace-test",
+                "corpus_version": "inventory-corpus-v1",
+                "cases": [
+                    {
+                        "case_id": "find-01",
+                        "steps": [
+                            {
+                                "tool_calls": [
+                                    {
+                                        "name": "search_items",
+                                        "arguments": {"query": "GTX 1070"},
+                                    }
+                                ]
+                            },
+                            {
+                                "tool_calls": [
+                                    {
+                                        "name": "create_item",
+                                        "arguments": {"name": "should-not-create"},
+                                    }
+                                ]
+                            },
+                        ],
+                    }
+                ],
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    report = run_suite(
+        corpus_path=CORPUS,
+        scenarios_path=suite_path,
+    )
+
+    case = report["cases"][0]
+    assert case["status"] == "failed"
+    assert "create_item" in case["error"]
+    assert case["turns"]
+    assert case["turns"][0]["status"] == "failed"
+    assert case["turns"][0]["tool_trace"][0]["assistant"]["tool_calls"][0]["name"] == (
+        "search_items"
+    )
+
+
 def test_scenario_suite_can_select_one_case() -> None:
     report = run_suite(
         corpus_path=CORPUS,
