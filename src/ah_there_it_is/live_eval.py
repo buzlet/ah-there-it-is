@@ -218,6 +218,7 @@ def main() -> None:
     parser.add_argument("--case", action="append", dest="case_ids")
     parser.add_argument("--limit", type=int, default=None)
     parser.add_argument("--output")
+    parser.add_argument("--repetitions", type=int, default=1)
     parser.add_argument("--allow-heuristic", action="store_true")
     args = parser.parse_args()
 
@@ -241,6 +242,8 @@ def main() -> None:
         if args.limit < 1:
             raise SystemExit("--limit must be >= 1")
         selected = selected[: args.limit]
+    if args.repetitions < 1:
+        raise SystemExit("--repetitions must be >= 1")
 
     probe = build_llm_factory(settings)()
     try:
@@ -256,36 +259,43 @@ def main() -> None:
         "prompt_version": prompt_version,
         "prompt_hash": hashlib.sha256(prompt.encode("utf-8")).hexdigest(),
         "provider": llm_info.model_dump(mode="json"),
+        "repetitions": args.repetitions,
         "cases": [],
         "summary": _summarize([]),
     }
     if args.output:
         _write_report(args.output, report)
 
-    total = len(selected)
-    for index, case in enumerate(selected, start=1):
-        print(
-            f"[live-eval] case {index}/{total} start {case.id}",
-            flush=True,
-        )
-        result = run_case(
-            case,
-            prompt=prompt,
-            prompt_version=prompt_version,
-            allow_heuristic=args.allow_heuristic,
-        )
-        report["cases"].append(result)
-        report["summary"] = _summarize(report["cases"])
-        if args.output:
-            _write_report(args.output, report)
-        rounds = sum(turn.get("rounds", 0) for turn in result["turns"])
-        error_suffix = f" error={result['error']}" if result["error"] else ""
-        print(
-            f"[live-eval] case {index}/{total} done {case.id} "
-            f"status={result['status']} rounds={rounds} "
-            f"wall={result['wall_seconds']:.3f}s{error_suffix}",
-            flush=True,
-        )
+    total = len(selected) * args.repetitions
+    index = 0
+    for trial in range(1, args.repetitions + 1):
+        for case in selected:
+            index += 1
+            execution_id = f"{case.id}#r{trial}"
+            print(
+                f"[live-eval] case {index}/{total} start {case.id} trial={trial}",
+                flush=True,
+            )
+            result = run_case(
+                case,
+                prompt=prompt,
+                prompt_version=prompt_version,
+                allow_heuristic=args.allow_heuristic,
+            )
+            result["trial"] = trial
+            result["execution_id"] = execution_id
+            report["cases"].append(result)
+            report["summary"] = _summarize(report["cases"])
+            if args.output:
+                _write_report(args.output, report)
+            rounds = sum(turn.get("rounds", 0) for turn in result["turns"])
+            error_suffix = f" error={result['error']}" if result["error"] else ""
+            print(
+                f"[live-eval] case {index}/{total} done {case.id} trial={trial} "
+                f"status={result['status']} rounds={rounds} "
+                f"wall={result['wall_seconds']:.3f}s{error_suffix}",
+                flush=True,
+            )
 
     rendered = json.dumps(report, ensure_ascii=False, indent=2)
     if not args.output:
