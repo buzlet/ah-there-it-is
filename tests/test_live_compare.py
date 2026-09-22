@@ -154,8 +154,8 @@ def test_compare_reports_reports_missing_cases_without_hiding_them() -> None:
     result = compare_reports(baseline, variant)
 
     assert result["shared_case_count"] == 0
-    assert result["missing_from_variant"] == ["find-01"]
-    assert result["missing_from_baseline"] == ["move-01"]
+    assert result["missing_from_variant"] == ["find-01#r1"]
+    assert result["missing_from_baseline"] == ["move-01#r1"]
 
 
 def test_compare_reports_rejects_different_fixtures() -> None:
@@ -183,3 +183,38 @@ def test_compare_reports_rejects_different_fixtures() -> None:
         assert "fixture" in str(exc)
     else:
         raise AssertionError("different fixtures must be rejected")
+
+
+def test_compare_reports_keeps_repeated_trials_distinct() -> None:
+    baseline = _report(
+        prompt_version="v1",
+        prompt_hash="a" * 64,
+        temperature=0.0,
+        wall=1.0,
+        prompt_tokens=10,
+        retry_delay=0.0,
+    )
+    variant = _report(
+        prompt_version="v2",
+        prompt_hash="b" * 64,
+        temperature=0.0,
+        wall=1.0,
+        prompt_tokens=10,
+        retry_delay=0.0,
+    )
+    baseline["cases"][0]["trial"] = 1
+    second_baseline = dict(baseline["cases"][0])
+    second_baseline["trial"] = 2
+    baseline["cases"].append(second_baseline)
+    variant["cases"][0]["trial"] = 1
+    second_variant = dict(variant["cases"][0])
+    second_variant["trial"] = 2
+    variant["cases"].append(second_variant)
+
+    result = compare_reports(baseline, variant)
+
+    assert result["shared_case_count"] == 2
+    assert [case["execution_id"] for case in result["cases"]] == [
+        "find-01#r1",
+        "find-01#r2",
+    ]
