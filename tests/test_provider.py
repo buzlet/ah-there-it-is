@@ -580,6 +580,41 @@ def test_openai_compatible_adapter_sends_api_client_headers() -> None:
     assert accept == "application/json"
 
 
+def test_openai_compatible_adapter_preserves_backend_fingerprint() -> None:
+    def handler(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(
+            200,
+            json={
+                "id": "fingerprinted",
+                "model": "qwen/qwen3.8-27b",
+                "system_fingerprint": "fp_test_backend",
+                "choices": [
+                    {
+                        "finish_reason": "stop",
+                        "message": {"role": "assistant", "content": "OK"},
+                    }
+                ],
+            },
+            request=request,
+        )
+
+    http_client = httpx.Client(transport=httpx.MockTransport(handler))
+    client = OpenAICompatibleLLMClient(
+        OpenAICompatibleConfig(
+            base_url="https://api.example/v1",
+            model="qwen/qwen3.8-27b",
+        ),
+        client=http_client,
+    )
+    try:
+        response = client.complete([AgentMessage(role="user", content="x")], [])
+    finally:
+        http_client.close()
+
+    assert response.metadata["response_model"] == "qwen/qwen3.8-27b"
+    assert response.metadata["system_fingerprint"] == "fp_test_backend"
+
+
 def test_openai_compatible_adapter_reports_provider_and_client_timing() -> None:
     def handler(request: httpx.Request) -> httpx.Response:
         return httpx.Response(
