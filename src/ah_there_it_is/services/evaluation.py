@@ -61,6 +61,7 @@ class EvaluationService:
         rounds: int,
         status: str,
         error: str | None = None,
+        commit: bool = True,
     ) -> AgentRunLog:
         run = AgentRunLog(
             conversation_id=conversation_id,
@@ -80,7 +81,7 @@ class EvaluationService:
             error=error,
         )
         self.session.add(run)
-        self._commit(run)
+        self._persist(run, commit=commit)
         return run
 
     def get_run(self, run_id: int) -> AgentRunLog:
@@ -205,9 +206,16 @@ class EvaluationService:
         return value or None
 
     def _commit(self, entity: object) -> None:
+        self._persist(entity, commit=True)
+
+    def _persist(self, entity: object, *, commit: bool) -> None:
         try:
-            self.session.commit()
+            if commit:
+                self.session.commit()
+            else:
+                self.session.flush()
         except Exception:
-            self.session.rollback()
+            if commit:
+                self.session.rollback()
             raise
         self.session.refresh(entity)

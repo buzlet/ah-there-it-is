@@ -175,15 +175,27 @@ Stage 6 was deliberately restructured after live-provider work began coupling ap
 - Added focused unit coverage for the shared postcondition evaluator.
 - Final Stage 7 application CI is green on Python 3.12 and 3.13, and the complete 40-case scenario suite passes all independent postconditions. Provider-contract CI is separately green; real Groq/Gemini jobs remain manual-only and were not used to establish application correctness.
 
-### Stage 8 — next
+### Stage 8 — complete
 
-Make one user request an atomic application transaction:
+- `AgentRunner` now owns the business transaction for one user turn. Its `ToolDispatcher` uses `InventoryService(autocommit=False)`, so successful mutation tools flush changes for subsequent tools but cannot commit independently.
+- Standalone/manual `InventoryService` callers retain the historical `autocommit=True` behavior, so the transaction change is scoped to agent turns instead of silently changing every service consumer.
+- On a successful final response, pending inventory mutations/history, the assistant conversation message, and the completed `AgentRunLog` are committed together.
+- On any exception, `AgentRunner` first rolls back the turn transaction and only then records the failed run in a separate transaction. A failure log therefore cannot accidentally commit the business mutation it is describing.
+- Conversation audit semantics are explicit: the user's message is persisted before tool execution and remains visible after a failed turn; no assistant message is persisted for that failed turn.
+- Regression tests cover rollback after successful `move_item`, `create_item`, and `update_item` tool executions followed by `AgentLoopLimitError`. All assert both application state and history-event count return to their pre-turn values while the failed run trace is retained.
+- A dedicated `ScenarioLLMClient` failure test performs real search -> move, deliberately omits the final mock step, receives `ScenarioMismatchError`, and proves the successful tool mutation is rolled back. Stage 8 therefore remains fully provider-independent.
+- The unchanged 40-case application scenario suite remains green with strict Stage 7 state/event postconditions, proving successful agent turns still commit exactly the expected effects.
+- Final Stage 8 application CI is green on Python 3.12 and 3.13. Provider-contract CI remains separate; real model jobs are manual-only and irrelevant to the atomicity guarantee.
 
-1. A failed `AgentRunner.run()` must not leave partial inventory mutations or history events from that turn.
-2. Add deterministic failure scenarios where a valid mutation is followed by an unavailable tool, invalid follow-up, or loop failure; persisted item state/event count must remain unchanged after the failed turn.
-3. Keep successful turns committing their complete mutation/history set exactly once.
-4. Define the transaction boundary in the application/service layer, not in an LLM/provider adapter and not by compensating actions after failure.
-5. Preserve conversation/evaluation failure logging without accidentally committing business mutations.
-6. Add rollback/commit regression tests for create, move, and update paths before changing any product surface.
-7. Keep provider/model probes independent and optional; Stage 8 must be fully executable with `ScenarioLLMClient`.
-8. Continue deferring embeddings and additional channels until the text workflow has atomic, deterministic application semantics.
+### Stage 9 — next
+
+Make chat requests safe under client/network retries:
+
+1. Add an optional stable client request/idempotency key to the chat API and agent execution boundary.
+2. Repeating the same key with the same conversation/message must return the already-recorded result instead of invoking the LLM/tool loop or duplicating mutations.
+3. Reusing a key with conflicting request content must fail explicitly rather than silently returning unrelated data.
+4. Persist idempotency state locally with the conversation/run record; do not require Redis or another network service for the single-user MVP.
+5. Cover create, move, and update retries with deterministic `ScenarioLLMClient` tests and exact event-count assertions.
+6. Ensure browser retry/reload behavior can safely reuse the key while a genuinely new user message receives a new key.
+7. Keep provider/model probes separate and optional. Idempotency is an application concern and must be testable with no network model.
+8. Continue deferring additional channels and embeddings until the core text workflow is both atomic and retry-safe.

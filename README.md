@@ -14,7 +14,7 @@ Local-first inventory memory for finding physical things using natural-language 
 - replay-oriented agent run logs and 1–5 human evaluation feedback
 - controlled prompt/model replay against captured tool evidence
 
-The LLM is not a database client. Domain services own validation, identity, history, and mutations. The live agent can mutate only stable IDs that the backend has resolved from prior tool results. Experiment replay never executes mutations against the live inventory database.
+The LLM is not a database client. Domain services own validation, identity, history, and mutations. The live agent can mutate only stable IDs that the backend has resolved from prior tool results. Experiment replay never executes mutations against the live inventory database. Agent turns are transactionally atomic: mutation tools flush but do not commit independently; a successful final response commits the turn, while any failed turn rolls back its business mutations/history before the failure run is logged.
 
 ## Sandbox development
 
@@ -178,7 +178,7 @@ Native Gemini and OpenAI-compatible adapters remain replaceable implementations 
 
 ## Current scope
 
-Stages 0–7 are complete. The application regression pipeline covers the full 40-case corpus with independent persisted-state/event postconditions, while provider/model compatibility remains a separate contract pipeline. Stage 8 focuses on turn-level transaction atomicity so a failed agent request cannot leave partial inventory mutations. Real-provider probes remain optional adapter verification.
+Stages 0–8 are complete. The application regression pipeline covers the full 40-case corpus with independent persisted-state/event postconditions, agent turns are transactionally atomic, and provider/model compatibility remains a separate contract pipeline. Stage 9 focuses on retry-safe/idempotent chat requests so duplicate client submissions cannot duplicate mutations. Real-provider probes remain optional adapter verification.
 
 Voice, Telegram, images, QR, MCP, PWA, embeddings, and multi-user support remain out of scope until the text workflow is stable.
 

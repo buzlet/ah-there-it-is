@@ -27,14 +27,21 @@ class ConversationService:
             )
         return conversation
 
-    def add_message(self, conversation_id: int, role: str, content: str) -> Message:
+    def add_message(
+        self,
+        conversation_id: int,
+        role: str,
+        content: str,
+        *,
+        commit: bool = True,
+    ) -> Message:
         if role not in {"user", "assistant"}:
             raise ValueError("only user/assistant messages are persisted")
         conversation = self.get(conversation_id)
         message = Message(conversation=conversation, role=role, content=content)
         conversation.updated_at = utc_now()
         self.session.add(message)
-        self._commit(message)
+        self._persist(message, commit=commit)
         return message
 
     def list_messages(self, conversation_id: int) -> list[Message]:
@@ -47,9 +54,16 @@ class ConversationService:
         return list(self.session.scalars(stmt))
 
     def _commit(self, entity: object) -> None:
+        self._persist(entity, commit=True)
+
+    def _persist(self, entity: object, *, commit: bool) -> None:
         try:
-            self.session.commit()
+            if commit:
+                self.session.commit()
+            else:
+                self.session.flush()
         except Exception:
-            self.session.rollback()
+            if commit:
+                self.session.rollback()
             raise
         self.session.refresh(entity)

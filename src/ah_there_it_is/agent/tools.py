@@ -84,8 +84,9 @@ class ToolDispatcher:
         *,
         original_text: str | None = None,
         state: ToolRunState | None = None,
+        autocommit: bool = True,
     ) -> None:
-        self.inventory = InventoryService(session)
+        self.inventory = InventoryService(session, autocommit=autocommit)
         self.search = SearchService(session)
         self.original_text = original_text
         self.state = state or ToolRunState()
