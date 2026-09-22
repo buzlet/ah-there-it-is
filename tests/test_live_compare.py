@@ -34,6 +34,7 @@ def _report(
                 "turns": [
                     {
                         "rounds": 1,
+                        "assistant": f"{prompt_version} answer",
                         "tool_trace": [
                             {
                                 "assistant": {
@@ -105,10 +106,18 @@ def test_compare_reports_is_descriptive_and_has_metric_deltas() -> None:
     assert "winner" not in result
     assert "does not rank" in result["note"]
     assert result["baseline"]["llm_config_hash"] != result["variant"]["llm_config_hash"]
+    assert result["comparability"] == {
+        "same_provider": True,
+        "same_model": True,
+        "same_provider_config": False,
+        "same_case_set": True,
+    }
     assert case["baseline"]["prompt_tokens"] == 100
     assert case["baseline"]["retry_delay_seconds"] == 1.5
     assert case["baseline"]["tool_calls"] == {"search_items": 1}
     assert case["baseline"]["tool_errors"] == 1
+    assert case["baseline"]["assistant_texts"] == ["inventory-v1 answer"]
+    assert case["variant"]["assistant_texts"] == ["inventory-v2-strict answer"]
     assert case["delta_variant_minus_baseline"]["wall_seconds"] == -0.75
     assert case["delta_variant_minus_baseline"]["prompt_tokens"] == -20.0
     assert case["checks_changed"] is False
