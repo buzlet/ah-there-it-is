@@ -91,10 +91,11 @@ jobs:
           AH_THERE_IT_IS_LLM_PROVIDER: gemini
           AH_THERE_IT_IS_LLM_PROVIDER_NAME: gemini
           AH_THERE_IT_IS_LLM_BASE_URL: ${{ vars.GEMINI_BASE_URL || 'https://generativelanguage.googleapis.com/v1beta' }}
-          AH_THERE_IT_IS_LLM_MODEL: ${{ vars.GEMINI_MODEL || 'gemini-flash-latest' }}
+          AH_THERE_IT_IS_LLM_MODEL: ${{ vars.GEMINI_MODEL || 'gemma-4-31b-it' }}
           AH_THERE_IT_IS_LLM_API_KEY: ${{ secrets.GEMINI_API_KEY }}
           AH_THERE_IT_IS_LLM_TIMEOUT_SECONDS: '30'
           AH_THERE_IT_IS_LLM_MAX_RETRIES: '1'
+          AH_THERE_IT_IS_LLM_EXTRA_BODY_JSON: '{"generationConfig":{"thinkingConfig":{"thinkingLevel":"HIGH"}}}'
         run: |
           CASE_ARGS=()
           if [ -n "${{ inputs.probe_case }}" ]; then
@@ -103,6 +104,7 @@ jobs:
           python -m ah_there_it_is.model_probe \
             --suite eval/model-probes-v1.json \
             "${CASE_ARGS[@]}" \
+            --delay-seconds 3.2 \
             --output model-probe.json
       - uses: actions/upload-artifact@v4
         if: always()
