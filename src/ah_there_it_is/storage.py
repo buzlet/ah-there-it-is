@@ -104,13 +104,15 @@ def validate_database(
         raise DatabaseValidationError(f"cannot open SQLite database: {exc}") from exc
 
     try:
-        integrity = tuple(
-            str(row[0]) for row in connection.execute("PRAGMA integrity_check").fetchall()
-        )
-        foreign_keys = tuple(
-            tuple(row) for row in connection.execute("PRAGMA foreign_key_check").fetchall()
-        )
         try:
+            integrity = tuple(
+                str(row[0])
+                for row in connection.execute("PRAGMA integrity_check").fetchall()
+            )
+            foreign_keys = tuple(
+                tuple(row)
+                for row in connection.execute("PRAGMA foreign_key_check").fetchall()
+            )
             versions = [
                 str(row[0])
                 for row in connection.execute(
@@ -119,7 +121,7 @@ def validate_database(
             ]
         except sqlite3.Error as exc:
             raise DatabaseValidationError(
-                "candidate has no readable alembic_version table"
+                f"candidate is not a valid readable application database: {exc}"
             ) from exc
     finally:
         connection.close()
