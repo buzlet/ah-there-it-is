@@ -347,3 +347,13 @@ Stage 6 was deliberately restructured after live-provider work began coupling ap
 - Item search/catalog/detail and tree lists link through stable IDs without changing create/edit behavior.
 - At the 1000-item / 200-location fixture, browser reads remain bounded; tree detail selects direct Item columns without materializing Item entities.
 - Final Stage 22 verification passed 263 tests, all 42 deterministic scenarios, migration/corpus/provider-contract checks, and installed-wheel coverage.
+
+### Stage 23 — previous plan superseded before execution
+
+Assignment 0012 proposed a read-only browser Activity timeline. External architecture/write-safety audit performed after the seed identified higher-priority agent mutation safety gaps and a historical-path truth issue that should be resolved before expanding Activity.
+
+- Assignment 0012 was not implemented.
+- Its immutable seed remains preserved in history.
+- Review record: `agent-tasks/reviews/0012-r0.md`.
+- The Activity concept is deferred until historical evidence semantics are trustworthy.
+- The next Stage 23 plan is issued separately under Assignment 0013.

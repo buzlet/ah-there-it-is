@@ -141,6 +141,14 @@
 - Stable-ID links connect search results, Item pages, and tree pages.
 - Target-scale browser reads, installed-wheel assets, and 42 deterministic scenarios verified without changing schema, ranking, or mutation behavior.
 
+## Assignment 0012 superseded before execution
+
+The seeded Stage 23 browser Activity plan was not implemented.
+
+The external architecture/write-safety audit identified higher-priority agent write-safety defects plus historical Location-path semantics that should be settled before expanding Activity. Assignment 0012 therefore remains an immutable historical plan and is closed by `agent-tasks/reviews/0012-r0.md`.
+
+The next implementation plan reuses the Stage 23 product-stage number under Assignment 0013 and focuses first on write-target safety.
+
 ## Orchestrated implementation workflow
 
 Implementation-agent assignments and review records are archived under `agent-tasks/`. Assignment 0010 is the final assignment issued under protocol v3. After this process change is merged, future assignments use `agent-tasks/common/v4.md`.

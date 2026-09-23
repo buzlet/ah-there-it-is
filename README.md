@@ -330,8 +330,8 @@ The parser rejects unknown format identifiers, unknown structural fields, malfor
 
 ## Current scope
 
-Stages 0–22 are complete. The browser can now create, correct, and discover Items, Categories, and Locations without an LLM while the domain/service layer still owns identity, tree, history, transaction, and FTS rules. The provider-independent 42-case scenario suite, explicit recovery/doctor tooling, CWD-independent installed runtime, and 1000-item / 200-location structural scale coverage remain in place.
+Stages 0–22 are complete. The browser can create, correct, and discover Items, Categories, and Locations without an LLM while the domain/service layer owns identity, tree, history, transaction, and FTS rules. The provider-independent 42-case scenario suite, explicit recovery/doctor tooling, CWD-independent installed runtime, and 1000-item / 200-location structural scale coverage remain in place.
 
-Stage 22 delivered deterministic browser discovery: Item search reuses existing SearchService semantics with a 100-result cap, and Location/Category pages provide read-only tree context and paged direct contents. The existing paged Item catalog remains the blank-query fallback.
+The previously seeded Stage 23 browser Activity plan (Assignment 0012) was superseded before implementation after an external write-safety audit. Activity remains deferred until write-target safety and historical evidence semantics are strengthened.
 
-Deletion/cascade policy, voice, Telegram, images, QR, MCP, PWA, embeddings, multi-user support, public deployment, service-manager integration, containerization, and installer packaging remain deferred.
+Deletion/retirement policy remains deliberately deferred pending a separate domain/portable-history decision. Voice, Telegram, images, QR, MCP, PWA, embeddings, multi-user support, public deployment, service-manager integration, containerization, and installer packaging also remain deferred.
