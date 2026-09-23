@@ -82,3 +82,8 @@ db-export file="inventory-export.json":
 
 db-export-full file="inventory-export-full.json":
     python -m ah_there_it_is.storage_cli export "{{file}}" --include-evaluations
+
+db-restore-emergency file confirm discard:
+    test "{{confirm}}" = "APP_IS_STOPPED"
+    test "{{discard}}" = "DISCARD_CURRENT_DB"
+    python -m ah_there_it_is.storage_cli restore "{{file}}" --confirm-app-stopped --skip-rollback
