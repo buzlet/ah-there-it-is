@@ -3,10 +3,13 @@
 from __future__ import annotations
 
 import json
+from collections.abc import Callable
+from typing import TypeVar
 
 from fastapi import APIRouter, Depends, HTTPException, Request
 from fastapi.responses import HTMLResponse
 from fastapi.templating import Jinja2Templates
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from ah_there_it_is.agent.runner import AgentRunner
@@ -37,9 +40,57 @@ from ah_there_it_is.web.schemas import (
     FeedbackResponse,
     ExperimentReviewRequest,
     ExperimentReviewResponse,
+    ItemCreateRequest,
     ItemEditRequest,
     ItemResponse,
+    TreeCreateRequest,
+    TreeEditRequest,
+    TreeResponse,
 )
+
+
+_T = TypeVar("_T")
+
+
+def _manual_mutation(session: Session, action: Callable[[], _T]) -> _T:
+    """One HTTP request owns one inventory transaction, including movement."""
+    try:
+        result = action()
+        session.commit()
+        return result
+    except EntityNotFoundError as exc:
+        session.rollback()
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    except (InventoryError, ValueError, IntegrityError) as exc:
+        session.rollback()
+        detail = "inventory identity conflict" if isinstance(exc, IntegrityError) else str(exc)
+        raise HTTPException(status_code=400, detail=detail) from exc
+
+
+def _tree_response(node) -> TreeResponse:
+    return TreeResponse(
+        id=node.id,
+        name=node.name,
+        description=node.description,
+        parent_id=node.parent_id,
+        path=CatalogService.path(node),
+    )
+
+
+def _parent_choices(rows: list[dict], edited_id: int) -> list[dict]:
+    by_id = {row["id"]: row for row in rows}
+    choices = []
+    for row in rows:
+        current = row["id"]
+        seen: set[int] = set()
+        while current is not None and current in by_id and current not in seen:
+            if current == edited_id:
+                break
+            seen.add(current)
+            current = by_id[current]["parent_id"]
+        else:
+            choices.append(row)
+    return choices
 
 
 def build_router(templates: Jinja2Templates) -> APIRouter:
@@ -319,6 +370,20 @@ def build_router(templates: Jinja2Templates) -> APIRouter:
             },
         )
 
+    @router.get("/items/new", response_class=HTMLResponse)
+    def new_item(request: Request, session: Session = Depends(get_session)) -> HTMLResponse:
+        catalog = CatalogService(session)
+        return templates.TemplateResponse(
+            request=request,
+            name="item_new.html",
+            context={
+                "app_name": request.app.state.settings.app_name,
+                "item": None,
+                "locations": catalog.list_locations(),
+                "categories": catalog.list_categories(),
+            },
+        )
+
     @router.get("/items/{item_id}", response_class=HTMLResponse)
     def item_detail(
         item_id: int,
@@ -341,35 +406,41 @@ def build_router(templates: Jinja2Templates) -> APIRouter:
             },
         )
 
+    @router.post("/api/items", response_model=ItemResponse, status_code=201)
+    def create_item(
+        payload: ItemCreateRequest,
+        session: Session = Depends(get_session),
+    ) -> ItemResponse:
+        inventory = InventoryService(session, autocommit=False)
+        item = _manual_mutation(
+            session,
+            lambda: inventory.create_item(
+                **payload.model_dump(mode="python"),
+                original_text="[manual web create]",
+            ),
+        )
+        return ItemResponse(**CatalogService(session).item_dict(item))
+
     @router.patch("/api/items/{item_id}", response_model=ItemResponse)
     def edit_item(
         item_id: int,
         payload: ItemEditRequest,
         session: Session = Depends(get_session),
     ) -> ItemResponse:
-        inventory = InventoryService(session)
+        inventory = InventoryService(session, autocommit=False)
         patch = payload.model_dump(exclude_unset=True, mode="python")
         location_provided = "location_id" in patch
         location_id = patch.pop("location_id", None)
-        try:
+
+        def action():
             if patch:
-                inventory.update_item(
-                    item_id,
-                    **patch,
-                    original_text="[manual web edit]",
-                )
+                inventory.update_item(item_id, **patch, original_text="[manual web edit]")
             if location_provided:
-                inventory.move_item(
-                    item_id,
-                    location_id,
-                    original_text="[manual web edit]",
-                )
-            item = CatalogService(session).item_detail(item_id)
-        except EntityNotFoundError as exc:
-            raise HTTPException(status_code=404, detail=str(exc)) from exc
-        except (InventoryError, ValueError) as exc:
-            raise HTTPException(status_code=400, detail=str(exc)) from exc
-        return ItemResponse(**{key: item[key] for key in ItemResponse.model_fields})
+                inventory.move_item(item_id, location_id, original_text="[manual web edit]")
+            return inventory.get_item(item_id)
+
+        item = _manual_mutation(session, action)
+        return ItemResponse(**CatalogService(session).item_dict(item))
 
     @router.get("/locations", response_class=HTMLResponse)
     def locations(request: Request, session: Session = Depends(get_session)) -> HTMLResponse:
@@ -382,6 +453,38 @@ def build_router(templates: Jinja2Templates) -> APIRouter:
             },
         )
 
+    @router.get("/locations/{location_id}/edit", response_class=HTMLResponse)
+    def location_edit_page(
+        location_id: int, request: Request, session: Session = Depends(get_session)
+    ) -> HTMLResponse:
+        rows = CatalogService(session).list_locations()
+        node = next((row for row in rows if row["id"] == location_id), None)
+        if node is None:
+            raise HTTPException(status_code=404, detail=f"location id={location_id} does not exist")
+        return templates.TemplateResponse(
+            request=request,
+            name="tree_edit.html",
+            context={"app_name": request.app.state.settings.app_name, "kind": "locations",
+                     "node": node, "choices": _parent_choices(rows, location_id)},
+        )
+
+    @router.post("/api/locations", response_model=TreeResponse, status_code=201)
+    def create_location(payload: TreeCreateRequest, session: Session = Depends(get_session)) -> TreeResponse:
+        inventory = InventoryService(session, autocommit=False)
+        node = _manual_mutation(session, lambda: inventory.create_location(**payload.model_dump()))
+        return _tree_response(node)
+
+    @router.patch("/api/locations/{location_id}", response_model=TreeResponse)
+    def edit_location(
+        location_id: int, payload: TreeEditRequest, session: Session = Depends(get_session)
+    ) -> TreeResponse:
+        inventory = InventoryService(session, autocommit=False)
+        node = _manual_mutation(
+            session,
+            lambda: inventory.update_location(location_id, **payload.model_dump(exclude_unset=True)),
+        )
+        return _tree_response(node)
+
     @router.get("/categories", response_class=HTMLResponse)
     def categories(request: Request, session: Session = Depends(get_session)) -> HTMLResponse:
         return templates.TemplateResponse(
@@ -392,6 +495,38 @@ def build_router(templates: Jinja2Templates) -> APIRouter:
                 "categories": CatalogService(session).list_categories(),
             },
         )
+
+    @router.get("/categories/{category_id}/edit", response_class=HTMLResponse)
+    def category_edit_page(
+        category_id: int, request: Request, session: Session = Depends(get_session)
+    ) -> HTMLResponse:
+        rows = CatalogService(session).list_categories()
+        node = next((row for row in rows if row["id"] == category_id), None)
+        if node is None:
+            raise HTTPException(status_code=404, detail=f"category id={category_id} does not exist")
+        return templates.TemplateResponse(
+            request=request,
+            name="tree_edit.html",
+            context={"app_name": request.app.state.settings.app_name, "kind": "categories",
+                     "node": node, "choices": _parent_choices(rows, category_id)},
+        )
+
+    @router.post("/api/categories", response_model=TreeResponse, status_code=201)
+    def create_category(payload: TreeCreateRequest, session: Session = Depends(get_session)) -> TreeResponse:
+        inventory = InventoryService(session, autocommit=False)
+        node = _manual_mutation(session, lambda: inventory.create_category(**payload.model_dump()))
+        return _tree_response(node)
+
+    @router.patch("/api/categories/{category_id}", response_model=TreeResponse)
+    def edit_category(
+        category_id: int, payload: TreeEditRequest, session: Session = Depends(get_session)
+    ) -> TreeResponse:
+        inventory = InventoryService(session, autocommit=False)
+        node = _manual_mutation(
+            session,
+            lambda: inventory.update_category(category_id, **payload.model_dump(exclude_unset=True)),
+        )
+        return _tree_response(node)
 
 
     @router.get("/experiments", response_class=HTMLResponse)

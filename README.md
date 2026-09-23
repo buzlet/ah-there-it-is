@@ -18,6 +18,10 @@ The LLM is not a database client. Domain services own validation, identity, hist
 
 When an item has a stored current location, that location is authoritative and no inferred alternatives are returned. When the stored location is unknown, the application may return read-only location suggestions derived only from the item's last usable location history and current locations of items sharing its category and/or tags. Suggestions are not persisted, carry explicit evidence instead of probability percentages, and do not authorize a move; a suggested location must still be found and unambiguously resolved through the normal location search path before mutation.
 
+## Manual browser maintenance
+
+Chat and an LLM are optional for inventory maintenance. The local browser provides deterministic forms at `/items/new`, `/categories`, and `/locations` to create Items, Categories, and Locations; their detail/edit pages correct names, hierarchy, descriptions, Item state/quantity, category/location, aliases, tags, and JSON-object attributes. Mutations use the domain service, preserve stable IDs and normal Item history, and refresh search through existing triggers. Deletion is deliberately unsupported.
+
 ## Sandbox development
 
 The project remains compatible with packages exercised in the OpenAI sandbox. The OpenAI-compatible adapter uses a persistent `httpx.Client` so multi-round tool loops reuse HTTP keep-alive connections without depending on a provider SDK.

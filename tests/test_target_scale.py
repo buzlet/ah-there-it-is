@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from contextlib import contextmanager
+import re
 
 from fastapi.testclient import TestClient
 from sqlalchemy import event, select
@@ -127,6 +128,8 @@ def test_target_scale_catalog_pagination_and_web_page_slice(
 
     assert response.status_code == 200
     assert "Total: 1000" in response.text
+    assert 'href="/items/new"' in response.text
+    assert len(re.findall(r'href="/items/\d+"', response.text)) == 50
     assert first.items[0]["name"] in response.text
     assert third.items[0]["name"] not in response.text
     assert invalid.status_code == 400

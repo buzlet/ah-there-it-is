@@ -86,6 +86,10 @@ def test_wheel_contains_and_runs_packaged_migrations_and_runtime(
     assert {
         migration_prefix + "versions/" + filename for filename in source_versions
     } <= names
+    assert "ah_there_it_is/web/templates/item_new.html" in names
+    assert "ah_there_it_is/web/templates/tree_edit.html" in names
+    assert "ah_there_it_is/web/templates/_item_form.html" in names
+    assert "ah_there_it_is/web/static/tree.js" in names
     assert "[console_scripts]" in entry_points
     assert "ah-there-it-is = ah_there_it_is.runtime_cli:main" in entry_points
 
@@ -369,6 +373,15 @@ print(json.dumps({"revision": CURRENT_SCHEMA_REVISION}))
         )
         assert asset_status == 200
         assert len(asset_body) > 100
+        item_form_status, item_form_body = _http_text(f"http://127.0.0.1:{port}/items/new")
+        assert item_form_status == 200
+        assert 'name="attributes"' in item_form_body
+        category_status, category_body = _http_text(f"http://127.0.0.1:{port}/categories")
+        assert category_status == 200
+        assert "Add category" in category_body
+        tree_asset_status, tree_asset_body = _http_text(f"http://127.0.0.1:{port}/static/tree.js")
+        assert tree_asset_status == 200
+        assert "data-tree-form" in tree_asset_body
     finally:
         if process.poll() is None:
             process.send_signal(signal.SIGINT)

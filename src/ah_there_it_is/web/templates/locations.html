@@ -1,11 +1,23 @@
+<!-- locations.html -->
 {% extends "base.html" %}
 {% block title %}Locations · {{ app_name }}{% endblock %}
 {% block content %}
 <h1>Locations</h1>
+<section class="card">
+  <h2>Add location</h2>
+  <form data-tree-form data-kind="locations">
+    <label>Name<input name="name" required maxlength="200"></label>
+    <label>Description<textarea name="description" rows="3" maxlength="20000"></textarea></label>
+    <label>Parent<select name="parent_id"><option value="">— root —</option>{% for location in locations %}<option value="{{ location.id }}">{{ location.path }}</option>{% endfor %}</select></label>
+    <button type="submit">Create location</button>
+    <span data-tree-status role="status" class="muted"></span>
+  </form>
+</section>
 {% if locations %}
 <div class="table-wrap"><table>
-  <thead><tr><th>Path</th><th>Direct items</th><th>Description</th></tr></thead>
-  <tbody>{% for location in locations %}<tr><td>{{ location.path }}</td><td>{{ location.item_count }}</td><td>{{ location.description or "—" }}</td></tr>{% endfor %}</tbody>
+  <thead><tr><th>Path</th><th>Direct items</th><th>Description</th><th>Action</th></tr></thead>
+  <tbody>{% for location in locations %}<tr><td>{{ location.path }}</td><td>{{ location.item_count }}</td><td>{{ location.description or "—" }}</td><td><a href="/locations/{{ location.id }}/edit">Edit</a></td></tr>{% endfor %}</tbody>
 </table></div>
 {% else %}<p class="muted">No locations yet.</p>{% endif %}
 {% endblock %}
+{% block scripts %}<script src="/static/tree.js" defer></script>{% endblock %}

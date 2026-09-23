@@ -1,0 +1,17 @@
+<!-- tree_edit.html -->
+{% extends "base.html" %}
+{% block title %}Edit {{ node.name }} · {{ app_name }}{% endblock %}
+{% block content %}
+<div class="section-head"><div><a href="/{{ kind }}">← {{ kind|capitalize }}</a><h1>Edit {{ node.name }}</h1></div></div>
+<p class="muted">Stable ID: {{ node.id }} · Current path: {{ node.path }}</p>
+<section class="card">
+  <form data-tree-form data-kind="{{ kind }}" data-node-id="{{ node.id }}">
+    <label>Name<input name="name" value="{{ node.name }}" required maxlength="200"></label>
+    <label>Description<textarea name="description" rows="4" maxlength="20000">{{ node.description or '' }}</textarea></label>
+    <label>Parent<select name="parent_id"><option value="" {% if node.parent_id is none %}selected{% endif %}>— root —</option>{% for choice in choices %}<option value="{{ choice.id }}" {% if node.parent_id == choice.id %}selected{% endif %}>{{ choice.path }}</option>{% endfor %}</select></label>
+    <button type="submit">Save changes</button>
+    <span data-tree-status role="status" class="muted"></span>
+  </form>
+</section>
+{% endblock %}
+{% block scripts %}<script src="/static/tree.js" defer></script>{% endblock %}

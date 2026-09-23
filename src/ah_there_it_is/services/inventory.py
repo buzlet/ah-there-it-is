@@ -5,7 +5,7 @@ from __future__ import annotations
 from collections.abc import Mapping, Sequence
 from typing import Any
 
-from sqlalchemy import Select, select
+from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from ah_there_it_is.db.models import Alias, Category, Event, Item, Location, Tag, utc_now
@@ -41,7 +41,7 @@ class InventoryService:
         parent_id: int | None = None,
         description: str | None = None,
     ) -> Category:
-        normalized = normalize_name(name)
+        normalized = self._normalized_nonblank(name)
         parent = self._get_optional_parent(Category, parent_id, "category")
         self._ensure_tree_name_available(Category, normalized, parent_id, "category")
 
@@ -62,7 +62,7 @@ class InventoryService:
         parent_id: int | None = None,
         description: str | None = None,
     ) -> Location:
-        normalized = normalize_name(name)
+        normalized = self._normalized_nonblank(name)
         parent = self._get_optional_parent(Location, parent_id, "location")
         self._ensure_tree_name_available(Location, normalized, parent_id, "location")
 
@@ -75,6 +75,74 @@ class InventoryService:
         self.session.add(location)
         self._commit(location)
         return location
+
+    def update_category(
+        self,
+        category_id: int,
+        *,
+        name: str | None = None,
+        description: str | None | _Unset = _UNSET,
+        parent_id: int | None | _Unset = _UNSET,
+    ) -> Category:
+        return self._update_tree_node(
+            self.get_category(category_id), Category, "category",
+            name=name, description=description, parent_id=parent_id,
+        )
+
+    def update_location(
+        self,
+        location_id: int,
+        *,
+        name: str | None = None,
+        description: str | None | _Unset = _UNSET,
+        parent_id: int | None | _Unset = _UNSET,
+    ) -> Location:
+        return self._update_tree_node(
+            self.get_location(location_id), Location, "location",
+            name=name, description=description, parent_id=parent_id,
+        )
+
+    def _update_tree_node(
+        self,
+        node: Category | Location,
+        model: type[Category] | type[Location],
+        label: str,
+        *,
+        name: str | None,
+        description: str | None | _Unset,
+        parent_id: int | None | _Unset,
+    ) -> Category | Location:
+        # Resolve every reference and conflict before changing the persistent node.
+        target_name = name.strip() if name is not None else node.name
+        normalized = self._normalized_nonblank(target_name)
+        target_description = node.description if isinstance(description, _Unset) else description
+        target_parent_id = node.parent_id if isinstance(parent_id, _Unset) else parent_id
+        parent = self._get_optional(model, target_parent_id, label)
+        seen: set[int] = set()
+        ancestor = parent
+        while ancestor is not None:
+            if ancestor.id == node.id or ancestor.id in seen:
+                raise ValueError(f"{label} parent would create a cycle")
+            seen.add(ancestor.id)
+            ancestor = self._get_optional(model, ancestor.parent_id, label)
+        if normalized != node.normalized_name or target_parent_id != node.parent_id:
+            self._ensure_tree_name_available(
+                model, normalized, target_parent_id, label, exclude_node_id=node.id
+            )
+        if (
+            target_name == node.name
+            and target_description == node.description
+            and target_parent_id == node.parent_id
+        ):
+            return node
+        node.name = target_name
+        node.normalized_name = normalized
+        node.description = target_description
+        if target_parent_id != node.parent_id:
+            node.parent = parent
+        node.updated_at = utc_now()
+        self._commit(node)
+        return node
 
     def create_item(
         self,
@@ -94,7 +162,7 @@ class InventoryService:
         if quantity < 1:
             raise ValueError("quantity must be >= 1")
 
-        normalized = normalize_name(name)
+        normalized = self._normalized_nonblank(name)
         category = self._get_optional(Category, category_id, "category")
         location = self._get_optional(Location, location_id, "location")
         if not allow_duplicate:
@@ -146,7 +214,7 @@ class InventoryService:
 
         # Validate the full requested patch before mutating the persistent object.
         target_name = name.strip() if name is not None else item.name
-        target_normalized_name = normalize_name(target_name)
+        target_normalized_name = self._normalized_nonblank(target_name)
         target_category_id = (
             item.category_id if isinstance(category_id, _Unset) else category_id
         )
@@ -322,15 +390,26 @@ class InventoryService:
         normalized_name: str,
         parent_id: int | None,
         label: str,
+        *,
+        exclude_node_id: int | None = None,
     ) -> None:
-        stmt: Select[tuple[Category]] | Select[tuple[Location]] = select(model).where(
+        stmt = select(model.id).where(
             model.normalized_name == normalized_name,
             model.parent_id == parent_id,
         )
+        if exclude_node_id is not None:
+            stmt = stmt.where(model.id != exclude_node_id)
         if self.session.scalar(stmt) is not None:
             raise DuplicateEntityError(
                 f"{label} with this name already exists under the same parent"
             )
+
+    @staticmethod
+    def _normalized_nonblank(name: str) -> str:
+        normalized = normalize_name(name)
+        if not normalized:
+            raise ValueError("name must not be blank")
+        return normalized
 
     def _get_optional_parent(self, model, entity_id: int | None, label: str):
         return self._get_optional(model, entity_id, label)

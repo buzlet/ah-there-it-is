@@ -1,0 +1,11 @@
+<!-- item_new.html -->
+{% extends "base.html" %}
+{% block title %}Add item · {{ app_name }}{% endblock %}
+{% block content %}
+<div class="section-head"><div><a href="/items">← Items</a><h1>Add item</h1></div></div>
+<section class="card">
+  <p class="muted">Create an inventory item directly. Chat is optional.</p>
+  {% include "_item_form.html" %}
+</section>
+{% endblock %}
+{% block scripts %}<script src="/static/item.js" defer></script>{% endblock %}
