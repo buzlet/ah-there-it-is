@@ -22,6 +22,8 @@ When an item has a stored current location, that location is authoritative and n
 
 Chat and an LLM are optional for inventory maintenance. The local browser provides deterministic forms at `/items/new`, `/categories`, and `/locations` to create Items, Categories, and Locations; their detail/edit pages correct names, hierarchy, descriptions, Item state/quantity, category/location, aliases, tags, and JSON-object attributes. Mutations use the domain service, preserve stable IDs and normal Item history, and refresh search through existing triggers. Deletion is deliberately unsupported.
 
+At `/items`, a nonblank search uses the same deterministic name/alias/tag/attribute/description ranking as inventory search and shows up to 100 matches; clearing it restores the paged catalog. Item category and location paths link to read-only tree detail pages. Those pages show their parent, children, and paged direct Items; descendant Items appear on their own node pages.
+
 ## Sandbox development
 
 The project remains compatible with packages exercised in the OpenAI sandbox. The OpenAI-compatible adapter uses a persistent `httpx.Client` so multi-round tool loops reuse HTTP keep-alive connections without depending on a provider SDK.

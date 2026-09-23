@@ -2,6 +2,13 @@
 {% block title %}Items · {{ app_name }}{% endblock %}
 {% block content %}
 <div class="section-head"><h1>Items</h1><a href="/items/new">Add item</a></div>
+<form action="/items" method="get" role="search">
+  <label for="item-query">Search items</label>
+  <input id="item-query" name="q" type="search" value="{{ query }}" placeholder="Name, alias, tag, attribute or description">
+  <button type="submit">Search</button>
+  {% if query %}<a href="/items">Clear search</a>{% endif %}
+</form>
+{% if query %}<p class="muted">Results for “{{ query }}” · Showing up to {{ search_limit }} ranked matches</p>{% endif %}
 {% if item_page %}
 <p class="muted">
   Total: {{ item_page.total }} · Page {{ item_page.page }}{% if item_page.pages %} of {{ item_page.pages }}{% endif %}
@@ -9,18 +16,20 @@
 {% endif %}
 {% if items %}
 <div class="table-wrap"><table>
-  <thead><tr><th>Item</th><th>State</th><th>Qty</th><th>Category</th><th>Location</th></tr></thead>
+  <thead><tr><th>Item</th><th>State</th>{% if item_page %}<th>Qty</th>{% else %}<th>Match</th>{% endif %}<th>Category</th><th>Location</th></tr></thead>
   <tbody>
   {% for item in items %}
     <tr>
       <td><a href="/items/{{ item.id }}">{{ item.name }}</a></td>
-      <td>{{ item.state }}</td><td>{{ item.quantity }}</td>
-      <td>{{ item.category_path or "—" }}</td><td>{{ item.location_path or "—" }}</td>
+      <td>{{ item.state }}</td>
+      {% if item_page %}<td>{{ item.quantity }}</td>{% else %}<td>{{ item.match_type|replace("_", " ") }}</td>{% endif %}
+      <td>{% if item.category_id %}<a href="/categories/{{ item.category_id }}">{{ item.category_path }}</a>{% else %}—{% endif %}</td>
+      <td>{% if item.location_id %}<a href="/locations/{{ item.location_id }}">{{ item.location_path }}</a>{% else %}—{% endif %}</td>
     </tr>
   {% endfor %}
   </tbody>
 </table></div>
-{% else %}<p class="muted">No items on this page.</p>{% endif %}
+{% else %}<p class="muted">{% if query %}No matching items.{% else %}No items on this page.{% endif %}</p>{% endif %}
 {% if item_page %}
 <nav aria-label="Item pages">
   {% if item_page.has_previous %}

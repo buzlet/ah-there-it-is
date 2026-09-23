@@ -16,7 +16,7 @@
 {% if locations %}
 <div class="table-wrap"><table>
   <thead><tr><th>Path</th><th>Direct items</th><th>Description</th><th>Action</th></tr></thead>
-  <tbody>{% for location in locations %}<tr><td>{{ location.path }}</td><td>{{ location.item_count }}</td><td>{{ location.description or "—" }}</td><td><a href="/locations/{{ location.id }}/edit">Edit</a></td></tr>{% endfor %}</tbody>
+  <tbody>{% for location in locations %}<tr><td><a href="/locations/{{ location.id }}">{{ location.path }}</a></td><td>{{ location.item_count }}</td><td>{{ location.description or "—" }}</td><td><a href="/locations/{{ location.id }}/edit">Edit</a></td></tr>{% endfor %}</tbody>
 </table></div>
 {% else %}<p class="muted">No locations yet.</p>{% endif %}
 {% endblock %}

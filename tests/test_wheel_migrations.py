@@ -88,6 +88,7 @@ def test_wheel_contains_and_runs_packaged_migrations_and_runtime(
     } <= names
     assert "ah_there_it_is/web/templates/item_new.html" in names
     assert "ah_there_it_is/web/templates/tree_edit.html" in names
+    assert "ah_there_it_is/web/templates/tree_detail.html" in names
     assert "ah_there_it_is/web/templates/_item_form.html" in names
     assert "ah_there_it_is/web/static/tree.js" in names
     assert "[console_scripts]" in entry_points
@@ -379,6 +380,10 @@ print(json.dumps({"revision": CURRENT_SCHEMA_REVISION}))
         category_status, category_body = _http_text(f"http://127.0.0.1:{port}/categories")
         assert category_status == 200
         assert "Add category" in category_body
+        items_status, items_body = _http_text(f"http://127.0.0.1:{port}/items?q=absent")
+        assert items_status == 200
+        assert "Search items" in items_body
+        assert "No matching items." in items_body
         tree_asset_status, tree_asset_body = _http_text(f"http://127.0.0.1:{port}/static/tree.js")
         assert tree_asset_status == 200
         assert "data-tree-form" in tree_asset_body

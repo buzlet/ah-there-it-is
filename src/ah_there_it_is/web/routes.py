@@ -351,22 +351,31 @@ def build_router(templates: Jinja2Templates) -> APIRouter:
     @router.get("/items", response_class=HTMLResponse)
     def items(
         request: Request,
+        q: str = "",
         page: int = 1,
         page_size: int = CatalogService.DEFAULT_PAGE_SIZE,
         session: Session = Depends(get_session),
     ) -> HTMLResponse:
         catalog = CatalogService(session)
-        try:
-            item_page = catalog.item_page(page=page, page_size=page_size)
-        except ValueError as exc:
-            raise HTTPException(status_code=400, detail=str(exc)) from exc
+        query = q.strip()
+        if query:
+            rows = catalog.search_items(query)
+            item_page = None
+        else:
+            try:
+                item_page = catalog.item_page(page=page, page_size=page_size)
+            except ValueError as exc:
+                raise HTTPException(status_code=400, detail=str(exc)) from exc
+            rows = item_page.items
         return templates.TemplateResponse(
             request=request,
             name="items.html",
             context={
                 "app_name": request.app.state.settings.app_name,
-                "items": item_page.items,
+                "items": rows,
                 "item_page": item_page,
+                "query": query,
+                "search_limit": catalog.SEARCH_LIMIT,
             },
         )
 
@@ -453,6 +462,24 @@ def build_router(templates: Jinja2Templates) -> APIRouter:
             },
         )
 
+    @router.get("/locations/{location_id}", response_class=HTMLResponse)
+    def location_detail_page(
+        location_id: int, request: Request,
+        page: int = 1,
+        session: Session = Depends(get_session),
+    ) -> HTMLResponse:
+        try:
+            detail = CatalogService(session).location_detail(location_id, page=page)
+        except EntityNotFoundError as exc:
+            raise HTTPException(status_code=404, detail=str(exc)) from exc
+        except ValueError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+        return templates.TemplateResponse(
+            request=request, name="tree_detail.html",
+            context={"app_name": request.app.state.settings.app_name,
+                     "kind": "locations", "label": "Location", "detail": detail},
+        )
+
     @router.get("/locations/{location_id}/edit", response_class=HTMLResponse)
     def location_edit_page(
         location_id: int, request: Request, session: Session = Depends(get_session)
@@ -494,6 +521,24 @@ def build_router(templates: Jinja2Templates) -> APIRouter:
                 "app_name": request.app.state.settings.app_name,
                 "categories": CatalogService(session).list_categories(),
             },
+        )
+
+    @router.get("/categories/{category_id}", response_class=HTMLResponse)
+    def category_detail_page(
+        category_id: int, request: Request,
+        page: int = 1,
+        session: Session = Depends(get_session),
+    ) -> HTMLResponse:
+        try:
+            detail = CatalogService(session).category_detail(category_id, page=page)
+        except EntityNotFoundError as exc:
+            raise HTTPException(status_code=404, detail=str(exc)) from exc
+        except ValueError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+        return templates.TemplateResponse(
+            request=request, name="tree_detail.html",
+            context={"app_name": request.app.state.settings.app_name,
+                     "kind": "categories", "label": "Category", "detail": detail},
         )
 
     @router.get("/categories/{category_id}/edit", response_class=HTMLResponse)
