@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import json
+import sys
+from copy import deepcopy
 from pathlib import Path
 
 import pytest
@@ -23,13 +25,18 @@ from ah_there_it_is.storage import (
     CURRENT_SCHEMA_REVISION,
     PORTABLE_EXPORT_VERSION,
     DatabaseValidationError,
+    PortableInventoryValidationError,
     StorageError,
     create_backup,
     expected_alembic_head,
     export_portable_inventory,
+    import_portable_inventory,
+    parse_portable_inventory,
+    validate_portable_import_target,
     restore_backup,
     validate_database,
 )
+from ah_there_it_is.storage_cli import main as storage_cli_main
 
 
 def _migrate(database: Path) -> str:
@@ -302,3 +309,395 @@ def test_validation_rejects_wrong_alembic_revision(tmp_path: Path) -> None:
 
     with pytest.raises(DatabaseValidationError, match="does not match expected"):
         validate_database(active, expected_revision="not-the-current-head")
+
+
+def _minimal_portable_document() -> dict:
+    stamp = "2026-09-23T07:00:00+00:00"
+    return {
+        "format": PORTABLE_EXPORT_VERSION,
+        "exported_at": stamp,
+        "source": {"alembic_revision": CURRENT_SCHEMA_REVISION},
+        "inventory": {
+            "categories": [
+                {
+                    "id": 1,
+                    "parent_id": None,
+                    "name": "Electronics",
+                    "description": None,
+                    "created_at": stamp,
+                    "updated_at": stamp,
+                }
+            ],
+            "locations": [
+                {
+                    "id": 2,
+                    "parent_id": None,
+                    "name": "Desk",
+                    "description": None,
+                    "created_at": stamp,
+                    "updated_at": stamp,
+                }
+            ],
+            "items": [
+                {
+                    "id": 3,
+                    "name": "Programmer",
+                    "description": "USB programmer",
+                    "state": "unknown",
+                    "category_id": 1,
+                    "location_id": 2,
+                    "quantity": 1,
+                    "attributes": {"model": "CH341A"},
+                    "aliases": ["CH341A"],
+                    "tags": ["SPI"],
+                    "created_at": stamp,
+                    "updated_at": stamp,
+                }
+            ],
+        },
+        "history": {
+            "events": [
+                {
+                    "id": 4,
+                    "event_type": "item_created",
+                    "item_id": 3,
+                    "from_location_id": None,
+                    "to_location_id": 2,
+                    "payload": {"name": "Programmer", "quantity": 1},
+                    "original_text": None,
+                    "created_at": stamp,
+                }
+            ]
+        },
+        "excluded": [
+            "agent_run_logs",
+            "agent_feedback",
+            "experiment_runs",
+            "experiment_reviews",
+            "provider_metadata",
+        ],
+    }
+
+
+def test_portable_parser_accepts_valid_document() -> None:
+    document = parse_portable_inventory(_minimal_portable_document())
+
+    assert document.format == PORTABLE_EXPORT_VERSION
+    assert document.inventory.items[0].id == 3
+    assert document.history.events[0].to_location_id == 2
+
+
+@pytest.mark.parametrize(
+    "value",
+    [None, "inventory-portable-v2", 12],
+)
+def test_portable_parser_rejects_unknown_or_invalid_format(value: object) -> None:
+    raw = _minimal_portable_document()
+    raw["format"] = value
+
+    with pytest.raises(PortableInventoryValidationError, match="format"):
+        parse_portable_inventory(raw)
+
+
+def test_portable_parser_rejects_missing_format_and_bad_structure() -> None:
+    missing = _minimal_portable_document()
+    del missing["format"]
+    with pytest.raises(PortableInventoryValidationError, match="missing required format"):
+        parse_portable_inventory(missing)
+
+    malformed = _minimal_portable_document()
+    malformed["inventory"]["items"] = {}
+    with pytest.raises(PortableInventoryValidationError, match="inventory.items"):
+        parse_portable_inventory(malformed)
+
+    derived = _minimal_portable_document()
+    derived["inventory"]["items"][0]["normalized_name"] = "programmer"
+    with pytest.raises(PortableInventoryValidationError, match="normalized_name"):
+        parse_portable_inventory(derived)
+
+
+def test_portable_parser_rejects_duplicate_ids_and_dangling_references() -> None:
+    duplicate = _minimal_portable_document()
+    duplicate["inventory"]["categories"].append(
+        deepcopy(duplicate["inventory"]["categories"][0])
+    )
+    with pytest.raises(PortableInventoryValidationError, match="duplicate category id=1"):
+        parse_portable_inventory(duplicate)
+
+    dangling = _minimal_portable_document()
+    dangling["inventory"]["items"][0]["location_id"] = 999
+    with pytest.raises(PortableInventoryValidationError, match="missing location id=999"):
+        parse_portable_inventory(dangling)
+
+    event = _minimal_portable_document()
+    event["history"]["events"][0]["item_id"] = 999
+    with pytest.raises(PortableInventoryValidationError, match="missing item id=999"):
+        parse_portable_inventory(event)
+
+
+def test_portable_parser_rejects_every_duplicate_id_class() -> None:
+    cases = [
+        ("categories", "inventory", "category"),
+        ("locations", "inventory", "location"),
+        ("items", "inventory", "item"),
+        ("events", "history", "event"),
+    ]
+    for section, container, label in cases:
+        raw = _minimal_portable_document()
+        values = raw[container][section]
+        values.append(deepcopy(values[0]))
+        with pytest.raises(
+            PortableInventoryValidationError,
+            match=rf"duplicate {label} id=",
+        ):
+            parse_portable_inventory(raw)
+
+
+def test_portable_parser_rejects_every_reference_class() -> None:
+    category_parent = _minimal_portable_document()
+    category_parent["inventory"]["categories"][0]["parent_id"] = 999
+    with pytest.raises(PortableInventoryValidationError, match="missing parent id=999"):
+        parse_portable_inventory(category_parent)
+
+    location_parent = _minimal_portable_document()
+    location_parent["inventory"]["locations"][0]["parent_id"] = 999
+    with pytest.raises(PortableInventoryValidationError, match="missing parent id=999"):
+        parse_portable_inventory(location_parent)
+
+    item_category = _minimal_portable_document()
+    item_category["inventory"]["items"][0]["category_id"] = 999
+    with pytest.raises(PortableInventoryValidationError, match="missing category id=999"):
+        parse_portable_inventory(item_category)
+
+    item_location = _minimal_portable_document()
+    item_location["inventory"]["items"][0]["location_id"] = 999
+    with pytest.raises(PortableInventoryValidationError, match="missing location id=999"):
+        parse_portable_inventory(item_location)
+
+    event_item = _minimal_portable_document()
+    event_item["history"]["events"][0]["item_id"] = 999
+    with pytest.raises(PortableInventoryValidationError, match="missing item id=999"):
+        parse_portable_inventory(event_item)
+
+    event_from = _minimal_portable_document()
+    event_from["history"]["events"][0]["from_location_id"] = 999
+    with pytest.raises(
+        PortableInventoryValidationError,
+        match=r"from_location_id references missing location id=999",
+    ):
+        parse_portable_inventory(event_from)
+
+    event_to = _minimal_portable_document()
+    event_to["history"]["events"][0]["to_location_id"] = 999
+    with pytest.raises(
+        PortableInventoryValidationError,
+        match=r"to_location_id references missing location id=999",
+    ):
+        parse_portable_inventory(event_to)
+
+
+def test_portable_parser_rejects_invalid_hierarchies() -> None:
+    self_parent = _minimal_portable_document()
+    self_parent["inventory"]["categories"][0]["parent_id"] = 1
+    with pytest.raises(PortableInventoryValidationError, match="own parent"):
+        parse_portable_inventory(self_parent)
+
+    cycle = _minimal_portable_document()
+    first = cycle["inventory"]["locations"][0]
+    first["parent_id"] = 5
+    cycle["inventory"]["locations"].append(
+        {
+            **deepcopy(first),
+            "id": 5,
+            "parent_id": 2,
+            "name": "Shelf",
+        }
+    )
+    with pytest.raises(PortableInventoryValidationError, match="hierarchy cycle"):
+        parse_portable_inventory(cycle)
+
+    sibling = _minimal_portable_document()
+    sibling["inventory"]["categories"].append(
+        {
+            **deepcopy(sibling["inventory"]["categories"][0]),
+            "id": 6,
+            "name": "  ELECTRONICS  ",
+        }
+    )
+    with pytest.raises(PortableInventoryValidationError, match="duplicate sibling"):
+        parse_portable_inventory(sibling)
+
+
+def test_portable_parser_rejects_invalid_names_state_and_timestamps() -> None:
+    aliases = _minimal_portable_document()
+    aliases["inventory"]["items"][0]["aliases"] = ["CH341A", " ch341a "]
+    with pytest.raises(PortableInventoryValidationError, match="aliases.*duplicate"):
+        parse_portable_inventory(aliases)
+
+    tags = _minimal_portable_document()
+    second = deepcopy(tags["inventory"]["items"][0])
+    second["id"] = 7
+    second["name"] = "Other"
+    second["aliases"] = []
+    second["tags"] = [" spi "]
+    tags["inventory"]["items"].append(second)
+    with pytest.raises(PortableInventoryValidationError, match="conflicts with existing spelling"):
+        parse_portable_inventory(tags)
+
+    state = _minimal_portable_document()
+    state["inventory"]["items"][0]["state"] = "teleported"
+    with pytest.raises(PortableInventoryValidationError, match="invalid value"):
+        parse_portable_inventory(state)
+
+    timestamp = _minimal_portable_document()
+    timestamp["inventory"]["items"][0]["created_at"] = "2026-09-23 07:00:00"
+    with pytest.raises(PortableInventoryValidationError, match="timezone offset"):
+        parse_portable_inventory(timestamp)
+
+
+def _semantic_portable(document: dict) -> dict:
+    normalized = deepcopy(document)
+    normalized.pop("exported_at", None)
+    for item in normalized["inventory"]["items"]:
+        item["aliases"] = sorted(item["aliases"], key=str.casefold)
+        item["tags"] = sorted(item["tags"], key=str.casefold)
+    return normalized
+
+
+def test_portable_import_round_trip_preserves_domain_and_search(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    active = tmp_path / "active.db"
+    exported = tmp_path / "inventory.json"
+    imported = tmp_path / "imported.db"
+    reexported = tmp_path / "inventory-reexported.json"
+    url = _migrate(active)
+    ids = _seed_operational_state(url)
+    original = export_portable_inventory(url, exported)
+
+    # An ambient active-DB override must not hijack Alembic during portable import.
+    monkeypatch.setenv("AH_THERE_IT_IS_DATABASE_URL", url)
+    result = import_portable_inventory(url, exported, imported)
+
+    assert result.imported_path == str(imported.resolve())
+    assert result.items == len(original["inventory"]["items"])
+    assert validate_database(imported).alembic_revision == CURRENT_SCHEMA_REVISION
+
+    # SQLite file bytes are not a logical-state invariant: opening/checkpointing
+    # a WAL database may change physical pages or headers across SQLite builds.
+    # Prove instead that the configured active database retained the same
+    # portable domain state and its operational-only records.
+    active_after = export_portable_inventory(
+        url,
+        tmp_path / "active-after-import.json",
+    )
+    assert _semantic_portable(active_after) == _semantic_portable(original)
+    active_engine = create_db_engine(url)
+    try:
+        with Session(active_engine) as session:
+            assert session.scalar(select(func.count(Conversation.id))) == 1
+            assert session.scalar(select(func.count(ChatRequestRecord.id))) == 2
+            assert SearchService(session).search_items("CH341A")[0].id == ids["ch341a"]
+    finally:
+        active_engine.dispose()
+
+    imported_url = f"sqlite:///{imported}"
+    engine = create_db_engine(imported_url)
+    try:
+        with Session(engine) as session:
+            search = SearchService(session)
+            assert search.search_items("SPI flash")[0].id == ids["ch341a"]
+            assert search.search_items("CH341A")[0].id == ids["ch341a"]
+            assert search.search_items("BIOS")[0].id == ids["ch341a"]
+
+            event_ids = list(session.scalars(select(Event.id).order_by(Event.id)))
+            assert event_ids == [
+                event["id"] for event in original["history"]["events"]
+            ]
+            assert session.scalar(select(func.count(Conversation.id))) == 0
+            assert session.scalar(select(func.count(ChatRequestRecord.id))) == 0
+    finally:
+        engine.dispose()
+
+    reconstructed = export_portable_inventory(imported_url, reexported)
+    assert _semantic_portable(reconstructed) == _semantic_portable(original)
+
+
+def test_portable_import_refuses_existing_active_and_invalid_targets(
+    tmp_path: Path,
+) -> None:
+    active = tmp_path / "active.db"
+    source = tmp_path / "inventory.json"
+    url = _migrate(active)
+    _seed_operational_state(url)
+    export_portable_inventory(url, source)
+
+    existing = tmp_path / "existing.db"
+    existing.write_bytes(b"do not replace")
+    with pytest.raises(StorageError, match="already exists"):
+        import_portable_inventory(url, source, existing)
+    assert existing.read_bytes() == b"do not replace"
+
+    with pytest.raises(StorageError, match="active database"):
+        validate_portable_import_target(url, active)
+
+    invalid_source = tmp_path / "invalid.json"
+    invalid = json.loads(source.read_text(encoding="utf-8"))
+    invalid["inventory"]["items"][0]["location_id"] = 999999
+    invalid_source.write_text(json.dumps(invalid), encoding="utf-8")
+    absent = tmp_path / "must-not-exist.db"
+    with pytest.raises(PortableInventoryValidationError, match="missing location"):
+        import_portable_inventory(url, invalid_source, absent)
+    assert not absent.exists()
+
+
+def test_portable_import_dry_run_cli_creates_no_database(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    source = tmp_path / "minimal.json"
+    target = tmp_path / "dry-run.db"
+    source.write_text(
+        json.dumps(_minimal_portable_document(), ensure_ascii=False),
+        encoding="utf-8",
+    )
+    monkeypatch.setenv(
+        "AH_THERE_IT_IS_DATABASE_URL",
+        f"sqlite:///{tmp_path / 'active.db'}",
+    )
+    monkeypatch.setattr(
+        sys,
+        "argv",
+        [
+            "storage_cli",
+            "import-json",
+            str(source),
+            str(target),
+            "--dry-run",
+        ],
+    )
+
+    storage_cli_main()
+
+    result = json.loads(capsys.readouterr().out)
+    assert result["dry_run"] is True
+    assert result["items"] == 1
+    assert result["events"] == 1
+    assert not target.exists()
+    assert not Path(str(target) + "-wal").exists()
+    assert not Path(str(target) + "-shm").exists()
+
+
+def test_portable_file_rejects_duplicate_json_keys(tmp_path: Path) -> None:
+    source = tmp_path / "duplicate-key.json"
+    source.write_text(
+        '{"format":"inventory-portable-v1","format":"inventory-portable-v1"}',
+        encoding="utf-8",
+    )
+
+    from ah_there_it_is.storage import validate_portable_inventory
+
+    with pytest.raises(PortableInventoryValidationError, match="duplicate JSON object key"):
+        validate_portable_inventory(source)

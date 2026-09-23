@@ -13,7 +13,7 @@ config = context.config
 if config.config_file_name is not None:
     fileConfig(config.config_file_name)
 
-database_url = os.getenv(
+database_url = config.attributes.get("database_url_override") or os.getenv(
     "AH_THERE_IT_IS_DATABASE_URL", config.get_main_option("sqlalchemy.url")
 )
 config.set_main_option("sqlalchemy.url", database_url)

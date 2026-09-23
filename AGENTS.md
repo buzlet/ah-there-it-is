@@ -231,16 +231,27 @@ Stage 6 was deliberately restructured after live-provider work began coupling ap
 - Added canonical Just recipes: `storage-test`, `db-backup`, `db-validate`, `db-restore`, and `portable-export`.
 - Stage 11 application CI is green on Python 3.12/3.13 and the unchanged 40-case deterministic scenario suite remains green. Provider/model pipelines remain separate and optional.
 
-### Stage 12 — next
+### Stage 12 — complete
 
-Make the versioned portable inventory representation reconstructable without weakening the full SQLite disaster-recovery path:
+- Added a strict `inventory-portable-v1` parser with explicit format rejection, duplicate-JSON-key detection, strict structural schemas, timezone-aware timestamp validation, positive stable IDs/quantity checks, and rejection of unknown serialized fields such as derived normalized names.
+- Pure validation runs before any database or output-directory mutation. It rejects duplicate category/location/item/event IDs, dangling category/location/item/event references, self-parent links, hierarchy cycles, normalized duplicate sibling names, invalid item states, duplicate normalized aliases/tags, and inconsistent spellings of one normalized global tag.
+- Portable import targets only a genuinely new SQLite path. Existing database files/sidecars and the configured active database are rejected; there is no merge mode and no overwrite flag.
+- Import first migrates a private staging database to the current Alembic head. The migration environment supports an explicit programmatic URL override so an ambient `AH_THERE_IT_IS_DATABASE_URL` cannot redirect portable import toward the active database.
+- Category, location, item, and event stable IDs plus audit timestamps are preserved. Names, descriptions, item state/quantity, structured attributes, aliases, tags, current locations, and domain history are reconstructed.
+- Serialized derived state is not trusted. `normalized_name` values are recomputed with the current `normalize_name`; FTS5 is populated only by the current schema triggers. Import performs an explicit base-table-versus-FTS consistency check before commit.
+- The staged database is independently validated, consolidated through SQLite's backup API so committed WAL state is captured, and published with atomic no-overwrite file creation.
+- Added `import-json --dry-run` and normal `import-json` CLI flows plus canonical `portable-import-dry-run` and `portable-import` Just recipes.
+- Tests cover every required ID/reference class, malformed structures, hierarchy failures, normalized duplicates, target safety, ambient migration-URL isolation, dry-run no-write behavior, deterministic search/FTS, exclusion of conversations/chat-request audit state, and semantic `export -> import -> export` equality apart from volatile `exported_at` and order-insensitive alias/tag sets.
+- Full SQLite backup/restore remains the only full-fidelity disaster-recovery path. Portable import remains inventory/history-only and adds no provider/model, voice, Telegram, images, QR, MCP, PWA, cloud sync, embeddings, or multi-user behavior.
+- Stage 12 local verification completed with the storage suite, migration check, full project test suite, and deterministic scenario pipeline; GitHub CI remains the merge gate.
 
-1. Add a strict `inventory-portable-v1` parser/validator with explicit format/version rejection and useful structural errors.
-2. Import only into a **new empty database** (or a new output path), never destructively merge/overwrite the active database.
-3. Validate all stable-ID references before writing: category/location parent links, item category/location links, event item/source/destination links, duplicate IDs, duplicate sibling names, and hierarchy cycles.
-4. Preserve stable IDs and timestamps from the portable document where they carry audit meaning; recompute derived normalized fields rather than trusting serialized implementation details.
-5. Reconstruct aliases/tags/attributes/history and verify SQLite FTS/search derived state after import.
-6. Add export -> import -> export semantic round-trip tests that ignore only intentionally volatile export metadata such as `exported_at`.
-7. Keep portable import scoped to inventory/history. Conversations, chat-request idempotency/recovery state, evaluation traces, and provider traces remain available through full SQLite backup/restore, not silently mixed into the portable domain format.
-8. Add a dry-run validation command before any import creates an output database.
-9. Keep provider/model probes, voice, Telegram, images, QR, MCP, PWA, cloud sync, multi-user replication, and embeddings out of this stage.
+### Stage 13 — next
+
+Freeze the portable format as a compatibility contract so future schema work cannot silently break old archives:
+
+1. Commit a hand-authored `inventory-portable-v1` compatibility fixture that is independent of the current exporter implementation.
+2. Require the current parser/importer to load that fixture and reconstruct equivalent domain/search state after future Alembic migrations.
+3. Document and test the format-evolution rule: `inventory-portable-v1` is immutable; incompatible semantic changes require a new format identifier and explicit version dispatch rather than permissive parsing.
+4. Add compatibility cases for older `source.alembic_revision` metadata while continuing to validate against current domain invariants and never executing source-schema code.
+5. Keep full SQLite disaster recovery separate from portable compatibility; do not turn the portable format into a dump of conversations, request-recovery audit, evaluations, or provider traces.
+6. Do not begin deferred product features until the versioned portability contract is protected against future schema changes.
