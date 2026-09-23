@@ -253,12 +253,6 @@ class AgentRunLog(Base):
     rounds: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
     status: Mapped[str] = mapped_column(String(20), nullable=False, index=True)
     error: Mapped[str | None] = mapped_column(Text, nullable=True)
-    recovered_from_id: Mapped[int | None] = mapped_column(
-        ForeignKey("chat_requests.id", ondelete="SET NULL"),
-        nullable=True,
-        index=True,
-    )
-    recovery_note: Mapped[str | None] = mapped_column(Text, nullable=True)
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), default=utc_now, nullable=False, index=True
     )
@@ -301,6 +295,12 @@ class ChatRequestRecord(Base):
         index=True,
     )
     error: Mapped[str | None] = mapped_column(Text, nullable=True)
+    recovered_from_id: Mapped[int | None] = mapped_column(
+        ForeignKey("chat_requests.id", ondelete="SET NULL"),
+        nullable=True,
+        index=True,
+    )
+    recovery_note: Mapped[str | None] = mapped_column(Text, nullable=True)
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), default=utc_now, nullable=False
     )
