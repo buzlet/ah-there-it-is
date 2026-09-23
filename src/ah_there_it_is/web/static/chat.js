@@ -1,4 +1,5 @@
 const STORAGE_KEY = "ah-there-it-is-conversation-id";
+const PENDING_KEY = "ah-there-it-is-pending-chat";
 const log = document.getElementById("chat-log");
 const form = document.getElementById("chat-form");
 const input = document.getElementById("message");
@@ -52,39 +53,69 @@ function feedbackControls(runId, currentRating, currentComment) {
 }
 
 async function restoreConversation() {
-  if (!conversationId) return;
+  if (!conversationId) return [];
   const response = await fetch(`/api/conversations/${conversationId}`);
-  if (!response.ok) { localStorage.removeItem(STORAGE_KEY); conversationId = null; return; }
+  if (!response.ok) {
+    localStorage.removeItem(STORAGE_KEY);
+    conversationId = null;
+    return [];
+  }
   const data = await response.json();
-  for (const message of data.messages) addMessage(message.role, message.content, message.run_id, message.rating, message.comment);
+  for (const message of data.messages) {
+    addMessage(message.role, message.content, message.run_id, message.rating, message.comment);
+  }
+  return data.messages;
 }
 
-form.addEventListener("submit", async (event) => {
-  event.preventDefault();
-  const message = input.value.trim();
-  if (!message) return;
-  addMessage("user", message);
-  input.value = "";
+function makeRequestKey() {
+  if (globalThis.crypto && typeof globalThis.crypto.randomUUID === "function") {
+    return globalThis.crypto.randomUUID();
+  }
+  return `${Date.now()}-${Math.random().toString(36).slice(2)}`;
+}
+
+async function sendPending(pending, displayUser = true) {
+  if (displayUser) addMessage("user", pending.message);
   input.disabled = true;
   statusNode.textContent = "Working…";
   try {
     const response = await fetch("/api/chat", {
       method: "POST",
       headers: {"Content-Type": "application/json"},
-      body: JSON.stringify({message, conversation_id: conversationId}),
+      body: JSON.stringify(pending),
     });
     const data = await response.json();
-    if (!response.ok) throw new Error(data.detail || "Request failed");
+    if (!response.ok) {
+      if (response.status !== 425) localStorage.removeItem(PENDING_KEY);
+      throw new Error(data.detail || "Request failed");
+    }
+    localStorage.removeItem(PENDING_KEY);
     conversationId = data.conversation_id;
     localStorage.setItem(STORAGE_KEY, String(conversationId));
     addMessage("assistant", data.content, data.run_id);
-    statusNode.textContent = `run #${data.run_id}, ${data.rounds} round(s)`;
+    const replay = data.replayed ? ", replayed safely" : "";
+    statusNode.textContent = `run #${data.run_id}, ${data.rounds} round(s)${replay}`;
   } catch (error) {
     statusNode.textContent = error.message;
   } finally {
-    input.disabled = false;
-    input.focus();
+    const stillPending = localStorage.getItem(PENDING_KEY) !== null;
+    input.disabled = stillPending;
+    if (!stillPending) input.focus();
   }
+}
+
+form.addEventListener("submit", async (event) => {
+  event.preventDefault();
+  const message = input.value.trim();
+  if (!message || localStorage.getItem(PENDING_KEY)) return;
+  const pending = {
+    message,
+    conversation_id: conversationId,
+    request_key: makeRequestKey(),
+  };
+  localStorage.setItem(PENDING_KEY, JSON.stringify(pending));
+  input.value = "";
+  await sendPending(pending, true);
 });
 
 newButton.addEventListener("click", () => {
@@ -95,4 +126,20 @@ newButton.addEventListener("click", () => {
   input.focus();
 });
 
-restoreConversation();
+async function bootstrapChat() {
+  const restored = await restoreConversation();
+  const raw = localStorage.getItem(PENDING_KEY);
+  if (!raw) return;
+  try {
+    const pending = JSON.parse(raw);
+    const alreadyRendered = restored.some(
+      (message) => message.role === "user" && message.content === pending.message
+    );
+    await sendPending(pending, !alreadyRendered);
+  } catch {
+    localStorage.removeItem(PENDING_KEY);
+    input.disabled = false;
+  }
+}
+
+bootstrapChat();
