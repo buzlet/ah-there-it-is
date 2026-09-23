@@ -4,7 +4,8 @@ from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
 from ah_there_it_is.agent import AgentRunner, LLMResponse, ScriptedLLMClient, ToolCall
-from ah_there_it_is.agent.experiments import ExperimentRunner
+from ah_there_it_is.agent.experiments import CapturedEvidenceReplay, ExperimentRunner
+from ah_there_it_is.agent.tools import ToolRunState
 from ah_there_it_is.db.models import Event
 from ah_there_it_is.services.evaluation import EvaluationService
 from ah_there_it_is.services.experiments import ExperimentService
@@ -189,3 +190,24 @@ def test_experiment_summary_separates_provider_configs(session: Session) -> None
     ]
     assert len(summaries) == 2
     assert len({summary.llm_config_hash for summary in summaries}) == 2
+
+
+def test_replay_marks_suggested_locations_seen_but_not_resolved() -> None:
+    state = ToolRunState()
+
+    CapturedEvidenceReplay.observe_capabilities(
+        state,
+        "suggest_item_locations",
+        {"item_id": 1, "limit": 5},
+        {
+            "ok": True,
+            "result": {
+                "item_id": 1,
+                "stored_current_location_id": None,
+                "suggestions": [{"location_id": 17}],
+            },
+        },
+    )
+
+    assert state.seen["location"] == {17}
+    assert state.resolved["location"] == set()
