@@ -435,6 +435,67 @@ def test_portable_parser_rejects_duplicate_ids_and_dangling_references() -> None
         parse_portable_inventory(event)
 
 
+def test_portable_parser_rejects_every_duplicate_id_class() -> None:
+    cases = [
+        ("categories", "inventory", "category"),
+        ("locations", "inventory", "location"),
+        ("items", "inventory", "item"),
+        ("events", "history", "event"),
+    ]
+    for section, container, label in cases:
+        raw = _minimal_portable_document()
+        values = raw[container][section]
+        values.append(deepcopy(values[0]))
+        with pytest.raises(
+            PortableInventoryValidationError,
+            match=rf"duplicate {label} id=",
+        ):
+            parse_portable_inventory(raw)
+
+
+def test_portable_parser_rejects_every_reference_class() -> None:
+    category_parent = _minimal_portable_document()
+    category_parent["inventory"]["categories"][0]["parent_id"] = 999
+    with pytest.raises(PortableInventoryValidationError, match="missing parent id=999"):
+        parse_portable_inventory(category_parent)
+
+    location_parent = _minimal_portable_document()
+    location_parent["inventory"]["locations"][0]["parent_id"] = 999
+    with pytest.raises(PortableInventoryValidationError, match="missing parent id=999"):
+        parse_portable_inventory(location_parent)
+
+    item_category = _minimal_portable_document()
+    item_category["inventory"]["items"][0]["category_id"] = 999
+    with pytest.raises(PortableInventoryValidationError, match="missing category id=999"):
+        parse_portable_inventory(item_category)
+
+    item_location = _minimal_portable_document()
+    item_location["inventory"]["items"][0]["location_id"] = 999
+    with pytest.raises(PortableInventoryValidationError, match="missing location id=999"):
+        parse_portable_inventory(item_location)
+
+    event_item = _minimal_portable_document()
+    event_item["history"]["events"][0]["item_id"] = 999
+    with pytest.raises(PortableInventoryValidationError, match="missing item id=999"):
+        parse_portable_inventory(event_item)
+
+    event_from = _minimal_portable_document()
+    event_from["history"]["events"][0]["from_location_id"] = 999
+    with pytest.raises(
+        PortableInventoryValidationError,
+        match=r"from_location_id references missing location id=999",
+    ):
+        parse_portable_inventory(event_from)
+
+    event_to = _minimal_portable_document()
+    event_to["history"]["events"][0]["to_location_id"] = 999
+    with pytest.raises(
+        PortableInventoryValidationError,
+        match=r"to_location_id references missing location id=999",
+    ):
+        parse_portable_inventory(event_to)
+
+
 def test_portable_parser_rejects_invalid_hierarchies() -> None:
     self_parent = _minimal_portable_document()
     self_parent["inventory"]["categories"][0]["parent_id"] = 1
@@ -611,3 +672,16 @@ def test_portable_import_dry_run_cli_creates_no_database(
     assert not target.exists()
     assert not Path(str(target) + "-wal").exists()
     assert not Path(str(target) + "-shm").exists()
+
+
+def test_portable_file_rejects_duplicate_json_keys(tmp_path: Path) -> None:
+    source = tmp_path / "duplicate-key.json"
+    source.write_text(
+        '{"format":"inventory-portable-v1","format":"inventory-portable-v1"}',
+        encoding="utf-8",
+    )
+
+    from ah_there_it_is.storage import validate_portable_inventory
+
+    with pytest.raises(PortableInventoryValidationError, match="duplicate JSON object key"):
+        validate_portable_inventory(source)

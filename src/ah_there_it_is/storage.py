@@ -660,7 +660,7 @@ def import_portable_inventory(
         # Re-check immediately before publication so a path created during the
         # longer migration/import work is never silently overwritten.
         validate_portable_import_target(database_url, target)
-        os.replace(publish, target)
+        _publish_new_file(publish, target)
         _fsync_path(target)
         _fsync_directory(target.parent)
         database = DatabaseValidation(
@@ -1005,6 +1005,21 @@ def _unlink_sidecars(path: Path) -> None:
 def _unlink_sqlite_files(path: Path) -> None:
     path.unlink(missing_ok=True)
     _unlink_sidecars(path)
+
+
+def _publish_new_file(source: Path, target: Path) -> None:
+    """Atomically publish a same-filesystem file without overwrite semantics."""
+    try:
+        os.link(source, target)
+    except FileExistsError as exc:
+        raise StorageError(
+            f"portable import destination appeared during import: {target}"
+        ) from exc
+    except OSError as exc:
+        raise StorageError(
+            f"cannot atomically publish portable import to {target}: {exc}"
+        ) from exc
+    source.unlink()
 
 
 def _fsync_path(path: Path) -> None:
