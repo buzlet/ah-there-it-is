@@ -320,13 +320,24 @@ Stage 6 was deliberately restructured after live-provider work began coupling ap
 - Structural scale tests prove bounded ORM/query work without machine-dependent timing gates; all existing 42 application scenarios remain unchanged and green.
 - Final Stage 19 verification passed 230 tests, migration/corpus/scenario/provider-contract checks, Python 3.12/3.13 CI, and required real-wheel coverage.
 
-### Stage 20 — next
+### Stage 20 — complete
 
-Add a read-only active-database doctor for application-level consistency plus one explicit repair path only for reconstructible FTS derived state:
+- Added a typed read-only active-database doctor covering SQLite integrity/FK/exact schema plus normalized identities, hierarchy cycles, item state/quantity, semantic names, and FTS schema/content.
+- Installed `ah-there-it-is doctor` returns machine-readable JSON and stable healthy/unhealthy exit behavior without creating, checkpointing, repairing, or otherwise mutating the database.
+- Supported duplicate Item identities are reported as non-fatal warnings rather than being misclassified as corruption.
+- Extracted bounded reusable FTS consistency diagnostics shared by portable import and doctor.
+- Added explicit `repair-search-index`, which revalidates authoritative/base invariants in its write transaction, restores only current FTS objects/content, reruns doctor, and is idempotent.
+- Search repair refuses authoritative/base corruption and preserves all non-FTS application tables/rows.
+- Deterministic tests cover normalized/tree/state/quantity/FTS corruption, WAL/read-only behavior, 1000-item scale, portable import, repeat repair, and installed-wheel CLI behavior.
+- Final Stage 20 verification passed 247 tests, all 42 deterministic scenarios, provider contract, migration checks, and Python 3.12/3.13 CI.
 
-1. Diagnose SQLite integrity/FK/exact schema together with normalized-name, hierarchy, state/quantity, and semantic identity invariants.
-2. Extract reusable FTS schema/content consistency checks shared by portable import and doctor.
-3. Add installed `ah-there-it-is doctor` JSON output with stable healthy/unhealthy exit behavior and no side effects.
-4. Add explicit `repair-search-index` that may restore/rebuild only current FTS table/triggers/content after base invariants pass.
-5. Prove doctor detects controlled base/FTS corruption read-only and that search-index repair preserves every authoritative/base table.
-6. Keep recovery/runtime/data-format/provider behavior unchanged and perform no automatic domain repair.
+### Stage 21 — next
+
+Complete deterministic manual web administration so inventory maintenance never depends on an LLM:
+
+1. Add service-owned safe update operations for Category/Location rename, description, and reparenting with duplicate-sibling and cycle prevention.
+2. Add browser/API Item creation plus full Item correction for aliases, tags, attributes, category, location, description, state, quantity, and name.
+3. Add Category/Location create and edit pages using full-path parent choices while preserving stable IDs.
+4. Keep every HTTP mutation behind `InventoryService`, preserve existing Item event provenance/atomicity/FTS behavior, and expose no `allow_duplicate` shortcut.
+5. Add focused service/API/UI coverage including tree-cycle rejection, full manual Item search/history behavior, and Stage 19 pagination non-regression.
+6. Deliberately keep deletion, cascade policy, auth/public deployment, providers, and data/recovery contracts out of this stage.

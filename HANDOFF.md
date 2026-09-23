@@ -6,7 +6,7 @@
 - Default branch: `main`
 - Always verify current `origin/main`, PR state, and CI before starting new work.
 - This handoff supersedes the pre-Stage-12 handoff that existed at commit `198061c9c88353a950cb90f2ec8fcd6cabd51edf`.
-- **Stages 0–19 are complete. Stage 20 is next.**
+- **Stages 0–20 are complete. Stage 21 is next.**
 - `AGENTS.md` remains the authoritative architecture/development/stage plan.
 - Full SQLite backup/restore and portable inventory import are intentionally separate recovery products.
 
@@ -113,34 +113,45 @@
 - structural ORM/query-count scale regressions instead of timing gates;
 - complete protocol-v3 verification green: 230 tests, 42/42 scenarios, provider contract, Python 3.12/3.13 CI.
 
-## Stage 20 objective
+## Stage 20 delivered
 
-Add application-level active-database diagnostics without turning diagnostics into implicit repair:
+- typed read-only doctor for SQLite integrity/FK/exact schema plus normalized identities, hierarchy, state/quantity, names, and FTS schema/content;
+- machine-readable installed `doctor` with stable exit status and no database/filesystem side effects;
+- intentional duplicate Item identity warnings remain non-fatal;
+- reusable bounded FTS consistency boundary shared by portable import and doctor;
+- explicit idempotent `repair-search-index` limited to derived FTS objects/content after authoritative/base checks pass;
+- repair preserves every non-FTS application table and refuses base-data corruption;
+- WAL/read-only, corruption, 1000-item, portable-import, repair and installed-wheel coverage;
+- complete protocol-v3 verification green: 247 tests, 42/42 scenarios, provider contract, migration checks, Python 3.12/3.13 CI.
 
-1. Add a read-only typed doctor that combines SQLite integrity/FK/exact schema with normalized identity, hierarchy, state/quantity, and name invariants.
-2. Extract reusable FTS schema/content consistency checks shared by portable import and doctor.
-3. Add installed `ah-there-it-is doctor` JSON output with stable success/unhealthy exit codes and no filesystem/database side effects.
-4. Add an explicit `repair-search-index` operation that can restore/rebuild only derived FTS objects/content after all authoritative/base invariants pass.
-5. Prove controlled authoritative and FTS corruptions are diagnosed, doctor is read-only, and FTS repair preserves all base/application tables.
-6. Keep backup/restore/bootstrap/portable/runtime/provider contracts unchanged and never auto-repair domain/history data.
+## Stage 21 objective
+
+Complete the deterministic manual web fallback so normal inventory maintenance does not require the LLM:
+
+1. Add safe InventoryService Category/Location rename/description/reparent operations with full prevalidation, stable IDs, duplicate-sibling rejection, and cycle prevention.
+2. Add manual Item creation and full Item correction for aliases/tags/attributes plus all currently editable fields through strict HTTP schemas.
+3. Add Category/Location create and edit browser flows with full-path parent selectors and root handling.
+4. Route every browser mutation through InventoryService and preserve normal Item history provenance, atomicity, duplicate prevention, and trigger-maintained FTS.
+5. Verify manual creates/edits through SearchService/history plus API/UI errors and target-scale pagination non-regression.
+6. Do not add deletion/cascade policy, a frontend framework, auth/public deployment, or provider/recovery changes.
 
 ## Files to read first
 
 1. `HANDOFF.md`
 2. `AGENTS.md`
 3. `README.md`
-4. `src/ah_there_it_is/storage.py`
-5. `src/ah_there_it_is/db/search_schema.py`
-6. `src/ah_there_it_is/db/models.py`
-7. `src/ah_there_it_is/domain/names.py`
-8. `src/ah_there_it_is/domain/states.py`
-9. `src/ah_there_it_is/runtime_cli.py`
-10. `src/ah_there_it_is/storage_cli.py`
-11. `tests/test_storage.py`
-12. `tests/test_runtime_cli.py`
-13. `tests/test_portable_compatibility.py`
-14. `tests/test_target_scale.py`
-15. `Justfile`
+4. `src/ah_there_it_is/services/inventory.py`
+5. `src/ah_there_it_is/services/catalog.py`
+6. `src/ah_there_it_is/web/schemas.py`
+7. `src/ah_there_it_is/web/routes.py`
+8. `src/ah_there_it_is/web/templates/items.html`
+9. `src/ah_there_it_is/web/templates/item_detail.html`
+10. `src/ah_there_it_is/web/templates/locations.html`
+11. `src/ah_there_it_is/web/templates/categories.html`
+12. `src/ah_there_it_is/web/static/item.js`
+13. `tests/test_app.py`
+14. `tests/test_inventory.py`
+15. `tests/test_search.py`
 
 ## Orchestrated implementation workflow
 
@@ -150,7 +161,7 @@ For a normal implementation handoff, the agent fast-forwards `main`, implements 
 
 The orchestrator retains product/architecture direction, stage transitions, assignment formulation, and decisions where requirements conflict or a materially new design choice is needed. It does not repeat routine review/tests/CI already owned by the agent. The orchestrator guarantees that no concurrent repository work occurs between assignment publication and the agent's initial pull.
 
-Assignment 0001 completed under v1. Assignment 0002/v2 was superseded before execution and is recorded in `agent-tasks/reviews/0002-r0.md`. Future implementation uses `agent-tasks/common/v3.md`; active Stage 20 work is `agent-tasks/assignments/0009-stage20-database-doctor.md`.
+Assignment 0001 completed under v1. Assignment 0002/v2 was superseded before execution and is recorded in `agent-tasks/reviews/0002-r0.md`. Future implementation uses `agent-tasks/common/v3.md`; active Stage 21 work is `agent-tasks/assignments/0010-stage21-manual-web-admin.md`.
 
 ## Development environment checkpoint
 
