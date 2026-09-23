@@ -86,8 +86,12 @@ async function sendPending(pending, displayUser = true) {
     });
     const data = await response.json();
     if (!response.ok) {
-      if (response.status !== 425) localStorage.removeItem(PENDING_KEY);
-      throw new Error(data.detail || "Request failed");
+      const blocked = response.status === 425 || response.status === 409;
+      if (!blocked) localStorage.removeItem(PENDING_KEY);
+      throw new Error(
+        (data.detail || "Request failed")
+        + (blocked ? " Inspect Requests before creating a new attempt." : "")
+      );
     }
     localStorage.removeItem(PENDING_KEY);
     conversationId = data.conversation_id;
