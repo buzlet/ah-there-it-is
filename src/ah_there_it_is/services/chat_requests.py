@@ -66,6 +66,7 @@ class ChatRequestService:
         try:
             result = operation()
         except Exception as exc:
+            self.session.rollback()
             self._mark_failed(record.id, f"{type(exc).__name__}: {exc}")
             raise
 
