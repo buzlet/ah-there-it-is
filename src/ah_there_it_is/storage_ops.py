@@ -5,6 +5,7 @@ from __future__ import annotations
 import json
 import os
 import shutil
+from contextlib import closing
 import sqlite3
 import tempfile
 import uuid
@@ -109,7 +110,7 @@ def validate_database_file(
     expected = expected_revision or expected_schema_revision()
 
     try:
-        with _readonly_connection(candidate) as connection:
+        with closing(_readonly_connection(candidate)) as connection:
             integrity = [
                 str(row[0])
                 for row in connection.execute("PRAGMA integrity_check").fetchall()
@@ -186,7 +187,7 @@ def backup_database(
     temp_path = _temp_path_near(target)
 
     try:
-        with _readonly_connection(source) as source_connection:
+        with closing(_readonly_connection(source)) as source_connection:
             destination_connection = sqlite3.connect(str(temp_path), timeout=5.0)
             try:
                 source_connection.backup(
@@ -290,7 +291,7 @@ def export_portable_json(
             snapshot,
             expected_revision=expected_revision,
         )
-        with _readonly_connection(snapshot) as connection:
+        with closing(_readonly_connection(snapshot)) as connection:
             document: dict[str, Any] = {
                 "format": PORTABLE_EXPORT_FORMAT,
                 "exported_at": datetime.now(timezone.utc).isoformat(),
