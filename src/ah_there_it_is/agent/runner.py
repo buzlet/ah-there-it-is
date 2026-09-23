@@ -57,7 +57,10 @@ class AgentRunner:
         self.conversations = ConversationService(session)
         self.evaluation = EvaluationService(session)
 
-    def run(self, user_text: str, *, conversation_id: int | None = None) -> AgentRunResult:
+    def run(
+        self, user_text: str, *, conversation_id: int | None = None,
+        commit_on_success: bool = True,
+    ) -> AgentRunResult:
         text = user_text.strip()
         if not text:
             raise ValueError("user_text must not be empty")
@@ -141,7 +144,8 @@ class AgentRunner:
                         status="completed",
                         commit=False,
                     )
-                    self.session.commit()
+                    if commit_on_success:
+                        self.session.commit()
                     return AgentRunResult(
                         conversation_id=conversation_id,
                         run_id=run.id,

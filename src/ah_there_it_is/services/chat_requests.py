@@ -54,10 +54,10 @@ class ChatRequestService:
         request_key: str | None,
         message: str,
         conversation_id: int | None,
-        operation: Callable[[], AgentRunResult],
+        operation: Callable[[bool], AgentRunResult],
     ) -> IdempotentExecution:
         if request_key is None:
-            return IdempotentExecution(result=operation(), replayed=False)
+            return IdempotentExecution(result=operation(True), replayed=False)
 
         key = request_key.strip()
         text = message.strip()
@@ -74,7 +74,7 @@ class ChatRequestService:
         source_request_key: str,
         new_request_key: str,
         recovery_note: str,
-        operation: Callable[[], AgentRunResult],
+        operation: Callable[[bool], AgentRunResult],
     ) -> IdempotentExecution:
         source = self.get(source_request_key)
         if source is None:
@@ -195,26 +195,75 @@ class ChatRequestService:
         self,
         record: ChatRequestRecord,
         created: bool,
-        operation: Callable[[], AgentRunResult],
+        operation: Callable[[bool], AgentRunResult],
     ) -> IdempotentExecution:
         if not created:
             return IdempotentExecution(
-                result=self._resolve_existing(record),
-                replayed=True,
+                result=self._resolve_existing(record), replayed=True,
             )
         try:
-            result = operation()
+            # The runner flushes the successful turn but leaves the final
+            # transaction to this keyed-flow coordinator.
+            result = operation(False)
+            self._stage_completed(record.id, result.run_id)
         except Exception as exc:
             self.session.rollback()
             self._mark_failed(record.id, f"{type(exc).__name__}: {exc}")
             raise
-        self._mark_completed(record.id, result.run_id)
+
+        try:
+            self._commit_completed()
+        except Exception as exc:
+            # A commit exception can occur after the database committed. Do
+            # not infer failure from the exception or this Session's cache.
+            self.session.rollback()
+            return self._reconcile_commit(record.id, exc)
         return IdempotentExecution(result=result, replayed=False)
 
-    def _resolve_existing(
-        self,
-        record: ChatRequestRecord,
-    ) -> AgentRunResult:
+    def _stage_completed(self, record_id: int, run_id: int) -> None:
+        record = self.session.get(ChatRequestRecord, record_id)
+        if record is None or record.status != "processing" or record.agent_run_id is not None:
+            raise IdempotencyError("reserved chat request has inconsistent processing state")
+        run = self.session.get(AgentRunLog, run_id)
+        if run is None or run.status != "completed":
+            raise IdempotencyError("successful agent result has no completed run")
+        record.agent_run_id = run_id
+        record.status = "completed"
+        record.error = None
+        record.updated_at = utc_now()
+        self.session.flush()
+
+    def _commit_completed(self) -> None:
+        self.session.commit()
+
+    def _reconcile_commit(
+        self, record_id: int, commit_error: Exception,
+    ) -> IdempotentExecution:
+        # A separate Session forces a durable-state read, even if the caller's
+        # Session is invalidated or has stale identity-map objects.
+        with Session(bind=self.session.get_bind()) as durable:
+            record = durable.get(ChatRequestRecord, record_id)
+            if record is None:
+                raise IdempotencyError(
+                    "reserved chat request disappeared during commit reconciliation"
+                ) from commit_error
+            if record.status == "completed":
+                return IdempotentExecution(
+                    result=self._result_from_record(durable, record), replayed=True,
+                )
+            if record.status == "processing" and record.agent_run_id is None:
+                record.status = "failed"
+                record.error = (
+                    f"final commit failure: {type(commit_error).__name__}: {commit_error}"
+                )
+                record.updated_at = utc_now()
+                durable.commit()
+                raise commit_error
+            raise IdempotencyError(
+                "request has inconsistent durable state after uncertain final commit"
+            ) from commit_error
+
+    def _resolve_existing(self, record: ChatRequestRecord) -> AgentRunResult:
         if record.status == "processing":
             raise IdempotencyInProgressError(
                 f"request key {record.request_key!r} is still processing"
@@ -224,17 +273,16 @@ class ChatRequestService:
                 f"request key {record.request_key!r} previously failed: "
                 f"{record.error or 'unknown error'}"
             )
+        return self._result_from_record(self.session, record)
+
+    @staticmethod
+    def _result_from_record(session: Session, record: ChatRequestRecord) -> AgentRunResult:
         if record.status != "completed" or record.agent_run_id is None:
             raise IdempotencyError(
                 f"request key {record.request_key!r} has invalid stored state"
             )
-
-        run = self.session.get(AgentRunLog, record.agent_run_id)
-        if (
-            run is None
-            or run.status != "completed"
-            or run.final_content is None
-        ):
+        run = session.get(AgentRunLog, record.agent_run_id)
+        if run is None or run.status != "completed" or run.final_content is None:
             raise IdempotencyError(
                 f"request key {record.request_key!r} points to "
                 "an unavailable completed run"
@@ -250,17 +298,6 @@ class ChatRequestService:
             changes_applied=any(receipt.changed for receipt in receipts),
             receipts=receipts,
         )
-
-    def _mark_completed(self, record_id: int, run_id: int) -> None:
-        record = self.session.get(ChatRequestRecord, record_id)
-        if record is None:
-            raise IdempotencyError("reserved chat request disappeared")
-        record.agent_run_id = run_id
-        record.status = "completed"
-        record.error = None
-        record.updated_at = utc_now()
-        self.session.commit()
-        self.session.refresh(record)
 
     def _mark_failed(self, record_id: int, error: str) -> None:
         # AgentRunner may have rolled back its own business transaction, so

@@ -180,3 +180,7 @@ Focused tests and the full protocol-v4 local verification set passed: 284 tests,
 ## Stage 24 delivered — atomic agent turns and committed receipts
 
 Assignment 0014 makes mutation errors terminal for the turn, rolls back after any later tool error or empty post-mutation final response, and excludes failed turns from normal conversation history. Typed backend receipts are persisted only with completed runs and surfaced in chat/replay metadata; no-op Item updates and moves produce no false change or Event. The packaged migration defaults historical runs to empty receipts. Local verification passed 295 tests, 42/42 scenarios, migration, corpus and provider contract. Review: `agent-tasks/reviews/0014-r1.md`.
+
+## Stage 25 delivered — keyed chat crash consistency
+
+Assignment 0015 preserves a durable request-key reservation and puts domain changes, successful messages, completed run/receipts and request completion in one final commit owned by the keyed coordinator. Failures before commit roll back business work before the reservation is marked failed. An uncertain commit is reconciled through a fresh durable session, returning valid committed results or explicitly failing an uncommitted reservation while preserving inconsistent evidence. Same-key concurrency, response loss, faults around commit, conflict and manual recovery are covered. Local checks passed 301 tests, 42/42 scenarios, migration, corpus and provider contract. Review: `agent-tasks/reviews/0015-r1.md`.

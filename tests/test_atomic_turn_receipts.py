@@ -140,11 +140,11 @@ def test_completed_replay_uses_persisted_receipts(session: Session) -> None:
     service = ChatRequestService(session)
     first = service.execute(
         request_key="receipt-replay-0014", message="Create New meter", conversation_id=None,
-        operation=lambda: AgentRunner(session, llm).run("Create New meter"),
+        operation=lambda commit: AgentRunner(session, llm).run("Create New meter", commit_on_success=commit),
     )
     replay = service.execute(
         request_key="receipt-replay-0014", message="Create New meter", conversation_id=None,
-        operation=lambda: (_ for _ in ()).throw(AssertionError("must not execute")),
+        operation=lambda commit: (_ for _ in ()).throw(AssertionError("must not execute")),
     )
     assert replay.replayed is True
     assert replay.result == first.result
