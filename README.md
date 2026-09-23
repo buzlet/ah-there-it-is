@@ -318,10 +318,8 @@ The parser rejects unknown format identifiers, unknown structural fields, malfor
 
 ## Current scope
 
-Stages 0–18 are complete. The application regression pipeline covers 42 provider-independent scenarios with persisted-state/event postconditions. Agent turns remain transactionally atomic, chat submissions are retry-safe, unknown-location suggestions remain read-only, strict bootstrap onboarding and versioned recovery are available, and an installed wheel now uses a stable per-user data home plus a local-only schema-gated runtime independent of process CWD. Provider/model compatibility remains a separate contract pipeline.
+Stages 0–19 are complete. The application regression pipeline covers 42 provider-independent scenarios with persisted-state/event postconditions. Agent turns remain transactionally atomic, chat submissions are retry-safe, unknown-location suggestions remain read-only, strict bootstrap onboarding and versioned recovery are available, the installed runtime/data home are CWD-independent, and structural scale tests exercise exactly 1000 items / 200 nested locations with bounded search, suggestion, catalog, and tree-count reads. Provider/model compatibility remains a separate contract pipeline.
 
-Stage 19 validates the core deterministic read paths at the intended local inventory scale of roughly 1000 items and 100–250 nested locations. It targets known full-inventory/N+1 read patterns, adds bounded item catalog paging, and uses structural regression checks rather than machine-dependent timing thresholds.
+Stage 20 adds an installed read-only database doctor for application-level consistency beyond SQLite integrity/foreign keys/schema. It also adds one explicit repair operation only for the derived FTS search schema/content, which can be reconstructed from authoritative inventory rows; domain/history corruption remains diagnostic-only.
 
-The Stage 19 test fixture exercises exactly 1000 items and 200 nested locations with structural ORM/query-count assertions. Item search and location suggestions use bounded candidate/evidence reads, location/category direct-item counts avoid per-node lazy loads, and the web item catalog is paged at 50 items by default with a hard maximum page size of 100.
-
-Voice, Telegram, images, QR, MCP, PWA, embeddings, multi-user support, public deployment, service-manager integration, containerization, and installer packaging remain deferred and are not part of Stage 19.
+Voice, Telegram, images, QR, MCP, PWA, embeddings, multi-user support, public deployment, service-manager integration, containerization, and installer packaging remain deferred and are not part of Stage 20.

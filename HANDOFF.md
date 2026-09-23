@@ -6,7 +6,7 @@
 - Default branch: `main`
 - Always verify current `origin/main`, PR state, and CI before starting new work.
 - This handoff supersedes the pre-Stage-12 handoff that existed at commit `198061c9c88353a950cb90f2ec8fcd6cabd51edf`.
-- **Stages 0–18 are complete. Stage 19 is next.**
+- **Stages 0–19 are complete. Stage 20 is next.**
 - `AGENTS.md` remains the authoritative architecture/development/stage plan.
 - Full SQLite backup/restore and portable inventory import are intentionally separate recovery products.
 
@@ -102,33 +102,44 @@
 - real wheel cross-CWD upgrade/serve proof with no stray working-directory DB/WAL/SHM files;
 - complete protocol-v3 verification green: 225 tests, 42/42 scenarios, provider contract, Python 3.12/3.13 CI.
 
-## Stage 19 objective
+## Stage 19 delivered
 
-Exercise and harden deterministic read paths at the intended ~1000-item / ~200-location local scale:
+- deterministic test-only target-scale generator with exactly 1000 items, 200 nested locations, 31-category tree, rich search/suggestion targets, and ambiguity cases;
+- bounded SQL/FTS-first item candidate discovery with existing deterministic ranking preserved;
+- relevant-row-only location-suggestion evidence queries;
+- `ix_item_tags_tag_id` reverse lookup index and migration revision `b62f9d8a3c41`;
+- paged `/items` catalog with 50 default / 100 maximum and deterministic navigation/order;
+- grouped bounded-query location/category direct-item counts;
+- structural ORM/query-count scale regressions instead of timing gates;
+- complete protocol-v3 verification green: 230 tests, 42/42 scenarios, provider contract, Python 3.12/3.13 CI.
 
-1. Add a compact deterministic 1000-item, ~200 nested-location scale fixture for structural regression tests.
-2. Replace full-inventory ORM materialization in item search with bounded SQL/FTS-first candidate discovery while preserving ranking semantics.
-3. Restrict location-suggestion evidence to same-category/shared-tag rows rather than scanning all located items.
-4. Add the narrowly required `item_tags.tag_id` reverse lookup index and migration.
-5. Page the web item catalog at 50 items by default with 100 maximum, total/page metadata, and deterministic ordering.
-6. Replace location/category N+1 direct-item counts with grouped bounded-query aggregation and test bounded work structurally rather than by timing.
+## Stage 20 objective
+
+Add application-level active-database diagnostics without turning diagnostics into implicit repair:
+
+1. Add a read-only typed doctor that combines SQLite integrity/FK/exact schema with normalized identity, hierarchy, state/quantity, and name invariants.
+2. Extract reusable FTS schema/content consistency checks shared by portable import and doctor.
+3. Add installed `ah-there-it-is doctor` JSON output with stable success/unhealthy exit codes and no filesystem/database side effects.
+4. Add an explicit `repair-search-index` operation that can restore/rebuild only derived FTS objects/content after all authoritative/base invariants pass.
+5. Prove controlled authoritative and FTS corruptions are diagnosed, doctor is read-only, and FTS repair preserves all base/application tables.
+6. Keep backup/restore/bootstrap/portable/runtime/provider contracts unchanged and never auto-repair domain/history data.
 
 ## Files to read first
 
 1. `HANDOFF.md`
 2. `AGENTS.md`
 3. `README.md`
-4. `src/ah_there_it_is/services/search.py`
-5. `src/ah_there_it_is/services/location_suggestions.py`
-6. `src/ah_there_it_is/services/catalog.py`
-7. `src/ah_there_it_is/web/routes.py`
-8. `src/ah_there_it_is/web/templates/items.html`
-9. `src/ah_there_it_is/db/models.py`
-10. `src/ah_there_it_is/db/migrations/versions/`
-11. `tests/test_search.py`
-12. `tests/test_location_suggestions.py`
-13. `tests/test_app.py`
-14. `tests/test_migrations.py`
+4. `src/ah_there_it_is/storage.py`
+5. `src/ah_there_it_is/db/search_schema.py`
+6. `src/ah_there_it_is/db/models.py`
+7. `src/ah_there_it_is/domain/names.py`
+8. `src/ah_there_it_is/domain/states.py`
+9. `src/ah_there_it_is/runtime_cli.py`
+10. `src/ah_there_it_is/storage_cli.py`
+11. `tests/test_storage.py`
+12. `tests/test_runtime_cli.py`
+13. `tests/test_portable_compatibility.py`
+14. `tests/test_target_scale.py`
 15. `Justfile`
 
 ## Orchestrated implementation workflow
@@ -139,7 +150,7 @@ For a normal implementation handoff, the agent fast-forwards `main`, implements 
 
 The orchestrator retains product/architecture direction, stage transitions, assignment formulation, and decisions where requirements conflict or a materially new design choice is needed. It does not repeat routine review/tests/CI already owned by the agent. The orchestrator guarantees that no concurrent repository work occurs between assignment publication and the agent's initial pull.
 
-Assignment 0001 completed under v1. Assignment 0002/v2 was superseded before execution and is recorded in `agent-tasks/reviews/0002-r0.md`. Future implementation uses `agent-tasks/common/v3.md`; active Stage 19 work is `agent-tasks/assignments/0008-stage19-target-scale-read-paths.md`.
+Assignment 0001 completed under v1. Assignment 0002/v2 was superseded before execution and is recorded in `agent-tasks/reviews/0002-r0.md`. Future implementation uses `agent-tasks/common/v3.md`; active Stage 20 work is `agent-tasks/assignments/0009-stage20-database-doctor.md`.
 
 ## Development environment checkpoint
 

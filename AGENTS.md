@@ -309,13 +309,24 @@ Stage 6 was deliberately restructured after live-provider work began coupling ap
 - Real wheel smoke proves explicit upgrade from one working directory and installed serve from another use the same stable default DB without stray CWD database/WAL/SHM files.
 - Final Stage 18 verification passed 225 tests, all 42 deterministic scenarios, provider contract, and Python 3.12/3.13 CI with no implementation or CI correction rounds.
 
-### Stage 19 — next
+### Stage 19 — complete
 
-Validate and harden core deterministic read paths at the intended local scale of roughly 1000 items and 100–250 nested locations:
+- Added deterministic target-scale test data with exactly 1000 items, 200 nested locations, representative category hierarchy, aliases/tags/attributes/descriptions, ambiguity, and suggestion targets.
+- Item search now discovers a bounded SQL/FTS candidate pool and applies the existing deterministic Python ranking only to candidate Items instead of materializing the full inventory.
+- Location suggestions select only same-category/shared-tag evidence rows rather than hydrating all located Items.
+- Added the single reverse tag lookup index `ix_item_tags_tag_id` through revision `b62f9d8a3c41`.
+- `/items` now uses deterministic pagination with 50 default / 100 hard maximum, total/page metadata, and previous/next navigation.
+- Location/category direct item counts use grouped SQL with bounded query counts rather than per-node lazy loads.
+- Structural scale tests prove bounded ORM/query work without machine-dependent timing gates; all existing 42 application scenarios remain unchanged and green.
+- Final Stage 19 verification passed 230 tests, migration/corpus/scenario/provider-contract checks, Python 3.12/3.13 CI, and required real-wheel coverage.
 
-1. Add compact deterministic target-scale test data with 1000 items and about 200 nested locations.
-2. Make item search SQL/FTS-first so a limit-5 query does not materialize the whole inventory plus aliases/tags before ranking.
-3. Restrict location-suggestion evidence queries to same-category/shared-tag rows instead of all located items.
-4. Add the reverse `item_tags.tag_id` lookup index required by tag-based candidate/evidence queries.
-5. Page the `/items` catalog at 50 by default (100 maximum) and preserve deterministic ordering/navigation.
-6. Replace location/category per-node lazy item counts with bounded grouped SQL aggregation; verify structural bounded-work behavior without wall-clock SLA tests.
+### Stage 20 — next
+
+Add a read-only active-database doctor for application-level consistency plus one explicit repair path only for reconstructible FTS derived state:
+
+1. Diagnose SQLite integrity/FK/exact schema together with normalized-name, hierarchy, state/quantity, and semantic identity invariants.
+2. Extract reusable FTS schema/content consistency checks shared by portable import and doctor.
+3. Add installed `ah-there-it-is doctor` JSON output with stable healthy/unhealthy exit behavior and no side effects.
+4. Add explicit `repair-search-index` that may restore/rebuild only current FTS table/triggers/content after base invariants pass.
+5. Prove doctor detects controlled base/FTS corruption read-only and that search-index repair preserves every authoritative/base table.
+6. Keep recovery/runtime/data-format/provider behavior unchanged and perform no automatic domain repair.
