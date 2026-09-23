@@ -236,9 +236,15 @@ class CatalogService:
         ]
         return sorted(rows, key=lambda row: (row["path"].casefold(), row["id"]))
 
-    def item_detail(self, item_id: int) -> dict[str, Any]:
+    def item_detail(
+        self, item_id: int, *, page: int = 1, page_size: int = DEFAULT_PAGE_SIZE,
+    ) -> dict[str, Any]:
         item = self.inventory.get_item(item_id)
         result = self.item_dict(item)
+        history_page = self.inventory.get_item_history_page(
+            item_id, page=page, page_size=page_size,
+        )
+        result["history_page"] = history_page
         result["history"] = [
             {
                 "id": event.id,
@@ -249,7 +255,7 @@ class CatalogService:
                 "original_text": event.original_text,
                 "created_at": event.created_at,
             }
-            for event in self.inventory.get_item_history(item_id)
+            for event in history_page.items
         ]
         return result
 

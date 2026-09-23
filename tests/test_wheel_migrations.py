@@ -82,6 +82,9 @@ def test_wheel_contains_and_runs_packaged_migrations_and_runtime(
             name for name in names if name.endswith(".dist-info/entry_points.txt")
         )
         entry_points = archive.read(entry_points_name).decode("utf-8")
+        item_detail_template = archive.read(
+            "ah_there_it_is/web/templates/item_detail.html"
+        ).decode("utf-8")
 
     assert migration_prefix + "env.py" in names
     assert migration_prefix + "script.py.mako" in names
@@ -89,6 +92,8 @@ def test_wheel_contains_and_runs_packaged_migrations_and_runtime(
         migration_prefix + "versions/" + filename for filename in source_versions
     } <= names
     assert "ah_there_it_is/web/templates/item_new.html" in names
+    assert "ah_there_it_is/web/templates/item_detail.html" in names
+    assert "Next history page" in item_detail_template
     assert "ah_there_it_is/web/templates/tree_edit.html" in names
     assert "ah_there_it_is/web/templates/tree_detail.html" in names
     assert "ah_there_it_is/web/templates/_item_form.html" in names
@@ -154,6 +159,18 @@ def test_wheel_contains_and_runs_packaged_migrations_and_runtime(
     ]
     assert not package_path.is_relative_to(repo), package_path
     assert not resource_path.is_relative_to(repo), resource_path
+    installed_schema = subprocess.run(
+        [
+            sys.executable, "-c",
+            "from ah_there_it_is.agent.schemas import ItemIdInput, LocationIdInput; "
+            "assert ItemIdInput.model_fields['page_size'].default == 50; "
+            "assert LocationIdInput.model_fields['page_size'].default == 50; "
+            "assert ItemIdInput.model_json_schema()['properties']['page_size']['maximum'] == 100; "
+            "assert LocationIdInput.model_json_schema()['properties']['page']['minimum'] == 1",
+        ],
+        cwd=outside, env=runtime_env, check=True, capture_output=True, text=True,
+    )
+    assert installed_schema.returncode == 0
 
     upgrade_cwd = outside / "upgrade-cwd"
     serve_cwd = outside / "serve-cwd"

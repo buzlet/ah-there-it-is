@@ -24,10 +24,14 @@ class IdInput(_ToolInput):
 
 class ItemIdInput(_ToolInput):
     item_id: int = Field(gt=0)
+    page: int = Field(default=1, ge=1)
+    page_size: int = Field(default=50, ge=1, le=100)
 
 
 class LocationIdInput(_ToolInput):
     location_id: int = Field(gt=0)
+    page: int = Field(default=1, ge=1)
+    page_size: int = Field(default=50, ge=1, le=100)
 
 
 class SuggestItemLocationsInput(_ToolInput):
