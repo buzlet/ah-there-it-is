@@ -18,6 +18,8 @@ from ah_there_it_is.storage import (
     validate_portable_import_target,
     validate_portable_inventory,
     restore_backup,
+    sqlite_path_from_url,
+    StorageError,
     validate_database,
 )
 
@@ -72,6 +74,7 @@ def main() -> None:
             safety_backup=args.safety_backup,
         ).as_dict()
     elif args.command == "upgrade":
+        _prepare_upgrade_target(database_url)
         upgrade_database(database_url)
         result = {"upgraded_to": "head"}
     elif args.command == "migration-check":
@@ -114,6 +117,15 @@ def main() -> None:
         ).as_dict()
 
     print(json.dumps(result, ensure_ascii=False, indent=2, sort_keys=True))
+
+
+def _prepare_upgrade_target(database_url: str) -> None:
+    """Create a file-backed SQLite parent only for the explicit upgrade write."""
+    try:
+        database = sqlite_path_from_url(database_url)
+    except StorageError:
+        return
+    database.parent.mkdir(parents=True, exist_ok=True)
 
 
 if __name__ == "__main__":

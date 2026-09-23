@@ -2,12 +2,35 @@
 
 from __future__ import annotations
 
+from collections.abc import Mapping
 import json
 import os
 from functools import lru_cache
 from typing import Any
 
 from pydantic import BaseModel, ConfigDict, Field
+
+from ah_there_it_is.data_paths import default_database_url
+
+
+def database_url_override(
+    environ: Mapping[str, str] | None = None,
+) -> str | None:
+    env = os.environ if environ is None else environ
+    value = env.get("AH_THERE_IT_IS_DATABASE_URL")
+    if value is None or not value.strip():
+        return None
+    return value
+
+
+def resolve_database_url(
+    environ: Mapping[str, str] | None = None,
+) -> str:
+    env = os.environ if environ is None else environ
+    override = database_url_override(env)
+    if override is not None:
+        return override
+    return default_database_url(environ=env)
 
 
 class Settings(BaseModel):
@@ -17,7 +40,7 @@ class Settings(BaseModel):
 
     app_name: str = "Ah, There It Is!"
     environment: str = "development"
-    database_url: str = "sqlite:///./ah_there_it_is.db"
+    database_url: str = Field(default_factory=resolve_database_url)
     llm_provider: str = "heuristic"
     llm_provider_name: str | None = None
     llm_base_url: str | None = None
@@ -38,10 +61,7 @@ def get_settings() -> Settings:
     return Settings(
         app_name=os.getenv("AH_THERE_IT_IS_APP_NAME", "Ah, There It Is!"),
         environment=os.getenv("AH_THERE_IT_IS_ENV", "development"),
-        database_url=os.getenv(
-            "AH_THERE_IT_IS_DATABASE_URL",
-            "sqlite:///./ah_there_it_is.db",
-        ),
+        database_url=resolve_database_url(),
         llm_provider=os.getenv("AH_THERE_IT_IS_LLM_PROVIDER", "heuristic"),
         llm_provider_name=os.getenv("AH_THERE_IT_IS_LLM_PROVIDER_NAME") or None,
         llm_base_url=os.getenv("AH_THERE_IT_IS_LLM_BASE_URL") or None,

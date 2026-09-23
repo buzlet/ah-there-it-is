@@ -118,6 +118,10 @@ def test_wheel_contains_and_runs_packaged_migrations_and_runtime(
     runtime_env = os.environ.copy()
     runtime_env["PYTHONPATH"] = str(site_packages)
     runtime_env["AH_THERE_IT_IS_LLM_PROVIDER"] = "heuristic"
+    runtime_env.pop("AH_THERE_IT_IS_DATABASE_URL", None)
+    runtime_env.pop("AH_THERE_IT_IS_DATA_DIR", None)
+    runtime_env["HOME"] = str(outside / "home")
+    runtime_env["XDG_DATA_HOME"] = str(outside / "xdg-data")
 
     installed_probe = subprocess.run(
         [
@@ -144,10 +148,35 @@ def test_wheel_contains_and_runs_packaged_migrations_and_runtime(
     assert not package_path.is_relative_to(repo), package_path
     assert not resource_path.is_relative_to(repo), resource_path
 
-    fresh = outside / "fresh.db"
-    fresh_url = f"sqlite:///{fresh}"
-    migrated_env = runtime_env.copy()
-    migrated_env["AH_THERE_IT_IS_DATABASE_URL"] = fresh_url
+    upgrade_cwd = outside / "upgrade-cwd"
+    serve_cwd = outside / "serve-cwd"
+    upgrade_cwd.mkdir()
+    serve_cwd.mkdir()
+    data_dir = outside / "xdg-data" / "ah-there-it-is"
+    fresh = data_dir / "inventory.db"
+
+    path_payloads = []
+    for cwd in (upgrade_cwd, serve_cwd):
+        completed_paths = subprocess.run(
+            [str(console_script), "paths"],
+            cwd=cwd,
+            env=runtime_env,
+            check=True,
+            capture_output=True,
+            text=True,
+        )
+        path_payloads.append(json.loads(completed_paths.stdout))
+
+    expected_paths = {
+        "data_dir": str(data_dir.resolve()),
+        "database": {
+            "source": "default",
+            "path": str(fresh.resolve()),
+        },
+    }
+    assert path_payloads == [expected_paths, expected_paths]
+    assert not data_dir.exists()
+
     subprocess.run(
         [
             sys.executable,
@@ -155,12 +184,13 @@ def test_wheel_contains_and_runs_packaged_migrations_and_runtime(
             "ah_there_it_is.storage_cli",
             "upgrade",
         ],
-        cwd=outside,
-        env=migrated_env,
+        cwd=upgrade_cwd,
+        env=runtime_env,
         check=True,
         capture_output=True,
         text=True,
     )
+    assert fresh.is_file()
 
     migration_smoke = r'''
 import json
@@ -281,8 +311,8 @@ print(json.dumps({"revision": CURRENT_SCHEMA_REVISION}))
             "--port",
             str(port),
         ],
-        cwd=outside,
-        env=migrated_env,
+        cwd=serve_cwd,
+        env=runtime_env,
         stdout=subprocess.PIPE,
         stderr=subprocess.PIPE,
         text=True,
@@ -330,3 +360,14 @@ print(json.dumps({"revision": CURRENT_SCHEMA_REVISION}))
             process.wait(timeout=5)
 
     assert process.returncode == 0
+
+    stray_names = (
+        "ah_there_it_is.db",
+        "ah_there_it_is.db-wal",
+        "ah_there_it_is.db-shm",
+        "inventory.db",
+        "inventory.db-wal",
+        "inventory.db-shm",
+    )
+    for cwd in (upgrade_cwd, serve_cwd):
+        assert all(not (cwd / name).exists() for name in stray_names)

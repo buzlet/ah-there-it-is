@@ -223,28 +223,46 @@ Application startup does not run migrations automatically. Portable import uses 
 
 ## Installed-package runtime
 
-A built wheel is runnable without the source checkout or `Justfile`. The installed lifecycle keeps database ownership explicit:
+A built wheel is runnable without the source checkout or `Justfile`. By default no database environment variable is required: the application uses one stable per-user data home and `inventory.db` inside it.
+
+Default data locations:
+
+- Linux/other Unix: `$XDG_DATA_HOME/ah-there-it-is` when `XDG_DATA_HOME` is non-blank, otherwise `~/.local/share/ah-there-it-is`;
+- macOS: `~/Library/Application Support/AhThereItIs`;
+- Windows: `%LOCALAPPDATA%\AhThereItIs`, with `~/AppData/Local/AhThereItIs` as the deterministic per-user fallback when `LOCALAPPDATA` is unavailable.
+
+The installed lifecycle keeps database creation and migration explicit:
 
 ```bash
 python -m pip install ./ah_there_it_is-0.2.0-py3-none-any.whl
-export AH_THERE_IT_IS_DATABASE_URL=sqlite:////absolute/path/inventory.db
 
-# Explicit operator-owned database creation/upgrade:
+# Read-only: shows the resolved data directory and effective database path.
+ah-there-it-is paths
+
+# Explicit operator-owned database directory creation + schema upgrade.
 python -m ah_there_it_is.storage_cli upgrade
 
-# Optional first-time onboarding into the still-empty inventory:
+# Optional first-time onboarding into the still-empty inventory.
 python -m ah_there_it_is.storage_cli bootstrap-preflight inventory-bootstrap.json
 python -m ah_there_it_is.storage_cli bootstrap-apply inventory-bootstrap.json
 
-# Local-only bind by default:
+# Local-only bind by default.
 ah-there-it-is serve
-# Explicit override when wanted:
-ah-there-it-is serve --host 127.0.0.1 --port 8000
 ```
 
-Installed `serve` first opens the configured SQLite database read-only and requires its Alembic head set to match the migration heads packaged in the installed wheel exactly. A missing, uninitialized, behind, ahead, or otherwise incompatible database is rejected before Uvicorn starts. The check never creates, upgrades, repairs, restores, or replaces the database; migration remains the explicit `python -m ah_there_it_is.storage_cli upgrade` operation.
+Configuration precedence is deliberate: a non-blank `AH_THERE_IT_IS_DATABASE_URL` is authoritative and is preserved exactly; otherwise the database is derived from the resolved data directory. A non-blank `AH_THERE_IT_IS_DATA_DIR` overrides the platform data directory only for that default database path and never rewrites an explicit database URL. Whitespace-only overrides are treated as unset. Path/settings resolution and `ah-there-it-is paths` are read-only and do not create directories or database files.
 
-For source-checkout development, `just serve` is deliberately separate: it runs `ah_there_it_is.app:create_app` in Uvicorn factory mode with reload enabled and an explicit loopback bind. Reload is not enabled by the installed runtime command.
+For advanced/custom placement, set an explicit database URL, for example:
+
+```bash
+export AH_THERE_IT_IS_DATABASE_URL=sqlite:////absolute/path/inventory.db
+python -m ah_there_it_is.storage_cli upgrade
+ah-there-it-is serve
+```
+
+Installed `serve` opens the configured SQLite database read-only for its schema gate and requires its Alembic head set to match the migration heads packaged in the installed wheel exactly. A missing, uninitialized, behind, ahead, or otherwise incompatible database is rejected before Uvicorn starts. The gate never creates, upgrades, repairs, restores, or replaces the database. Only the explicit storage upgrade operation may create the missing parent directory and database.
+
+For source-checkout development, `just serve` remains separate: it runs `ah_there_it_is.app:create_app` in Uvicorn factory mode with reload enabled and an explicit loopback bind. Reload is not enabled by the installed runtime command.
 
 ## Local backup, restore, and portable export/import
 

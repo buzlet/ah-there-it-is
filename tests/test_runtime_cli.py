@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 import os
 from pathlib import Path
 import sqlite3
@@ -8,7 +9,7 @@ import sys
 
 import pytest
 
-from ah_there_it_is.config import Settings
+from ah_there_it_is.config import Settings, get_settings
 from ah_there_it_is.db.migrations import upgrade_database
 from ah_there_it_is.runtime_cli import (
     RuntimeSchemaError,
@@ -178,9 +179,10 @@ def test_serve_missing_database_returns_error_before_uvicorn(
 
 def test_importing_app_module_does_not_create_default_database(tmp_path: Path) -> None:
     repo = Path(__file__).resolve().parents[1]
-    database = tmp_path / "ah_there_it_is.db"
+    data_dir = tmp_path / "data-home"
     env = os.environ.copy()
     env["PYTHONPATH"] = str(repo / "src")
+    env["AH_THERE_IT_IS_DATA_DIR"] = str(data_dir)
     env.pop("AH_THERE_IT_IS_DATABASE_URL", None)
 
     completed = subprocess.run(
@@ -200,4 +202,102 @@ def test_importing_app_module_does_not_create_default_database(tmp_path: Path) -
     )
 
     assert completed.returncode == 0, completed.stderr
+    assert not data_dir.exists()
+
+
+
+def test_paths_reports_default_database_read_only(
+    tmp_path: Path,
+    monkeypatch,
+    capsys,
+) -> None:
+    data_dir = tmp_path / "not-created"
+    monkeypatch.setenv("AH_THERE_IT_IS_DATA_DIR", str(data_dir))
+    monkeypatch.delenv("AH_THERE_IT_IS_DATABASE_URL", raising=False)
+    get_settings.cache_clear()
+    try:
+        assert main(["paths"]) == 0
+        payload = json.loads(capsys.readouterr().out)
+    finally:
+        get_settings.cache_clear()
+
+    assert payload == {
+        "data_dir": str(data_dir.resolve()),
+        "database": {
+            "source": "default",
+            "path": str((data_dir / "inventory.db").resolve()),
+        },
+    }
+    assert not data_dir.exists()
+
+
+def test_paths_reports_explicit_file_sqlite_without_rewriting_it(
+    tmp_path: Path,
+    monkeypatch,
+    capsys,
+) -> None:
+    data_dir = tmp_path / "unused-data"
+    database = tmp_path / "custom" / "inventory.db"
+    monkeypatch.setenv("AH_THERE_IT_IS_DATA_DIR", str(data_dir))
+    monkeypatch.setenv("AH_THERE_IT_IS_DATABASE_URL", f"sqlite:///{database}")
+    get_settings.cache_clear()
+    try:
+        assert main(["paths"]) == 0
+        payload = json.loads(capsys.readouterr().out)
+    finally:
+        get_settings.cache_clear()
+
+    assert payload == {
+        "data_dir": str(data_dir.resolve()),
+        "database": {
+            "source": "explicit",
+            "path": str(database.resolve()),
+        },
+    }
+    assert not data_dir.exists()
     assert not database.exists()
+
+
+def test_paths_does_not_echo_explicit_non_sqlite_credentials(
+    tmp_path: Path,
+    monkeypatch,
+    capsys,
+) -> None:
+    data_dir = tmp_path / "not-created"
+    secret_url = "postgresql://user:super-secret@example.invalid/inventory"
+    monkeypatch.setenv("AH_THERE_IT_IS_DATA_DIR", str(data_dir))
+    monkeypatch.setenv("AH_THERE_IT_IS_DATABASE_URL", secret_url)
+    get_settings.cache_clear()
+    try:
+        assert main(["paths"]) == 0
+        output = capsys.readouterr().out
+        payload = json.loads(output)
+    finally:
+        get_settings.cache_clear()
+
+    assert payload == {
+        "data_dir": str(data_dir.resolve()),
+        "database": {"source": "explicit", "path": None},
+    }
+    assert "super-secret" not in output
+    assert "postgresql" not in output
+    assert not data_dir.exists()
+
+
+def test_default_serve_gate_does_not_create_data_home(
+    tmp_path: Path,
+    monkeypatch,
+    capsys,
+) -> None:
+    data_dir = tmp_path / "missing-data"
+    monkeypatch.setenv("AH_THERE_IT_IS_DATA_DIR", str(data_dir))
+    monkeypatch.delenv("AH_THERE_IT_IS_DATABASE_URL", raising=False)
+    get_settings.cache_clear()
+    try:
+        assert main(["serve"]) == 2
+        error = capsys.readouterr().err
+    finally:
+        get_settings.cache_clear()
+
+    assert "does not exist" in error
+    assert not data_dir.exists()
