@@ -8,7 +8,7 @@ from typing import Any
 from sqlalchemy import select, text
 from sqlalchemy.orm import Session, selectinload
 
-from ah_there_it_is.db.models import Category, Item, ItemTag, Location, Tag
+from ah_there_it_is.db.models import Alias, Category, Item, ItemTag, Location, Tag
 from ah_there_it_is.domain.names import normalize_name, normalize_search_text
 from ah_there_it_is.domain.search import ItemSearchCandidate, SearchCandidate
 
@@ -43,8 +43,61 @@ class SearchService:
 
         identity = normalize_name(query)
         search_key = normalize_search_text(query)
-        ranked: dict[int, _Ranked] = {}
-        items_by_id: dict[int, Item] = {}
+        candidate_limit = max(limit * 4, 20)
+
+        fts_rows = self._fts_item_ids(query, limit=candidate_limit)
+        fts_by_id = dict(fts_rows)
+        candidate_ids = {item_id for item_id, _ in fts_rows}
+        candidate_ids.update(
+            self.session.scalars(
+                select(Item.id)
+                .where(Item.normalized_name == identity)
+                .order_by(Item.id)
+                .limit(candidate_limit)
+            )
+        )
+        candidate_ids.update(
+            self.session.scalars(
+                select(Alias.item_id)
+                .where(Alias.normalized_name == identity)
+                .order_by(Alias.item_id)
+                .limit(candidate_limit)
+            )
+        )
+        candidate_ids.update(
+            self.session.scalars(
+                select(ItemTag.item_id)
+                .join(Tag, Tag.id == ItemTag.tag_id)
+                .where(Tag.normalized_name == identity)
+                .order_by(ItemTag.item_id)
+                .limit(candidate_limit)
+            )
+        )
+        candidate_ids.update(
+            self._exact_attribute_item_ids(identity, limit=candidate_limit)
+        )
+
+        if identity:
+            contains_pattern = f"%{identity}%"
+            candidate_ids.update(
+                self.session.scalars(
+                    select(Item.id)
+                    .where(Item.normalized_name.like(contains_pattern))
+                    .order_by(Item.id)
+                    .limit(candidate_limit)
+                )
+            )
+            candidate_ids.update(
+                self.session.scalars(
+                    select(Alias.item_id)
+                    .where(Alias.normalized_name.like(contains_pattern))
+                    .order_by(Alias.item_id)
+                    .limit(candidate_limit)
+                )
+            )
+
+        if not candidate_ids:
+            return []
 
         item_stmt = (
             select(Item)
@@ -52,24 +105,33 @@ class SearchService:
                 selectinload(Item.aliases),
                 selectinload(Item.tag_links).selectinload(ItemTag.tag),
             )
+            .where(Item.id.in_(candidate_ids))
             .order_by(Item.id)
         )
-        for item in self.session.scalars(item_stmt):
-            items_by_id[item.id] = item
+        items_by_id = {
+            item.id: item
+            for item in self.session.scalars(item_stmt)
+        }
+
+        ranked: dict[int, _Ranked] = {}
+        for item_id, item in items_by_id.items():
             candidate = self._rank_item_python(item, identity, search_key)
             if candidate is not None:
-                ranked[item.id] = candidate
+                ranked[item_id] = candidate
 
-        for item_id, fts_rank in self._fts_item_ids(query, limit=max(limit * 4, 20)):
-            item = items_by_id.get(item_id)
-            if item is None or not self._fts_overlap_ok(item, search_key):
+            fts_rank = fts_by_id.get(item_id)
+            if fts_rank is None or not self._fts_overlap_ok(item, search_key):
                 continue
-            current = ranked.get(item_id)
             proposed = _Ranked(self.FTS, "fts", fts_rank)
+            current = ranked.get(item_id)
             if current is None or proposed.score > current.score:
                 ranked[item_id] = proposed
             elif current.score == proposed.score and current.fts_rank is None:
-                ranked[item_id] = _Ranked(current.score, current.match_type, fts_rank)
+                ranked[item_id] = _Ranked(
+                    current.score,
+                    current.match_type,
+                    fts_rank,
+                )
 
         ordered = sorted(
             ranked.items(),
@@ -82,7 +144,7 @@ class SearchService:
 
         results: list[ItemSearchCandidate] = []
         for item_id, rank in ordered:
-            item = self.session.get(Item, item_id)
+            item = items_by_id.get(item_id)
             if item is None:
                 continue
             results.append(
@@ -184,6 +246,29 @@ class SearchService:
         ]
         candidate_tokens = set(" ".join(searchable_parts).split())
         return len(query_tokens.intersection(candidate_tokens)) >= 2
+
+    def _exact_attribute_item_ids(
+        self,
+        identity: str,
+        *,
+        limit: int,
+    ) -> list[int]:
+        if not identity:
+            return []
+        rows = self.session.execute(
+            text(
+                """
+                SELECT DISTINCT items.id AS item_id
+                FROM items, json_tree(items.attributes) AS attribute
+                WHERE attribute.type NOT IN ('object', 'array', 'null')
+                  AND lower(trim(CAST(attribute.value AS TEXT))) = :identity
+                ORDER BY items.id
+                LIMIT :limit
+                """
+            ),
+            {"identity": identity, "limit": limit},
+        )
+        return [int(row.item_id) for row in rows]
 
     def _fts_item_ids(self, query: str, *, limit: int) -> list[tuple[int, float]]:
         expression = self._fts_expression(query)

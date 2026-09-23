@@ -298,12 +298,25 @@ def build_router(templates: Jinja2Templates) -> APIRouter:
         )
 
     @router.get("/items", response_class=HTMLResponse)
-    def items(request: Request, session: Session = Depends(get_session)) -> HTMLResponse:
+    def items(
+        request: Request,
+        page: int = 1,
+        page_size: int = CatalogService.DEFAULT_PAGE_SIZE,
+        session: Session = Depends(get_session),
+    ) -> HTMLResponse:
         catalog = CatalogService(session)
+        try:
+            item_page = catalog.item_page(page=page, page_size=page_size)
+        except ValueError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
         return templates.TemplateResponse(
             request=request,
             name="items.html",
-            context={"app_name": request.app.state.settings.app_name, "items": catalog.list_items()},
+            context={
+                "app_name": request.app.state.settings.app_name,
+                "items": item_page.items,
+                "item_page": item_page,
+            },
         )
 
     @router.get("/items/{item_id}", response_class=HTMLResponse)

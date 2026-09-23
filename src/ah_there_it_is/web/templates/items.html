@@ -2,6 +2,11 @@
 {% block title %}Items · {{ app_name }}{% endblock %}
 {% block content %}
 <h1>Items</h1>
+{% if item_page %}
+<p class="muted">
+  Total: {{ item_page.total }} · Page {{ item_page.page }}{% if item_page.pages %} of {{ item_page.pages }}{% endif %}
+</p>
+{% endif %}
 {% if items %}
 <div class="table-wrap"><table>
   <thead><tr><th>Item</th><th>State</th><th>Qty</th><th>Category</th><th>Location</th></tr></thead>
@@ -15,5 +20,15 @@
   {% endfor %}
   </tbody>
 </table></div>
-{% else %}<p class="muted">No items yet.</p>{% endif %}
+{% else %}<p class="muted">No items on this page.</p>{% endif %}
+{% if item_page %}
+<nav aria-label="Item pages">
+  {% if item_page.has_previous %}
+    <a href="/items?page={{ item_page.previous_page }}&page_size={{ item_page.page_size }}">Previous</a>
+  {% endif %}
+  {% if item_page.has_next %}
+    <a href="/items?page={{ item_page.next_page }}&page_size={{ item_page.page_size }}">Next</a>
+  {% endif %}
+</nav>
+{% endif %}
 {% endblock %}

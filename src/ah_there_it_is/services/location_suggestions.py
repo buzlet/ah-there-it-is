@@ -5,10 +5,10 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import Literal
 
-from sqlalchemy import select
+from sqlalchemy import exists, or_, select
 from sqlalchemy.orm import Session, selectinload
 
-from ah_there_it_is.db.models import Event, Item, Location
+from ah_there_it_is.db.models import Event, Item, ItemTag, Location
 from ah_there_it_is.domain.exceptions import EntityNotFoundError
 
 
@@ -72,34 +72,56 @@ class LocationSuggestionService:
             bucket.last_known_event_type = event.event_type
 
         target_tag_ids = {link.tag_id for link in item.tag_links}
-        related_stmt = (
-            select(Item)
-            .options(selectinload(Item.tag_links))
-            .where(
-                Item.id != item.id,
-                Item.current_location_id.is_not(None),
+        shared_tag_exists = (
+            exists(
+                select(ItemTag.item_id).where(
+                    ItemTag.item_id == Item.id,
+                    ItemTag.tag_id.in_(target_tag_ids),
+                )
             )
-            .order_by(Item.id)
+            if target_tag_ids
+            else None
         )
-        for related in self.session.scalars(related_stmt):
-            same_category = (
-                item.category_id is not None
-                and related.category_id == item.category_id
+        relevance = []
+        if item.category_id is not None:
+            relevance.append(Item.category_id == item.category_id)
+        if shared_tag_exists is not None:
+            relevance.append(shared_tag_exists)
+
+        if relevance:
+            related_stmt = (
+                select(
+                    Item.id,
+                    Item.current_location_id,
+                    Item.category_id,
+                    (
+                        shared_tag_exists
+                        if shared_tag_exists is not None
+                        else (Item.id != Item.id)
+                    ).label("shared_tag"),
+                )
+                .where(
+                    Item.id != item.id,
+                    Item.current_location_id.is_not(None),
+                    or_(*relevance),
+                )
+                .order_by(Item.id)
             )
-            shared_tag = bool(
-                target_tag_ids.intersection(link.tag_id for link in related.tag_links)
-            )
-            if not same_category and not shared_tag:
-                continue
-            location_id = related.current_location_id
-            if location_id is None:
-                continue
-            bucket = evidence_by_location.setdefault(location_id, _Evidence())
-            bucket.supporting_item_ids.add(related.id)
-            if same_category:
-                bucket.same_category_item_ids.add(related.id)
-            if shared_tag:
-                bucket.shared_tag_item_ids.add(related.id)
+            for related in self.session.execute(related_stmt):
+                same_category = (
+                    item.category_id is not None
+                    and related.category_id == item.category_id
+                )
+                shared_tag = bool(related.shared_tag)
+                location_id = related.current_location_id
+                if location_id is None:
+                    continue
+                bucket = evidence_by_location.setdefault(location_id, _Evidence())
+                bucket.supporting_item_ids.add(related.id)
+                if same_category:
+                    bucket.same_category_item_ids.add(related.id)
+                if shared_tag:
+                    bucket.shared_tag_item_ids.add(related.id)
 
         suggestions = [
             self._suggestion(location_id, evidence)
