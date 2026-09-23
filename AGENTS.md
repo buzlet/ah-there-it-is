@@ -347,3 +347,12 @@ Stage 6 was deliberately restructured after live-provider work began coupling ap
 - Item search/catalog/detail and tree lists link through stable IDs without changing create/edit behavior.
 - At the 1000-item / 200-location fixture, browser reads remain bounded; tree detail selects direct Item columns without materializing Item entities.
 - Final Stage 22 verification passed 263 tests, all 42 deterministic scenarios, migration/corpus/provider-contract checks, and installed-wheel coverage.
+
+### Stage 23 — assigned
+
+Expose the existing immutable Item event history as a bounded browser audit timeline:
+
+1. Add a newest-first paged global Activity view and stable Event detail view.
+2. Support deterministic filters by event type and Item while preserving clear/reset navigation.
+3. Link Activity records to surviving Item and Location entities through stable IDs and render missing optional references safely.
+4. Keep event/history storage, mutation semantics, provider behavior, and schema unchanged; this stage is read-only.

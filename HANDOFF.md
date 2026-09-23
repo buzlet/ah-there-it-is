@@ -141,6 +141,17 @@
 - Stable-ID links connect search results, Item pages, and tree pages.
 - Target-scale browser reads, installed-wheel assets, and 42 deterministic scenarios verified without changing schema, ranking, or mutation behavior.
 
+## Stage 23 objective
+
+Add a read-only browser audit/history surface over the existing immutable `Event` data:
+
+1. Provide newest-first bounded pagination for global Item activity.
+2. Filter by event type and stable Item ID without loading an unbounded history set.
+3. Add Event detail showing timestamp, type, Item, from/to Locations, payload and original text, with stable links where referenced entities still exist.
+4. Keep existing Item detail history semantics intact and cross-link it to the Event detail when useful.
+5. Handle nullable historical Item/location references defensively; do not invent replacement identities.
+6. No mutation, schema, event-generation, portable/recovery, provider, or prompt changes.
+
 ## Orchestrated implementation workflow
 
 Implementation-agent assignments and review records are archived under `agent-tasks/`. Assignment 0010 is the final assignment issued under protocol v3. After this process change is merged, future assignments use `agent-tasks/common/v4.md`.
