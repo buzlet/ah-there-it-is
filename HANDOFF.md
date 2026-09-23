@@ -6,7 +6,7 @@
 - Default branch: `main`
 - Always verify current `origin/main`, PR state, and CI before starting new work.
 - This handoff supersedes the pre-Stage-12 handoff that existed at commit `198061c9c88353a950cb90f2ec8fcd6cabd51edf`.
-- **Stages 0–21 are complete. Stage 22 is assigned on `feat/stage22-browser-discovery`.**
+- **Stages 0–22 are complete.**
 - `AGENTS.md` remains the authoritative architecture/development/stage plan.
 - Full SQLite backup/restore and portable inventory import are intentionally separate recovery products.
 
@@ -134,32 +134,12 @@
 - packaged templates/static assets and target-scale pagination non-regression;
 - complete protocol-v3 verification green: 254 tests, 42/42 scenarios, provider contract, migration checks, Python 3.12/3.13 CI.
 
-## Stage 22 objective
+## Stage 22 delivered
 
-Make deterministic browser discovery practical without using the LLM:
-
-1. Add bounded Item search to the browser by reusing existing `SearchService` ranking/FTS semantics.
-2. Preserve the existing paged catalog when the query is blank.
-3. Add read-only Location and Category detail navigation showing full path, parent/children and direct Items.
-4. Cross-link Items, Locations and Categories through stable IDs.
-5. Keep target-scale reads bounded and avoid introducing a second browser-specific search/ranking implementation.
-
-## Files to read first
-
-1. `HANDOFF.md`
-2. `AGENTS.md`
-3. `agent-tasks/common/v4.md`
-4. `agent-tasks/assignments/0011-stage22-browser-discovery.md`
-5. `src/ah_there_it_is/services/search.py`
-6. `src/ah_there_it_is/services/catalog.py`
-7. `src/ah_there_it_is/web/routes.py`
-8. `src/ah_there_it_is/web/templates/items.html`
-9. `src/ah_there_it_is/web/templates/item_detail.html`
-10. `src/ah_there_it_is/web/templates/locations.html`
-11. `src/ah_there_it_is/web/templates/categories.html`
-12. `tests/test_app.py`
-13. `tests/test_search.py`
-14. `tests/test_target_scale.py`
+- Bounded browser Item search through the existing deterministic SearchService, with blank-query catalog pagination preserved.
+- Read-only Location/Category detail navigation with full paths, parent/children, and paged direct Items.
+- Stable-ID links connect search results, Item pages, and tree pages.
+- Target-scale browser reads, installed-wheel assets, and 42 deterministic scenarios verified without changing schema, ranking, or mutation behavior.
 
 ## Orchestrated implementation workflow
 

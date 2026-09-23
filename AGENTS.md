@@ -340,11 +340,10 @@ Stage 6 was deliberately restructured after live-provider work began coupling ap
 - Installed-wheel coverage includes the new templates/static assets; target-scale item pagination remains unchanged.
 - Final Stage 21 verification passed 254 tests, all 42 deterministic scenarios, provider contract, migration checks, Python 3.12/3.13 CI, with no post-PR corrections.
 
-### Stage 22 — assigned
+### Stage 22 — complete
 
-Make the non-LLM browser useful for discovering inventory at the intended scale:
-
-1. Reuse `SearchService` for bounded deterministic Item search in the browser; blank search keeps the existing paged catalog.
-2. Add read-only Location/Category detail navigation with full path, parent/children, and direct items.
-3. Cross-link Item and tree projections so users can move between search results, Items, Locations, and Categories without chat.
-4. Keep existing search ranking semantics, stable IDs, direct-item semantics, target-scale bounded reads, and current mutation behavior unchanged.
+- The browser Item search delegates ranking and FTS to `SearchService.search_items()`, caps results at 100, and leaves blank queries on the existing paged catalog.
+- Read-only Location and Category detail pages show full paths, parent/child navigation, descriptions, and paged direct Items.
+- Item search/catalog/detail and tree lists link through stable IDs without changing create/edit behavior.
+- At the 1000-item / 200-location fixture, browser reads remain bounded; tree detail selects direct Item columns without materializing Item entities.
+- Final Stage 22 verification passed 263 tests, all 42 deterministic scenarios, migration/corpus/provider-contract checks, and installed-wheel coverage.
