@@ -331,13 +331,20 @@ Stage 6 was deliberately restructured after live-provider work began coupling ap
 - Deterministic tests cover normalized/tree/state/quantity/FTS corruption, WAL/read-only behavior, 1000-item scale, portable import, repeat repair, and installed-wheel CLI behavior.
 - Final Stage 20 verification passed 247 tests, all 42 deterministic scenarios, provider contract, migration checks, and Python 3.12/3.13 CI.
 
-### Stage 21 — next
+### Stage 21 — complete
 
-Complete deterministic manual web administration so inventory maintenance never depends on an LLM:
+- Added service-owned Category/Location rename, description and safe reparenting with stable IDs, duplicate-sibling rejection, and cycle prevention.
+- Added browser/API Item creation and full Item correction for aliases, tags, attributes, category, location, description, state, quantity, and name.
+- Added Category/Location create/edit browser flows with full-path parent choices.
+- Kept browser writes behind `InventoryService`, preserving normal Item history provenance, atomicity, duplicate prevention, and trigger-maintained FTS.
+- Installed-wheel coverage includes the new templates/static assets; target-scale item pagination remains unchanged.
+- Final Stage 21 verification passed 254 tests, all 42 deterministic scenarios, provider contract, migration checks, Python 3.12/3.13 CI, with no post-PR corrections.
 
-1. Add service-owned safe update operations for Category/Location rename, description, and reparenting with duplicate-sibling and cycle prevention.
-2. Add browser/API Item creation plus full Item correction for aliases, tags, attributes, category, location, description, state, quantity, and name.
-3. Add Category/Location create and edit pages using full-path parent choices while preserving stable IDs.
-4. Keep every HTTP mutation behind `InventoryService`, preserve existing Item event provenance/atomicity/FTS behavior, and expose no `allow_duplicate` shortcut.
-5. Add focused service/API/UI coverage including tree-cycle rejection, full manual Item search/history behavior, and Stage 19 pagination non-regression.
-6. Deliberately keep deletion, cascade policy, auth/public deployment, providers, and data/recovery contracts out of this stage.
+### Stage 22 — assigned
+
+Make the non-LLM browser useful for discovering inventory at the intended scale:
+
+1. Reuse `SearchService` for bounded deterministic Item search in the browser; blank search keeps the existing paged catalog.
+2. Add read-only Location/Category detail navigation with full path, parent/children, and direct items.
+3. Cross-link Item and tree projections so users can move between search results, Items, Locations, and Categories without chat.
+4. Keep existing search ranking semantics, stable IDs, direct-item semantics, target-scale bounded reads, and current mutation behavior unchanged.
