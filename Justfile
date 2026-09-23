@@ -66,3 +66,18 @@ model-probe suite="eval/model-probes-v1.json" output="model-probe.json":
 
 provider-contract:
     python -m pytest tests/test_provider.py tests/test_model_probe.py
+
+storage-test:
+    python -m pytest tests/test_storage.py
+
+db-backup destination="ah-there-it-is.backup.db":
+    python -m ah_there_it_is.storage_cli backup "{{destination}}"
+
+db-validate database:
+    python -m ah_there_it_is.storage_cli validate "{{database}}"
+
+db-restore candidate:
+    python -m ah_there_it_is.storage_cli restore "{{candidate}}"
+
+portable-export destination="inventory-export.json":
+    python -m ah_there_it_is.storage_cli export-json "{{destination}}"

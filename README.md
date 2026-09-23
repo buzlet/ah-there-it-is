@@ -199,9 +199,41 @@ Normal application CI receives no provider secrets. Provider secrets/variables r
 
 Native Gemini and OpenAI-compatible adapters remain replaceable implementations behind the same `LLMClient` boundary. Provider-specific protocol work belongs in adapter/contract tests, not in inventory scenarios.
 
+## Local backup, restore, and portable export
+
+Stage 11 storage operations are application-only and require no LLM/provider access.
+
+The active SQLite database may use WAL mode. **Do not copy the live `.db` file as a backup.** A committed transaction can still live in the WAL sidecar. Use the SQLite backup API through the canonical commands:
+
+```bash
+just db-backup ah-there-it-is.backup.db
+just db-validate ah-there-it-is.backup.db
+```
+
+`db-backup` reads a transactionally consistent SQLite snapshot, including committed WAL content, writes it to a same-directory temporary file, independently runs SQLite integrity and foreign-key checks plus the exact Alembic-head check, then atomically publishes the validated backup. Existing destinations are not overwritten unless the CLI is invoked explicitly with `--overwrite`.
+
+Restore is deliberately stricter:
+
+```bash
+# Stop the application first.
+just db-restore ah-there-it-is.backup.db
+```
+
+Before replacing anything, restore validates the candidate and creates a separate pre-restore safety backup of the current database. It checkpoints the active WAL, stages and validates the replacement, and uses an atomic same-directory `os.replace`. If final validation unexpectedly fails, the code attempts to restore the safety copy. **The application must be stopped before restore**: SQLite cannot reliably prove that another process still has a read-only connection to the old inode, so replacing a database underneath a running process would be unsafe even when WAL checkpointing succeeds.
+
+Every validation reports the concrete file SHA-256, but SHA equality is not used as a logical-database comparison. SQLite's backup API may produce a different physical page layout for equivalent database contents.
+
+For an implementation-independent inventory archive:
+
+```bash
+just portable-export inventory-export.json
+```
+
+The versioned `inventory-portable-v1` JSON contains category/location trees, items, aliases, tags, structured attributes, current locations, and domain history events with stable IDs/timestamps. It intentionally excludes agent run logs, feedback, experiment/model traces, and provider metadata. This JSON is the portable **inventory/history** representation; a SQLite backup remains the full-fidelity disaster-recovery snapshot for conversations, chat idempotency/recovery audit state, evaluations, and all other application tables.
+
 ## Current scope
 
-Stages 0–10 are complete. The application regression pipeline covers the full 40-case corpus with independent persisted-state/event postconditions, agent turns are transactionally atomic, and chat submissions are retry-safe through persisted idempotency keys plus explicit audited recovery. Provider/model compatibility remains a separate contract pipeline. Stage 11 focuses on local backup/restore, integrity verification, and portable export so the local-first database is operationally durable. Real-provider probes remain optional adapter verification.
+Stages 0–11 are complete. The application regression pipeline covers the full 40-case corpus with independent persisted-state/event postconditions, agent turns are transactionally atomic, chat submissions are retry-safe through persisted idempotency keys plus explicit audited recovery, and the local SQLite store now has validated WAL-safe backup/restore plus a versioned portable inventory/history export. Provider/model compatibility remains a separate contract pipeline. Stage 12 focuses on strict portable import/reconstruction into a new database. Real-provider probes remain optional adapter verification.
 
 Voice, Telegram, images, QR, MCP, PWA, embeddings, and multi-user support remain out of scope until the text workflow is stable.
 
