@@ -196,11 +196,16 @@ def backup_database(
         with closing(_readonly_connection(source)) as source_connection:
             destination_connection = sqlite3.connect(str(temp_path), timeout=5.0)
             try:
-                source_connection.backup(
-                    destination_connection,
-                    pages=256,
-                    sleep=0.05,
-                )
+                try:
+                    source_connection.backup(
+                        destination_connection,
+                        pages=256,
+                        sleep=0.05,
+                    )
+                except sqlite3.DatabaseError as exc:
+                    raise BackupValidationError(
+                        f"cannot create consistent backup from {source}: {exc}"
+                    ) from exc
             finally:
                 destination_connection.close()
 
