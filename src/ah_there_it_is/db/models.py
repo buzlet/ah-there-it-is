@@ -295,6 +295,12 @@ class ChatRequestRecord(Base):
         index=True,
     )
     error: Mapped[str | None] = mapped_column(Text, nullable=True)
+    recovered_from_id: Mapped[int | None] = mapped_column(
+        ForeignKey("chat_requests.id", ondelete="SET NULL"),
+        nullable=True,
+        index=True,
+    )
+    recovery_note: Mapped[str | None] = mapped_column(Text, nullable=True)
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), default=utc_now, nullable=False
     )
@@ -302,7 +308,9 @@ class ChatRequestRecord(Base):
         DateTime(timezone=True), default=utc_now, onupdate=utc_now, nullable=False
     )
 
-    run: Mapped[AgentRunLog | None] = relationship()
+    run: Mapped[AgentRunLog | None] = relationship(
+        foreign_keys=[agent_run_id]
+    )
 
 
 class AgentFeedback(Base):

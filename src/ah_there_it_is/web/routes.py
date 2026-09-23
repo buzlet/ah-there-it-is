@@ -13,10 +13,12 @@ from ah_there_it_is.agent.runner import AgentRunner
 from ah_there_it_is.domain.exceptions import EntityNotFoundError, InventoryError
 from ah_there_it_is.services.catalog import CatalogService
 from ah_there_it_is.services.chat_requests import (
+    ChatRequestNotFoundError,
     ChatRequestService,
     IdempotencyConflictError,
     IdempotencyInProgressError,
     IdempotencyPreviousFailureError,
+    IdempotencyRecoveryNotAllowedError,
 )
 from ah_there_it_is.services.conversations import ConversationService
 from ah_there_it_is.services.evaluation import EvaluationService
@@ -25,6 +27,9 @@ from ah_there_it_is.services.experiments import ExperimentService
 from ah_there_it_is.web.dependencies import get_session
 from ah_there_it_is.web.schemas import (
     ChatRequest,
+    ChatRequestRecordResponse,
+    ChatRequestRecoveryRequest,
+    ChatRequestRecoveryResponse,
     ChatResponse,
     ConversationMessageResponse,
     ConversationResponse,
@@ -95,6 +100,143 @@ def build_router(templates: Jinja2Templates) -> APIRouter:
 
         result = execution.result
         return ChatResponse(
+            conversation_id=result.conversation_id,
+            run_id=result.run_id,
+            content=result.content,
+            rounds=result.rounds,
+            replayed=execution.replayed,
+        )
+
+    def chat_request_response(
+        record,
+        session: Session,
+    ) -> ChatRequestRecordResponse:
+        recovered_from = (
+            session.get(type(record), record.recovered_from_id)
+            if record.recovered_from_id is not None
+            else None
+        )
+        return ChatRequestRecordResponse(
+            id=record.id,
+            request_key=record.request_key,
+            requested_conversation_id=record.requested_conversation_id,
+            message=record.message,
+            status=record.status,
+            agent_run_id=record.agent_run_id,
+            error=record.error,
+            recovered_from_id=record.recovered_from_id,
+            recovered_from_request_key=(
+                recovered_from.request_key if recovered_from is not None else None
+            ),
+            recovery_note=record.recovery_note,
+            created_at=record.created_at,
+            updated_at=record.updated_at,
+        )
+
+    @router.get(
+        "/api/chat-requests",
+        response_model=list[ChatRequestRecordResponse],
+    )
+    def chat_requests_api(
+        limit: int = 100,
+        session: Session = Depends(get_session),
+    ) -> list[ChatRequestRecordResponse]:
+        if limit < 1 or limit > 500:
+            raise HTTPException(status_code=400, detail="limit must be between 1 and 500")
+        service = ChatRequestService(session)
+        return [
+            chat_request_response(record, session)
+            for record in service.recent(limit=limit)
+        ]
+
+    @router.get(
+        "/api/chat-requests/{request_key}",
+        response_model=ChatRequestRecordResponse,
+    )
+    def chat_request_api(
+        request_key: str,
+        session: Session = Depends(get_session),
+    ) -> ChatRequestRecordResponse:
+        record = ChatRequestService(session).get(request_key)
+        if record is None:
+            raise HTTPException(status_code=404, detail="chat request not found")
+        return chat_request_response(record, session)
+
+    @router.get("/chat-requests", response_class=HTMLResponse)
+    def chat_requests_page(
+        request: Request,
+        session: Session = Depends(get_session),
+    ) -> HTMLResponse:
+        service = ChatRequestService(session)
+        records = [
+            chat_request_response(record, session).model_dump()
+            for record in service.recent(limit=200)
+        ]
+        return templates.TemplateResponse(
+            request=request,
+            name="chat_requests.html",
+            context={
+                "app_name": request.app.state.settings.app_name,
+                "records": records,
+            },
+        )
+
+    @router.post(
+        "/api/chat-requests/{source_request_key}/recover",
+        response_model=ChatRequestRecoveryResponse,
+    )
+    def recover_chat_request(
+        source_request_key: str,
+        payload: ChatRequestRecoveryRequest,
+        request: Request,
+        session: Session = Depends(get_session),
+    ) -> ChatRequestRecoveryResponse:
+        service = ChatRequestService(session)
+        source = service.get(source_request_key)
+        if source is None:
+            raise HTTPException(status_code=404, detail="chat request not found")
+        settings = request.app.state.settings
+
+        def execute_agent():
+            llm = request.app.state.llm_factory()
+            try:
+                return AgentRunner(
+                    session,
+                    llm,
+                    max_rounds=settings.agent_max_rounds,
+                    system_prompt=request.app.state.system_prompt,
+                    prompt_version=settings.prompt_version,
+                ).run(
+                    source.message,
+                    conversation_id=source.requested_conversation_id,
+                )
+            finally:
+                close = getattr(llm, "close", None)
+                if callable(close):
+                    close()
+
+        try:
+            execution = service.recover(
+                source_request_key=source_request_key,
+                new_request_key=payload.new_request_key,
+                recovery_note=payload.note,
+                operation=execute_agent,
+            )
+        except ChatRequestNotFoundError as exc:
+            raise HTTPException(status_code=404, detail=str(exc)) from exc
+        except IdempotencyInProgressError as exc:
+            raise HTTPException(status_code=425, detail=str(exc)) from exc
+        except (
+            IdempotencyConflictError,
+            IdempotencyPreviousFailureError,
+            IdempotencyRecoveryNotAllowedError,
+        ) as exc:
+            raise HTTPException(status_code=409, detail=str(exc)) from exc
+
+        result = execution.result
+        return ChatRequestRecoveryResponse(
+            source_request_key=source_request_key,
+            new_request_key=payload.new_request_key,
             conversation_id=result.conversation_id,
             run_id=result.run_id,
             content=result.content,

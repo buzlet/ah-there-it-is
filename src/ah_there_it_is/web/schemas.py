@@ -2,7 +2,8 @@
 
 from __future__ import annotations
 
-from typing import Any
+from datetime import datetime
+from typing import Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field
 
@@ -26,6 +27,41 @@ class ChatResponse(BaseModel):
     content: str
     rounds: int
     replayed: bool = False
+
+
+class ChatRequestRecordResponse(BaseModel):
+    id: int
+    request_key: str
+    requested_conversation_id: int | None
+    message: str
+    status: str
+    agent_run_id: int | None
+    error: str | None
+    recovered_from_id: int | None
+    recovered_from_request_key: str | None
+    recovery_note: str | None
+    created_at: datetime
+    updated_at: datetime
+
+
+class ChatRequestRecoveryRequest(BaseModel):
+    new_request_key: str = Field(
+        min_length=8,
+        max_length=128,
+        pattern=r"^[A-Za-z0-9._:-]+$",
+    )
+    note: str = Field(min_length=3, max_length=2_000)
+    acknowledge_duplicate_risk: Literal[True]
+
+
+class ChatRequestRecoveryResponse(BaseModel):
+    source_request_key: str
+    new_request_key: str
+    conversation_id: int
+    run_id: int
+    content: str
+    rounds: int
+    replayed: bool
 
 
 class FeedbackRequest(BaseModel):

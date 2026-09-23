@@ -37,6 +37,17 @@ def test_initial_migration_round_trip(tmp_path: Path) -> None:
             "experiment_reviews",
             "chat_requests",
         } <= tables
+        inspector = inspect(engine)
+        chat_columns = {column["name"] for column in inspector.get_columns("chat_requests")}
+        assert {"recovered_from_id", "recovery_note"} <= chat_columns
+        chat_indexes = {index["name"] for index in inspector.get_indexes("chat_requests")}
+        assert "ix_chat_requests_recovered_from_id" in chat_indexes
+        chat_foreign_keys = inspector.get_foreign_keys("chat_requests")
+        assert any(
+            foreign_key["referred_table"] == "chat_requests"
+            and foreign_key["constrained_columns"] == ["recovered_from_id"]
+            for foreign_key in chat_foreign_keys
+        )
         with engine.connect() as connection:
             assert connection.scalar(text("PRAGMA foreign_keys")) == 1
             assert connection.scalar(

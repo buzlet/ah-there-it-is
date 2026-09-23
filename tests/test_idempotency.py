@@ -1,5 +1,8 @@
 from __future__ import annotations
 
+import threading
+import time
+
 import pytest
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
@@ -11,7 +14,9 @@ from ah_there_it_is.services.chat_requests import (
     ChatRequestService,
     IdempotencyConflictError,
     IdempotencyInProgressError,
+    ChatRequestNotFoundError,
     IdempotencyPreviousFailureError,
+    IdempotencyRecoveryNotAllowedError,
 )
 from ah_there_it_is.services.inventory import InventoryService
 
@@ -278,3 +283,208 @@ def test_failed_key_never_restarts_implicitly(session: Session) -> None:
                 AssertionError("failed request must not restart")
             ),
         )
+
+
+def test_failed_request_can_be_recovered_as_new_audited_attempt(session: Session) -> None:
+    service = ChatRequestService(session)
+    with pytest.raises(RuntimeError, match="boom"):
+        service.execute(
+            request_key="failed-source-0001",
+            message="Where is CH341A?",
+            conversation_id=None,
+            operation=lambda: (_ for _ in ()).throw(RuntimeError("boom")),
+        )
+
+    recovered = service.recover(
+        source_request_key="failed-source-0001",
+        new_request_key="recovery-attempt-0001",
+        recovery_note="Operator verified the failed turn rolled back.",
+        operation=lambda: AgentRunner(
+            session,
+            ScriptedLLMClient([LLMResponse(content="Recovered answer")]),
+        ).run("Where is CH341A?"),
+    )
+
+    source = service.get("failed-source-0001")
+    attempt = service.get("recovery-attempt-0001")
+    assert recovered.replayed is False
+    assert source is not None and source.status == "failed"
+    assert attempt is not None and attempt.status == "completed"
+    assert attempt.recovered_from_id == source.id
+    assert attempt.recovery_note == "Operator verified the failed turn rolled back."
+    assert attempt.request_key != source.request_key
+
+
+def test_recovery_retry_replays_same_new_attempt_without_second_operation(
+    session: Session,
+) -> None:
+    service = ChatRequestService(session)
+    session.add(
+        ChatRequestRecord(
+            request_key="processing-source-0001",
+            requested_conversation_id=None,
+            message="same",
+            status="processing",
+        )
+    )
+    session.commit()
+
+    first = service.recover(
+        source_request_key="processing-source-0001",
+        new_request_key="manual-recovery-0001",
+        recovery_note="Operator accepts duplicate-risk after inspection.",
+        operation=lambda: AgentRunner(
+            session,
+            ScriptedLLMClient([LLMResponse(content="Recovered")]),
+        ).run("same"),
+    )
+    second = service.recover(
+        source_request_key="processing-source-0001",
+        new_request_key="manual-recovery-0001",
+        recovery_note="Operator accepts duplicate-risk after inspection.",
+        operation=lambda: (_ for _ in ()).throw(
+            AssertionError("recovery replay must not execute twice")
+        ),
+    )
+
+    assert second.replayed is True
+    assert second.result == first.result
+
+
+def test_completed_request_cannot_be_recovered(session: Session) -> None:
+    service = ChatRequestService(session)
+    service.execute(
+        request_key="completed-source-0001",
+        message="done",
+        conversation_id=None,
+        operation=lambda: AgentRunner(
+            session,
+            ScriptedLLMClient([LLMResponse(content="Done")]),
+        ).run("done"),
+    )
+
+    with pytest.raises(IdempotencyRecoveryNotAllowedError, match="must be replayed"):
+        service.recover(
+            source_request_key="completed-source-0001",
+            new_request_key="should-not-run-0001",
+            recovery_note="Not needed.",
+            operation=lambda: (_ for _ in ()).throw(
+                AssertionError("completed source must not recover")
+            ),
+        )
+
+
+def test_recovery_requires_existing_source_and_audit_note(session: Session) -> None:
+    service = ChatRequestService(session)
+    with pytest.raises(ChatRequestNotFoundError):
+        service.recover(
+            source_request_key="missing-source-0001",
+            new_request_key="recovery-0002",
+            recovery_note="operator note",
+            operation=lambda: (_ for _ in ()).throw(AssertionError()),
+        )
+
+    session.add(
+        ChatRequestRecord(
+            request_key="failed-source-0002",
+            requested_conversation_id=None,
+            message="same",
+            status="failed",
+            error="boom",
+        )
+    )
+    session.commit()
+
+    with pytest.raises(IdempotencyRecoveryNotAllowedError, match="recovery note"):
+        service.recover(
+            source_request_key="failed-source-0002",
+            new_request_key="recovery-0003",
+            recovery_note="   ",
+            operation=lambda: (_ for _ in ()).throw(AssertionError()),
+        )
+
+
+def test_recent_requests_orders_latest_update_first(session: Session) -> None:
+    service = ChatRequestService(session)
+    first = ChatRequestRecord(
+        request_key="recent-0001",
+        requested_conversation_id=None,
+        message="one",
+        status="processing",
+    )
+    second = ChatRequestRecord(
+        request_key="recent-0002",
+        requested_conversation_id=None,
+        message="two",
+        status="failed",
+        error="x",
+    )
+    session.add_all([first, second])
+    session.commit()
+
+    rows = service.recent(limit=2)
+    assert [row.request_key for row in rows] == ["recent-0002", "recent-0001"]
+
+
+def test_concurrent_same_key_allows_exactly_one_operation(tmp_path) -> None:
+    from ah_there_it_is.db.models import AgentRunLog, Base
+    from ah_there_it_is.db.search_schema import install_fts_schema
+    from ah_there_it_is.db.session import create_db_engine, create_session_factory
+
+    database = tmp_path / "concurrent-idempotency.db"
+    engine = create_db_engine(f"sqlite:///{database}")
+    Base.metadata.create_all(engine)
+    with engine.begin() as connection:
+        install_fts_schema(connection)
+    factory = create_session_factory(engine)
+
+    barrier = threading.Barrier(2)
+    operation_calls = 0
+    operation_lock = threading.Lock()
+    outcomes: list[str] = []
+
+    def worker() -> None:
+        nonlocal operation_calls
+        with factory() as worker_session:
+            barrier.wait()
+
+            def operation():
+                nonlocal operation_calls
+                with operation_lock:
+                    operation_calls += 1
+                time.sleep(0.15)
+                return AgentRunner(
+                    worker_session,
+                    ScriptedLLMClient([LLMResponse(content="once")]),
+                ).run("same")
+
+            try:
+                ChatRequestService(worker_session).execute(
+                    request_key="concurrent-key-0001",
+                    message="same",
+                    conversation_id=None,
+                    operation=operation,
+                )
+                outcomes.append("completed")
+            except IdempotencyInProgressError:
+                outcomes.append("processing")
+
+    threads = [threading.Thread(target=worker) for _ in range(2)]
+    try:
+        for thread in threads:
+            thread.start()
+        for thread in threads:
+            thread.join(timeout=5)
+
+        assert all(not thread.is_alive() for thread in threads)
+        assert sorted(outcomes) == ["completed", "processing"]
+        assert operation_calls == 1
+
+        with factory() as check_session:
+            records = list(check_session.scalars(select(ChatRequestRecord)))
+            runs = list(check_session.scalars(select(AgentRunLog)))
+            assert len(records) == 1
+            assert records[0].status == "completed"
+            assert len(runs) == 1
+    finally:
+        engine.dispose()
