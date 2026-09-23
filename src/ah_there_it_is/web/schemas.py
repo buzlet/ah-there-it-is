@@ -3,9 +3,9 @@
 from __future__ import annotations
 
 from datetime import datetime
-from typing import Any, Literal
+from typing import Annotated, Any, Literal
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
 from ah_there_it_is.domain.states import ItemState
 
@@ -75,6 +75,38 @@ class FeedbackResponse(BaseModel):
     comment: str | None
 
 
+AliasName = Annotated[str, Field(min_length=1, max_length=300)]
+TagName = Annotated[str, Field(min_length=1, max_length=100)]
+
+
+class ItemCreateRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    name: str = Field(min_length=1, max_length=300)
+    description: str | None = Field(default=None, max_length=20_000)
+    state: ItemState = ItemState.UNKNOWN
+    quantity: int = Field(default=1, ge=1)
+    category_id: int | None = Field(default=None, gt=0)
+    location_id: int | None = Field(default=None, gt=0)
+    attributes: dict[str, Any] = Field(default_factory=dict)
+    aliases: list[AliasName] = Field(default_factory=list)
+    tags: list[TagName] = Field(default_factory=list)
+
+    @field_validator("name")
+    @classmethod
+    def nonblank_name(cls, value: str) -> str:
+        if not value.strip():
+            raise ValueError("name must not be blank")
+        return value
+
+    @field_validator("aliases", "tags")
+    @classmethod
+    def nonblank_entries(cls, values: list[str]) -> list[str]:
+        if any(not value.strip() for value in values):
+            raise ValueError("aliases and tags must not contain blank entries")
+        return values
+
+
 class ItemEditRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
@@ -82,8 +114,60 @@ class ItemEditRequest(BaseModel):
     description: str | None = Field(default=None, max_length=20_000)
     state: ItemState | None = None
     quantity: int | None = Field(default=None, ge=1)
-    category_id: int | None = None
-    location_id: int | None = None
+    category_id: int | None = Field(default=None, gt=0)
+    location_id: int | None = Field(default=None, gt=0)
+    attributes: dict[str, Any] | None = None
+    aliases: list[AliasName] | None = None
+    tags: list[TagName] | None = None
+
+    @model_validator(mode="after")
+    def require_nonnull_fields(self) -> "ItemEditRequest":
+        for key in ("name", "state", "quantity", "attributes", "aliases", "tags"):
+            if key in self.model_fields_set and getattr(self, key) is None:
+                raise ValueError(f"{key} cannot be null")
+        if self.name is not None and not self.name.strip():
+            raise ValueError("name must not be blank")
+        for values in (self.aliases, self.tags):
+            if values is not None and any(not value.strip() for value in values):
+                raise ValueError("aliases and tags must not contain blank entries")
+        return self
+
+
+class TreeCreateRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    name: str = Field(min_length=1, max_length=200)
+    description: str | None = Field(default=None, max_length=20_000)
+    parent_id: int | None = Field(default=None, gt=0)
+
+    @field_validator("name")
+    @classmethod
+    def nonblank_name(cls, value: str) -> str:
+        if not value.strip():
+            raise ValueError("name must not be blank")
+        return value
+
+
+class TreeEditRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    name: str | None = Field(default=None, min_length=1, max_length=200)
+    description: str | None = Field(default=None, max_length=20_000)
+    parent_id: int | None = Field(default=None, gt=0)
+
+    @model_validator(mode="after")
+    def require_name_when_provided(self) -> "TreeEditRequest":
+        if "name" in self.model_fields_set and (self.name is None or not self.name.strip()):
+            raise ValueError("name must not be blank")
+        return self
+
+
+class TreeResponse(BaseModel):
+    id: int
+    name: str
+    description: str | None
+    parent_id: int | None
+    path: str
 
 
 class ItemResponse(BaseModel):

@@ -1,11 +1,23 @@
+<!-- categories.html -->
 {% extends "base.html" %}
 {% block title %}Categories · {{ app_name }}{% endblock %}
 {% block content %}
 <h1>Categories</h1>
+<section class="card">
+  <h2>Add category</h2>
+  <form data-tree-form data-kind="categories">
+    <label>Name<input name="name" required maxlength="200"></label>
+    <label>Description<textarea name="description" rows="3" maxlength="20000"></textarea></label>
+    <label>Parent<select name="parent_id"><option value="">— root —</option>{% for category in categories %}<option value="{{ category.id }}">{{ category.path }}</option>{% endfor %}</select></label>
+    <button type="submit">Create category</button>
+    <span data-tree-status role="status" class="muted"></span>
+  </form>
+</section>
 {% if categories %}
 <div class="table-wrap"><table>
-  <thead><tr><th>Path</th><th>Items</th><th>Description</th></tr></thead>
-  <tbody>{% for category in categories %}<tr><td>{{ category.path }}</td><td>{{ category.item_count }}</td><td>{{ category.description or "—" }}</td></tr>{% endfor %}</tbody>
+  <thead><tr><th>Path</th><th>Items</th><th>Description</th><th>Action</th></tr></thead>
+  <tbody>{% for category in categories %}<tr><td>{{ category.path }}</td><td>{{ category.item_count }}</td><td>{{ category.description or "—" }}</td><td><a href="/categories/{{ category.id }}/edit">Edit</a></td></tr>{% endfor %}</tbody>
 </table></div>
 {% else %}<p class="muted">No categories yet.</p>{% endif %}
 {% endblock %}
+{% block scripts %}<script src="/static/tree.js" defer></script>{% endblock %}

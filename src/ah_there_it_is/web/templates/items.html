@@ -1,7 +1,7 @@
 {% extends "base.html" %}
 {% block title %}Items · {{ app_name }}{% endblock %}
 {% block content %}
-<h1>Items</h1>
+<div class="section-head"><h1>Items</h1><a href="/items/new">Add item</a></div>
 {% if item_page %}
 <p class="muted">
   Total: {{ item_page.total }} · Page {{ item_page.page }}{% if item_page.pages %} of {{ item_page.pages }}{% endif %}
