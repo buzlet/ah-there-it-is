@@ -21,6 +21,7 @@ def main() -> None:
 
     backup = subparsers.add_parser("backup")
     backup.add_argument("destination")
+    backup.add_argument("--overwrite", action="store_true")
 
     validate = subparsers.add_parser("validate")
     validate.add_argument("database")
@@ -38,7 +39,11 @@ def main() -> None:
     database_url = get_settings().database_url
 
     if args.command == "backup":
-        result = backup_database(database_url, args.destination).as_dict()
+        result = backup_database(
+            database_url,
+            args.destination,
+            overwrite=args.overwrite,
+        ).as_dict()
     elif args.command == "validate":
         result = validate_database_file(args.database).as_dict()
     elif args.command == "restore":
