@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import argparse
+import json
 from dataclasses import asdict, dataclass
 from pathlib import Path
 import sqlite3
@@ -11,7 +12,8 @@ from typing import Sequence
 
 import uvicorn
 
-from ah_there_it_is.config import get_settings
+from ah_there_it_is.config import database_url_override, get_settings
+from ah_there_it_is.data_paths import resolve_data_dir
 from ah_there_it_is.db.migrations import migration_heads
 from ah_there_it_is.storage import StorageError, sqlite_path_from_url
 
@@ -99,6 +101,8 @@ def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(prog="ah-there-it-is", description=__doc__)
     subparsers = parser.add_subparsers(dest="command", required=True)
 
+    subparsers.add_parser("paths", help="show resolved local data paths")
+
     serve = subparsers.add_parser("serve", help="start the local web application")
     serve.add_argument("--host", type=_host, default="127.0.0.1")
     serve.add_argument("--port", type=_port, default=8000)
@@ -122,10 +126,34 @@ def _port(value: str) -> int:
     return port
 
 
+def runtime_paths(database_url: str) -> dict[str, object]:
+    explicit = database_url_override() is not None
+    database: dict[str, object] = {
+        "source": "explicit" if explicit else "default",
+        "path": None,
+    }
+    try:
+        database["path"] = str(sqlite_path_from_url(database_url))
+    except StorageError:
+        if not explicit:
+            raise RuntimeSchemaError(
+                "default database configuration is not a file-backed SQLite URL"
+            )
+    return {
+        "data_dir": str(resolve_data_dir()),
+        "database": database,
+    }
+
+
 def main(argv: Sequence[str] | None = None) -> int:
     args = build_parser().parse_args(argv)
+    settings = get_settings()
+
+    if args.command == "paths":
+        print(json.dumps(runtime_paths(settings.database_url), sort_keys=True))
+        return 0
+
     if args.command == "serve":
-        settings = get_settings()
         try:
             runtime_schema_gate(settings.database_url)
         except RuntimeSchemaError as exc:
