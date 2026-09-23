@@ -233,7 +233,7 @@ The versioned `inventory-portable-v1` JSON contains category/location trees, ite
 
 ## Current scope
 
-Stages 0–10 are complete. The application regression pipeline covers the full 40-case corpus with independent persisted-state/event postconditions, agent turns are transactionally atomic, and chat submissions are retry-safe through persisted idempotency keys plus explicit audited recovery. Provider/model compatibility remains a separate contract pipeline. Stage 11 focuses on local backup/restore, integrity verification, and portable export so the local-first database is operationally durable. Real-provider probes remain optional adapter verification.
+Stages 0–11 are complete. The application regression pipeline covers the full 40-case corpus with independent persisted-state/event postconditions, agent turns are transactionally atomic, chat submissions are retry-safe through persisted idempotency keys plus explicit audited recovery, and the local SQLite store now has validated WAL-safe backup/restore plus a versioned portable inventory/history export. Provider/model compatibility remains a separate contract pipeline. Stage 12 focuses on strict portable import/reconstruction into a new database. Real-provider probes remain optional adapter verification.
 
 Voice, Telegram, images, QR, MCP, PWA, embeddings, and multi-user support remain out of scope until the text workflow is stable.
 
