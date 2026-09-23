@@ -30,6 +30,7 @@ from ah_there_it_is.db.session import create_db_engine, create_session_factory
 
 
 PORTABLE_EXPORT_VERSION = "inventory-portable-v1"
+CURRENT_SCHEMA_REVISION = "a31d7f4e9c20"
 
 
 class StorageError(RuntimeError):
@@ -90,13 +91,12 @@ def sqlite_path_from_url(database_url: str) -> Path:
 def validate_database(
     path: str | Path,
     *,
-    expected_revision: str | None = None,
-    alembic_ini: str | Path = "alembic.ini",
+    expected_revision: str = CURRENT_SCHEMA_REVISION,
 ) -> DatabaseValidation:
     database = Path(path).expanduser().resolve()
     if not database.is_file():
         raise DatabaseValidationError(f"database file does not exist: {database}")
-    revision = expected_revision or expected_alembic_head(alembic_ini)
+    revision = expected_revision
 
     try:
         connection = sqlite3.connect(_readonly_uri(database), uri=True)
@@ -153,7 +153,6 @@ def create_backup(
     destination: str | Path,
     *,
     overwrite: bool = False,
-    alembic_ini: str | Path = "alembic.ini",
 ) -> DatabaseValidation:
     source = sqlite_path_from_url(database_url)
     if not source.is_file():
@@ -169,10 +168,7 @@ def create_backup(
     temporary = _temporary_sibling(target, "backup")
     try:
         _copy_sqlite_snapshot(source, temporary)
-        validation = validate_database(
-            temporary,
-            alembic_ini=alembic_ini,
-        )
+        validation = validate_database(temporary)
         if target.exists() and not overwrite:
             raise StorageError(f"backup destination already exists: {target}")
         os.replace(temporary, target)
@@ -195,7 +191,6 @@ def restore_backup(
     candidate: str | Path,
     *,
     safety_backup: str | Path | None = None,
-    alembic_ini: str | Path = "alembic.ini",
 ) -> RestoreResult:
     target = sqlite_path_from_url(database_url)
     source = Path(candidate).expanduser().resolve()
@@ -204,7 +199,7 @@ def restore_backup(
     if source == target:
         raise StorageError("restore candidate must differ from the active database")
 
-    candidate_validation = validate_database(source, alembic_ini=alembic_ini)
+    candidate_validation = validate_database(source)
     safety = (
         Path(safety_backup).expanduser().resolve()
         if safety_backup is not None
@@ -214,25 +209,24 @@ def restore_backup(
         database_url,
         safety,
         overwrite=False,
-        alembic_ini=alembic_ini,
     )
 
     replacement = _temporary_sibling(target, "restore")
     try:
         _copy_sqlite_snapshot(source, replacement)
-        validate_database(replacement, alembic_ini=alembic_ini)
+        validate_database(replacement)
         _checkpoint_for_restore(target)
         _unlink_sidecars(target)
         os.replace(replacement, target)
         _fsync_path(target)
         _fsync_directory(target.parent)
         try:
-            restored = validate_database(target, alembic_ini=alembic_ini)
+            restored = validate_database(target)
         except Exception:
             rollback = _temporary_sibling(target, "rollback")
             try:
                 _copy_sqlite_snapshot(safety, rollback)
-                validate_database(rollback, alembic_ini=alembic_ini)
+                validate_database(rollback)
                 _unlink_sidecars(target)
                 os.replace(rollback, target)
                 _fsync_path(target)
@@ -253,11 +247,9 @@ def restore_backup(
 def export_portable_inventory(
     database_url: str,
     destination: str | Path,
-    *,
-    alembic_ini: str | Path = "alembic.ini",
 ) -> dict[str, Any]:
     database = sqlite_path_from_url(database_url)
-    validation = validate_database(database, alembic_ini=alembic_ini)
+    validation = validate_database(database)
     engine = create_db_engine(database_url)
     factory = create_session_factory(engine)
     try:
