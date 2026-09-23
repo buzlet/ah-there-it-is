@@ -128,12 +128,14 @@ class CapturedEvidenceReplay:
                 state.resolved[entity_type].add(entity_id)
             return
 
-        if name == "list_location" and isinstance(payload, list):
-            state.seen["item"].update(
-                int(item["id"])
-                for item in payload
-                if isinstance(item, dict) and isinstance(item.get("id"), int)
-            )
+        if name == "list_location" and isinstance(payload, dict):
+            items = payload.get("items")
+            if isinstance(items, list):
+                state.seen["item"].update(
+                    int(item["id"])
+                    for item in items
+                    if isinstance(item, dict) and isinstance(item.get("id"), int)
+                )
 
         if name == "suggest_item_locations" and isinstance(payload, dict):
             suggestions = payload.get("suggestions")

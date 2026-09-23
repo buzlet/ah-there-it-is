@@ -382,3 +382,10 @@ Assignment 0012 proposed a read-only browser Activity timeline. External archite
 - Failed pre-commit work rolls back before separately marking the reservation failed. Uncertain final commits are reconciled from durable state in a fresh session: valid completion replays, uncommitted processing becomes an explicit failure, and inconsistent state is preserved for operator review.
 - Same-key concurrency, response loss, injected before/after-commit faults, conflict and explicit recovery behavior are covered without automatic retry or expiry. A local two-connection probe observed that SQLite blocks a second writer after the first flushed write.
 - Focused and canonical verification passed: 301 tests, 42/42 deterministic scenarios, migration/corpus/scenario/provider checks. Review record: `agent-tasks/reviews/0015-r1.md`.
+
+### Post-Stage-25 hardening — Assignment 0016 complete
+
+- Item Event history and direct Location Items now have bounded service pages (50 default, 100 maximum) with stable ordering and total/navigation metadata. Agent history/location tools return page objects; only the returned Location Item page expands seen capabilities.
+- Item-detail history uses the same bounded read boundary and provides previous/next history links without hydrating the full Event collection. Existing internal unbounded helpers remain outside request paths.
+- Structural tests with 1000 Events and 351 direct Items check page-only ORM materialization and bounded statement counts; browser navigation, tool schemas, replay capabilities and installed-wheel assets are covered.
+- Focused and canonical verification passed: 308 tests, 42/42 deterministic scenarios, migration/corpus/scenario/provider checks. Review: `agent-tasks/reviews/0016-r1.md`.

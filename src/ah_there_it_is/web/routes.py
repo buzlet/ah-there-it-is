@@ -408,13 +408,17 @@ def build_router(templates: Jinja2Templates) -> APIRouter:
     def item_detail(
         item_id: int,
         request: Request,
+        page: int = 1,
+        page_size: int = CatalogService.DEFAULT_PAGE_SIZE,
         session: Session = Depends(get_session),
     ) -> HTMLResponse:
         catalog = CatalogService(session)
         try:
-            item = catalog.item_detail(item_id)
+            item = catalog.item_detail(item_id, page=page, page_size=page_size)
         except EntityNotFoundError as exc:
             raise HTTPException(status_code=404, detail=str(exc)) from exc
+        except ValueError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
         return templates.TemplateResponse(
             request=request,
             name="item_detail.html",

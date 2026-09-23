@@ -3,15 +3,45 @@
 from __future__ import annotations
 
 from collections.abc import Mapping, Sequence
-from typing import Any
+from dataclasses import dataclass
+from math import ceil
+from typing import Any, Generic, TypeVar
 
-from sqlalchemy import select
-from sqlalchemy.orm import Session
+from sqlalchemy import func, select
+from sqlalchemy.orm import Session, selectinload
 
-from ah_there_it_is.db.models import Alias, Category, Event, Item, Location, Tag, utc_now
+from ah_there_it_is.db.models import Alias, Category, Event, Item, ItemTag, Location, Tag, utc_now
 from ah_there_it_is.domain.exceptions import DuplicateEntityError, EntityNotFoundError
 from ah_there_it_is.domain.names import normalize_name
 from ah_there_it_is.domain.states import ItemState
+
+
+_Row = TypeVar("_Row")
+
+
+@dataclass(frozen=True)
+class ReadPage(Generic[_Row]):
+    items: list[_Row]
+    total: int
+    page: int
+    page_size: int
+    pages: int
+    has_previous: bool
+    has_next: bool
+    previous_page: int | None
+    next_page: int | None
+
+    @classmethod
+    def create(cls, items: list[_Row], total: int, page: int, page_size: int) -> "ReadPage[_Row]":
+        has_previous = page > 1
+        has_next = page * page_size < total
+        return cls(
+            items=items, total=total, page=page, page_size=page_size,
+            pages=ceil(total / page_size) if total else 0,
+            has_previous=has_previous, has_next=has_next,
+            previous_page=page - 1 if has_previous else None,
+            next_page=page + 1 if has_next else None,
+        )
 
 
 class _Unset:
@@ -318,6 +348,52 @@ class InventoryService:
 
     def get_category(self, category_id: int) -> Category:
         return self._get_required(Category, category_id, "category")
+
+    DEFAULT_READ_PAGE_SIZE = 50
+    MAX_READ_PAGE_SIZE = 100
+
+    @classmethod
+    def _validate_read_page(cls, page: int, page_size: int) -> None:
+        if page < 1:
+            raise ValueError("page must be >= 1")
+        if page_size < 1 or page_size > cls.MAX_READ_PAGE_SIZE:
+            raise ValueError(f"page_size must be between 1 and {cls.MAX_READ_PAGE_SIZE}")
+
+    def get_item_history_page(
+        self, item_id: int, *, page: int = 1, page_size: int = DEFAULT_READ_PAGE_SIZE,
+    ) -> ReadPage[Event]:
+        self._validate_read_page(page, page_size)
+        self.get_item(item_id)
+        total = int(self.session.scalar(
+            select(func.count(Event.id)).where(Event.item_id == item_id)
+        ) or 0)
+        events = list(self.session.scalars(
+            select(Event).where(Event.item_id == item_id)
+            .order_by(Event.created_at.asc(), Event.id.asc())
+            .offset((page - 1) * page_size).limit(page_size)
+        ))
+        return ReadPage.create(events, total, page, page_size)
+
+    def list_location_page(
+        self, location_id: int, *, page: int = 1, page_size: int = DEFAULT_READ_PAGE_SIZE,
+    ) -> ReadPage[Item]:
+        self._validate_read_page(page, page_size)
+        self.get_location(location_id)
+        total = int(self.session.scalar(
+            select(func.count(Item.id)).where(Item.current_location_id == location_id)
+        ) or 0)
+        items = list(self.session.scalars(
+            select(Item).where(Item.current_location_id == location_id)
+            .options(
+                selectinload(Item.aliases),
+                selectinload(Item.tag_links).selectinload(ItemTag.tag),
+                selectinload(Item.category),
+                selectinload(Item.current_location),
+            )
+            .order_by(Item.id.asc())
+            .offset((page - 1) * page_size).limit(page_size)
+        ))
+        return ReadPage.create(items, total, page, page_size)
 
     def get_item_history(self, item_id: int) -> list[Event]:
         self.get_item(item_id)

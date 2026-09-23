@@ -398,17 +398,31 @@ class ToolDispatcher:
         self._require_seen("category", args.id)
         return self._category_dict(self.inventory.get_category(args.id))
 
-    def _list_location(self, raw: BaseModel) -> list[dict[str, Any]]:
+    def _list_location(self, raw: BaseModel) -> dict[str, Any]:
         args = self._cast(LocationIdInput, raw)
         self._require_seen("location", args.location_id)
-        items = self.inventory.list_location(args.location_id)
-        self._remember_seen("item", [item.id for item in items])
-        return [self._item_dict(item) for item in items]
+        result = self.inventory.list_location_page(
+            args.location_id, page=args.page, page_size=args.page_size,
+        )
+        self._remember_seen("item", [item.id for item in result.items])
+        return self._page_result(result, [self._item_dict(item) for item in result.items])
 
-    def _get_item_history(self, raw: BaseModel) -> list[dict[str, Any]]:
+    def _get_item_history(self, raw: BaseModel) -> dict[str, Any]:
         args = self._cast(ItemIdInput, raw)
         self._require_seen("item", args.item_id)
-        return [self._event_dict(event) for event in self.inventory.get_item_history(args.item_id)]
+        result = self.inventory.get_item_history_page(
+            args.item_id, page=args.page, page_size=args.page_size,
+        )
+        return self._page_result(result, [self._event_dict(event) for event in result.items])
+
+    @staticmethod
+    def _page_result(page: Any, items: list[dict[str, Any]]) -> dict[str, Any]:
+        return {
+            "items": items, "total": page.total, "page": page.page,
+            "page_size": page.page_size, "pages": page.pages,
+            "has_previous": page.has_previous, "has_next": page.has_next,
+            "previous_page": page.previous_page, "next_page": page.next_page,
+        }
 
     def _suggest_item_locations(self, raw: BaseModel) -> dict[str, Any]:
         args = self._cast(SuggestItemLocationsInput, raw)
