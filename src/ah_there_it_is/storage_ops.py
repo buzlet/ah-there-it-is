@@ -175,6 +175,7 @@ def backup_database(
     destination: str | Path,
     *,
     expected_revision: str | None = None,
+    overwrite: bool = False,
 ) -> DatabaseValidation:
     source = sqlite_database_path(database_url)
     if not source.is_file():
@@ -183,6 +184,11 @@ def backup_database(
     target = Path(destination).expanduser().resolve()
     if target == source:
         raise StorageOperationError("backup destination must differ from source database")
+    if target.exists() and not overwrite:
+        raise StorageOperationError(
+            f"backup destination already exists: {target}; "
+            "explicit overwrite is required"
+        )
     target.parent.mkdir(parents=True, exist_ok=True)
     temp_path = _temp_path_near(target)
 
@@ -248,6 +254,14 @@ def restore_database(
                 f"{target.suffix or '.db'}"
             )
         )
+        if rollback == source:
+            raise StorageOperationError(
+                "rollback backup path must differ from the restore candidate"
+            )
+        if rollback == target:
+            raise StorageOperationError(
+                "rollback backup path must differ from the active database"
+            )
         backup_database(
             database_url,
             rollback,
