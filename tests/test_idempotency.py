@@ -16,8 +16,8 @@ from ah_there_it_is.services.chat_requests import (
 from ah_there_it_is.services.inventory import InventoryService
 
 
-def call(call_id: str, name: str, **arguments) -> ToolCall:
-    return ToolCall(id=call_id, name=name, arguments=arguments)
+def call(call_id: str, tool_name: str, **arguments) -> ToolCall:
+    return ToolCall(id=call_id, name=tool_name, arguments=arguments)
 
 
 def event_count(session: Session) -> int:
