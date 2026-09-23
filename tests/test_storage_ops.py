@@ -194,6 +194,45 @@ def test_restore_refuses_invalid_candidate_without_touching_active_database(
         )
 
 
+def test_emergency_restore_can_replace_corrupt_active_database(
+    tmp_path: Path,
+) -> None:
+    database, url, engine, factory = _migrated_database(tmp_path)
+    candidate = tmp_path / "known-good-emergency.db"
+    try:
+        with factory() as session:
+            ids = seed_inventory_fixture(session)
+            item_id = ids.items["gtx1070"]
+        backup_database(url, candidate)
+    finally:
+        engine.dispose()
+
+    database.write_bytes(b"corrupt active database")
+
+    with pytest.raises(BackupValidationError):
+        restore_database(
+            url,
+            candidate,
+            confirm_app_stopped=True,
+        )
+
+    result = restore_database(
+        url,
+        candidate,
+        confirm_app_stopped=True,
+        skip_rollback=True,
+    )
+    assert result.rollback_backup_path is None
+    assert validate_database_file(database).integrity_ok is True
+
+    restored_engine = create_db_engine(url)
+    try:
+        with Session(restored_engine) as session:
+            assert SearchService(session).search_items("GTX 1070")[0].id == item_id
+    finally:
+        restored_engine.dispose()
+
+
 def test_validation_rejects_database_on_old_schema_revision(tmp_path: Path) -> None:
     database = tmp_path / "old-schema.db"
     url = f"sqlite:///{database}"
