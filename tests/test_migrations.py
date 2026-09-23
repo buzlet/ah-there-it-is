@@ -4,7 +4,11 @@ from pathlib import Path
 
 from sqlalchemy import inspect, text
 
-from ah_there_it_is.db.migrations import downgrade_database, upgrade_database
+from ah_there_it_is.db.migrations import (
+    check_database_schema,
+    downgrade_database,
+    upgrade_database,
+)
 from ah_there_it_is.db.session import create_db_engine
 from ah_there_it_is.storage import CURRENT_SCHEMA_REVISION, validate_database
 
@@ -131,3 +135,28 @@ def test_packaged_upgrade_is_cwd_independent_and_ignores_ambient_url(
 
     assert validate_database(database).alembic_revision == CURRENT_SCHEMA_REVISION
     assert not ambient.exists()
+
+
+def test_item_tag_reverse_index_migration_round_trip(tmp_path: Path) -> None:
+    database = tmp_path / "tag-index.db"
+    url = f"sqlite:///{database}"
+    upgrade_database(url)
+
+    engine = create_db_engine(url)
+    try:
+        indexes = {index["name"] for index in inspect(engine).get_indexes("item_tags")}
+        assert "ix_item_tags_tag_id" in indexes
+    finally:
+        engine.dispose()
+
+    downgrade_database(url, "a31d7f4e9c20")
+    engine = create_db_engine(url)
+    try:
+        indexes = {index["name"] for index in inspect(engine).get_indexes("item_tags")}
+        assert "ix_item_tags_tag_id" not in indexes
+    finally:
+        engine.dispose()
+
+    upgrade_database(url)
+    check_database_schema(url)
+    assert validate_database(database).alembic_revision == CURRENT_SCHEMA_REVISION

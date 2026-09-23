@@ -243,7 +243,7 @@ print(json.dumps({"revision": CURRENT_SCHEMA_REVISION}))
         text=True,
     )
     payload = completed.stdout.strip().splitlines()[-1]
-    assert '"revision": "a31d7f4e9c20"' in payload
+    assert '"revision": "b62f9d8a3c41"' in payload
 
     missing = outside / "missing.db"
     missing_env = runtime_env.copy()

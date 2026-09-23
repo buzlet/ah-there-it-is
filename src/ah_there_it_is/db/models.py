@@ -155,7 +155,7 @@ class ItemTag(Base):
         ForeignKey("items.id", ondelete="CASCADE"), primary_key=True
     )
     tag_id: Mapped[int] = mapped_column(
-        ForeignKey("tags.id", ondelete="CASCADE"), primary_key=True
+        ForeignKey("tags.id", ondelete="CASCADE"), primary_key=True, index=True
     )
 
     item: Mapped[Item] = relationship(back_populates="tag_links")
