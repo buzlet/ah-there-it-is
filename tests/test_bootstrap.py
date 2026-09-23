@@ -357,7 +357,10 @@ def test_bootstrap_cli_preflight_and_apply_are_machine_readable_and_dry(
     url = _migrate(database)
     monkeypatch.setenv("AH_THERE_IT_IS_DATABASE_URL", url)
     get_settings.cache_clear()
+    # Hold a WAL connection so SQLite cannot checkpoint between byte-hash snapshots.
+    active_guard = sqlite3.connect(database)
     try:
+        active_guard.execute("PRAGMA journal_mode=WAL")
         before = validate_database(database).sha256
         monkeypatch.setattr(
             "sys.argv",
@@ -387,4 +390,5 @@ def test_bootstrap_cli_preflight_and_apply_are_machine_readable_and_dry(
         assert applied["items"] == 3
         assert applied["events"] == 3
     finally:
+        active_guard.close()
         get_settings.cache_clear()

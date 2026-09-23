@@ -235,6 +235,23 @@ def test_wheel_contains_and_runs_packaged_migrations_and_runtime(
     )
     assert json.loads(healthy_doctor.stdout)["ok"] is True
 
+    rehearsal_candidate = outside / "installed-rehearsal-candidate.db"
+    subprocess.run(
+        [sys.executable, "-m", "ah_there_it_is.storage_cli", "backup", str(rehearsal_candidate)],
+        cwd=outside, env=runtime_env, check=True, capture_output=True, text=True,
+    )
+    active_before_rehearsal = fresh.read_bytes()
+    installed_rehearsal = subprocess.run(
+        [sys.executable, "-m", "ah_there_it_is.storage_cli", "restore-rehearsal", str(rehearsal_candidate)],
+        cwd=outside, env=runtime_env, check=True, capture_output=True, text=True,
+    )
+    rehearsal_report = json.loads(installed_rehearsal.stdout)
+    assert rehearsal_report["ok"] is True
+    assert rehearsal_report["restore_mechanics"]["ok"] is True
+    assert rehearsal_report["physical_validation"]["ok"] is True
+    assert rehearsal_report["doctor"]["ok"] is True
+    assert fresh.read_bytes() == active_before_rehearsal
+
     migration_smoke = r'''
 import json
 from pathlib import Path

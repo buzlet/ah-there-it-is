@@ -18,13 +18,14 @@ from ah_there_it_is.storage import (
     validate_portable_import_target,
     validate_portable_inventory,
     restore_backup,
+    rehearse_restore,
     sqlite_path_from_url,
     StorageError,
     validate_database,
 )
 
 
-def main() -> None:
+def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     subparsers = parser.add_subparsers(dest="command", required=True)
 
@@ -38,6 +39,9 @@ def main() -> None:
     restore = subparsers.add_parser("restore")
     restore.add_argument("candidate")
     restore.add_argument("--safety-backup")
+
+    rehearsal = subparsers.add_parser("restore-rehearsal")
+    rehearsal.add_argument("candidate")
 
     export = subparsers.add_parser("export-json")
     export.add_argument("destination")
@@ -59,6 +63,7 @@ def main() -> None:
     args = parser.parse_args()
     database_url = get_settings().database_url
 
+    exit_code = 0
     if args.command == "backup":
         result = create_backup(
             database_url,
@@ -73,6 +78,9 @@ def main() -> None:
             args.candidate,
             safety_backup=args.safety_backup,
         ).as_dict()
+    elif args.command == "restore-rehearsal":
+        result = rehearse_restore(database_url, args.candidate)
+        exit_code = 0 if result["ok"] else 2
     elif args.command == "upgrade":
         _prepare_upgrade_target(database_url)
         upgrade_database(database_url)
@@ -117,6 +125,7 @@ def main() -> None:
         ).as_dict()
 
     print(json.dumps(result, ensure_ascii=False, indent=2, sort_keys=True))
+    return exit_code
 
 
 def _prepare_upgrade_target(database_url: str) -> None:
@@ -129,4 +138,4 @@ def _prepare_upgrade_target(database_url: str) -> None:
 
 
 if __name__ == "__main__":
-    main()
+    raise SystemExit(main())

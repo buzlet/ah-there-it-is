@@ -298,6 +298,8 @@ just db-restore ah-there-it-is.backup.db
 
 Before replacing anything, restore validates the candidate and creates a separate pre-restore safety backup of the current database. It checkpoints the active WAL, stages and validates the replacement, and uses an atomic same-directory replacement. **The application must be stopped before restore** because SQLite cannot reliably prove that another process still has a read-only connection to the old inode.
 
+To test a backup without touching the active database, run `just db-restore-rehearsal ah-there-it-is.backup.db` (or `python -m ah_there_it_is.storage_cli restore-rehearsal <candidate>`). The command restores into a disposable current-schema database through the real restore path, validates SQLite integrity/foreign keys/schema and runs the application doctor. Its JSON report separates those outcomes and exits nonzero for physical or semantic failure. The active database and its WAL/sidecars are not checkpointed or replaced; temporary files are removed after the rehearsal.
+
 For first-time onboarding into an already-created, current-schema **empty** inventory, use the separate bootstrap manifest path:
 
 ```bash
