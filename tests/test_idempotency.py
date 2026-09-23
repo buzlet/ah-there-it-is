@@ -167,6 +167,50 @@ def test_update_retry_does_not_duplicate_history_event(session: Session) -> None
     assert event_count(session) == after_first
 
 
+def test_completed_replay_is_loaded_from_persistent_database(tmp_path) -> None:
+    from ah_there_it_is.db.models import Base
+    from ah_there_it_is.db.search_schema import install_fts_schema
+    from ah_there_it_is.db.session import (
+        create_db_engine,
+        create_session_factory,
+    )
+
+    database = tmp_path / "idempotency.db"
+    engine = create_db_engine(f"sqlite:///{database}")
+    Base.metadata.create_all(engine)
+    with engine.begin() as connection:
+        install_fts_schema(connection)
+    factory = create_session_factory(engine)
+
+    try:
+        with factory() as first_session:
+            first = ChatRequestService(first_session).execute(
+                request_key="persistent-key-0001",
+                message="Where is it?",
+                conversation_id=None,
+                operation=lambda: AgentRunner(
+                    first_session,
+                    ScriptedLLMClient([LLMResponse(content="Stored answer")]),
+                ).run("Where is it?"),
+            )
+
+        with factory() as second_session:
+            replay = ChatRequestService(second_session).execute(
+                request_key="persistent-key-0001",
+                message="Where is it?",
+                conversation_id=None,
+                operation=lambda: (_ for _ in ()).throw(
+                    AssertionError("persistent replay must not execute")
+                ),
+            )
+
+        assert replay.replayed is True
+        assert replay.result == first.result
+        assert replay.result.content == "Stored answer"
+    finally:
+        engine.dispose()
+
+
 def test_reusing_key_with_different_payload_is_conflict(session: Session) -> None:
     service = ChatRequestService(session)
     service.execute(
