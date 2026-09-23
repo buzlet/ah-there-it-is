@@ -187,15 +187,31 @@ Stage 6 was deliberately restructured after live-provider work began coupling ap
 - The unchanged 40-case application scenario suite remains green with strict Stage 7 state/event postconditions, proving successful agent turns still commit exactly the expected effects.
 - Final Stage 8 application CI is green on Python 3.12 and 3.13. Provider-contract CI remains separate; real model jobs are manual-only and irrelevant to the atomicity guarantee.
 
-### Stage 9 — next
+### Stage 9 — complete
 
-Make chat requests safe under client/network retries:
+- Added optional client-supplied `request_key` to `POST /api/chat`. Existing clients may omit it; retry-safe clients should reuse the same key for the same logical submission.
+- Added local SQLite `chat_requests` persistence with a unique request key, original requested conversation ID, normalized message payload, terminal status, linked completed `AgentRunLog`, error text, and timestamps. No Redis/network service is required.
+- `ChatRequestService` reserves the unique key **before** creating an LLM/provider client or entering the agent loop. Only the request that wins the reservation may execute the callback.
+- A completed duplicate with the exact same key/message/requested conversation returns the persisted `AgentRunResult`; it does not construct an LLM, execute tools, add conversation messages, or create more history events.
+- Reusing a key with different content is an explicit conflict. A still-`processing` key returns 425 and does not execute a second loop. A previously failed key is not restarted implicitly; callers must use a new key for an intentional new attempt.
+- `processing` records deliberately have no automatic TTL/restart policy. After an unknown process/network failure, preserving the block is safer than guessing that an earlier mutation did not commit.
+- The idempotency reservation is committed separately before `AgentRunner`. On callback failure the service rolls back any open transaction before marking the reservation failed. Stage 8 turn atomicity therefore remains intact.
+- Deterministic tests cover create, move, and update retries with exact event-count assertions; every retry returns the same run and produces no duplicate mutation/history. A separate test closes the first SQLAlchemy session and proves replay is reconstructed from persisted SQLite state rather than an identity-map artifact.
+- API tests prove the cached path invokes `llm_factory` only once, conflicting keys return 409, and a `processing` key returns 425 without even constructing an LLM.
+- Browser chat generates a stable UUID-like key per submission, persists the pending request in `localStorage`, and reuses it after reload/network uncertainty until a successful response. A new user message receives a new key.
+- Added migration `f19b2c4d6e81` for `chat_requests`; migration round-trip/check remains part of normal application CI.
+- Provider/model pipelines remain completely separate. Stage 9 requires no live model, provider secret, network call, prompt tuning, or model-specific behavior.
 
-1. Add an optional stable client request/idempotency key to the chat API and agent execution boundary.
-2. Repeating the same key with the same conversation/message must return the already-recorded result instead of invoking the LLM/tool loop or duplicating mutations.
-3. Reusing a key with conflicting request content must fail explicitly rather than silently returning unrelated data.
-4. Persist idempotency state locally with the conversation/run record; do not require Redis or another network service for the single-user MVP.
-5. Cover create, move, and update retries with deterministic `ScenarioLLMClient` tests and exact event-count assertions.
-6. Ensure browser retry/reload behavior can safely reuse the key while a genuinely new user message receives a new key.
-7. Keep provider/model probes separate and optional. Idempotency is an application concern and must be testable with no network model.
-8. Continue deferring additional channels and embeddings until the core text workflow is both atomic and retry-safe.
+### Stage 10 — next
+
+Make idempotency state observable and recoverable without weakening its safety:
+
+1. Add a small local read/admin surface for recent `chat_requests` showing key, status, timestamps, requested conversation, linked run, and stored failure.
+2. Provide an explicit manual recovery operation for stale `processing`/failed records; never auto-expire or auto-reexecute them by wall-clock TTL alone.
+3. Recovery that permits a new execution must create a new logical attempt/key or otherwise preserve an audit trail linking the old blocked request to the operator decision.
+4. Add deterministic tests for process-crash-like states: reserved-without-run, completed-run-with-lost-client-response, and failed reservation after rollback.
+5. Add concurrent-reservation coverage against file-backed SQLite so two simultaneous requests with the same key prove exactly one operation can win.
+6. Keep the browser behavior conservative: pending requests may be safely replayed, but the UI must not silently discard/replace a blocked key.
+7. Continue keeping provider/model probes independent and optional; recovery/idempotency remains application infrastructure.
+8. Defer additional channels and embeddings until local text execution is atomic, retry-safe, and operationally inspectable.
+
