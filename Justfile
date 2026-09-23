@@ -44,7 +44,7 @@ migration message:
     python -m alembic revision --autogenerate -m "{{message}}"
 
 serve:
-    python -m uvicorn ah_there_it_is.app:app --reload
+    python -m uvicorn ah_there_it_is.app:create_app --factory --reload --host 127.0.0.1 --port 8000
 
 corpus-check corpus="eval/corpus-v1.json":
     python -m ah_there_it_is.corpus_check "{{corpus}}"

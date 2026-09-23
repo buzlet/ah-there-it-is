@@ -1,18 +1,38 @@
 from __future__ import annotations
 
 import importlib.util
+import json
 import os
+import signal
 from pathlib import Path
 import shutil
+import socket
+import sqlite3
 import subprocess
 import sys
+import time
+from urllib.error import URLError
+from urllib.request import urlopen
 import zipfile
 
 
-def test_wheel_contains_and_runs_packaged_migrations(tmp_path: Path) -> None:
+def _free_local_port() -> int:
+    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as sock:
+        sock.bind(("127.0.0.1", 0))
+        return int(sock.getsockname()[1])
+
+
+def _http_text(url: str) -> tuple[int, str]:
+    with urlopen(url, timeout=1.0) as response:
+        return int(response.status), response.read().decode("utf-8")
+
+
+def test_wheel_contains_and_runs_packaged_migrations_and_runtime(
+    tmp_path: Path,
+) -> None:
     repo = Path(__file__).resolve().parents[1]
     wheelhouse = tmp_path / "wheelhouse"
-    install_dir = tmp_path / "install"
+    prefix_install = tmp_path / "runtime-prefix"
     outside = tmp_path / "outside"
     fixture = tmp_path / "inventory-portable-v1.json"
     wheelhouse.mkdir()
@@ -48,7 +68,7 @@ def test_wheel_contains_and_runs_packaged_migrations(tmp_path: Path) -> None:
     )
     wheel = next(wheelhouse.glob("ah_there_it_is-*.whl"))
 
-    prefix = "ah_there_it_is/db/migrations/"
+    migration_prefix = "ah_there_it_is/db/migrations/"
     source_versions = {
         path.name
         for path in (repo / "src/ah_there_it_is/db/migrations/versions").glob("*.py")
@@ -56,11 +76,18 @@ def test_wheel_contains_and_runs_packaged_migrations(tmp_path: Path) -> None:
     }
     with zipfile.ZipFile(wheel) as archive:
         names = set(archive.namelist())
-    assert prefix + "env.py" in names
-    assert prefix + "script.py.mako" in names
+        entry_points_name = next(
+            name for name in names if name.endswith(".dist-info/entry_points.txt")
+        )
+        entry_points = archive.read(entry_points_name).decode("utf-8")
+
+    assert migration_prefix + "env.py" in names
+    assert migration_prefix + "script.py.mako" in names
     assert {
-        prefix + "versions/" + filename for filename in source_versions
+        migration_prefix + "versions/" + filename for filename in source_versions
     } <= names
+    assert "[console_scripts]" in entry_points
+    assert "ah-there-it-is = ah_there_it_is.runtime_cli:main" in entry_points
 
     subprocess.run(
         [
@@ -69,8 +96,9 @@ def test_wheel_contains_and_runs_packaged_migrations(tmp_path: Path) -> None:
             "pip",
             "install",
             "--no-deps",
-            "--target",
-            str(install_dir),
+            "--ignore-installed",
+            "--prefix",
+            str(prefix_install),
             str(wheel),
         ],
         check=True,
@@ -78,16 +106,69 @@ def test_wheel_contains_and_runs_packaged_migrations(tmp_path: Path) -> None:
         text=True,
     )
 
-    smoke = r'''
+    installed_init = next(
+        prefix_install.glob(
+            "lib/python*/site-packages/ah_there_it_is/__init__.py"
+        )
+    )
+    site_packages = installed_init.parents[1]
+    console_script = prefix_install / "bin" / "ah-there-it-is"
+    assert console_script.is_file()
+
+    runtime_env = os.environ.copy()
+    runtime_env["PYTHONPATH"] = str(site_packages)
+    runtime_env["AH_THERE_IT_IS_LLM_PROVIDER"] = "heuristic"
+
+    installed_probe = subprocess.run(
+        [
+            sys.executable,
+            "-c",
+            (
+                "from importlib.resources import files; "
+                "from pathlib import Path; "
+                "import ah_there_it_is; "
+                "print(Path(ah_there_it_is.__file__).resolve()); "
+                "print(Path(str(files('ah_there_it_is.db.migrations'))).resolve())"
+            ),
+        ],
+        cwd=outside,
+        env=runtime_env,
+        check=True,
+        capture_output=True,
+        text=True,
+    )
+    package_path, resource_path = [
+        Path(line.strip()).resolve()
+        for line in installed_probe.stdout.strip().splitlines()[-2:]
+    ]
+    assert not package_path.is_relative_to(repo), package_path
+    assert not resource_path.is_relative_to(repo), resource_path
+
+    fresh = outside / "fresh.db"
+    fresh_url = f"sqlite:///{fresh}"
+    migrated_env = runtime_env.copy()
+    migrated_env["AH_THERE_IT_IS_DATABASE_URL"] = fresh_url
+    subprocess.run(
+        [
+            sys.executable,
+            "-m",
+            "ah_there_it_is.storage_cli",
+            "upgrade",
+        ],
+        cwd=outside,
+        env=migrated_env,
+        check=True,
+        capture_output=True,
+        text=True,
+    )
+
+    migration_smoke = r'''
 import json
-from importlib.resources import files
 from pathlib import Path
 import sys
 
-import ah_there_it_is
 from sqlalchemy.orm import Session
 
-from ah_there_it_is.db.migrations import upgrade_database
 from ah_there_it_is.db.session import create_db_engine
 from ah_there_it_is.services.search import SearchService
 from ah_there_it_is.storage import (
@@ -96,17 +177,10 @@ from ah_there_it_is.storage import (
     validate_database,
 )
 
-repo = Path(sys.argv[1]).resolve()
-outside = Path(sys.argv[2]).resolve()
-fixture = Path(sys.argv[3]).resolve()
-package_path = Path(ah_there_it_is.__file__).resolve()
-resource_path = Path(str(files("ah_there_it_is.db.migrations"))).resolve()
-assert not package_path.is_relative_to(repo), package_path
-assert not resource_path.is_relative_to(repo), resource_path
-
-fresh = outside / "fresh.db"
+outside = Path(sys.argv[1]).resolve()
+fixture = Path(sys.argv[2]).resolve()
+fresh = Path(sys.argv[3]).resolve()
 fresh_url = f"sqlite:///{fresh}"
-upgrade_database(fresh_url)
 assert validate_database(fresh).alembic_revision == CURRENT_SCHEMA_REVISION
 
 imported = outside / "imported.db"
@@ -121,21 +195,138 @@ try:
 finally:
     engine.dispose()
 
-print(json.dumps({
-    "package_path": str(package_path),
-    "resource_path": str(resource_path),
-    "revision": CURRENT_SCHEMA_REVISION,
-}))
+print(json.dumps({"revision": CURRENT_SCHEMA_REVISION}))
 '''
-    env = os.environ.copy()
-    env["PYTHONPATH"] = str(install_dir)
     completed = subprocess.run(
-        [sys.executable, "-c", smoke, str(repo), str(outside), str(fixture)],
+        [
+            sys.executable,
+            "-c",
+            migration_smoke,
+            str(outside),
+            str(fixture),
+            str(fresh),
+        ],
         cwd=outside,
-        env=env,
+        env=runtime_env,
         check=True,
         capture_output=True,
         text=True,
     )
     payload = completed.stdout.strip().splitlines()[-1]
     assert '"revision": "a31d7f4e9c20"' in payload
+
+    missing = outside / "missing.db"
+    missing_env = runtime_env.copy()
+    missing_env["AH_THERE_IT_IS_DATABASE_URL"] = f"sqlite:///{missing}"
+    missing_result = subprocess.run(
+        [
+            str(console_script),
+            "serve",
+            "--host",
+            "127.0.0.1",
+            "--port",
+            str(_free_local_port()),
+        ],
+        cwd=outside,
+        env=missing_env,
+        capture_output=True,
+        text=True,
+        timeout=10,
+    )
+    assert missing_result.returncode == 2
+    assert "does not exist" in missing_result.stderr
+    assert "python -m ah_there_it_is.storage_cli upgrade" in missing_result.stderr
+    assert not missing.exists()
+
+    outdated = outside / "outdated.db"
+    shutil.copy2(fresh, outdated)
+    connection = sqlite3.connect(outdated)
+    try:
+        connection.execute(
+            "UPDATE alembic_version SET version_num = ?",
+            ("c4cfe3a3e921",),
+        )
+        connection.commit()
+    finally:
+        connection.close()
+    outdated_before = outdated.read_bytes()
+    outdated_env = runtime_env.copy()
+    outdated_env["AH_THERE_IT_IS_DATABASE_URL"] = f"sqlite:///{outdated}"
+    outdated_result = subprocess.run(
+        [
+            str(console_script),
+            "serve",
+            "--host",
+            "127.0.0.1",
+            "--port",
+            str(_free_local_port()),
+        ],
+        cwd=outside,
+        env=outdated_env,
+        capture_output=True,
+        text=True,
+        timeout=10,
+    )
+    assert outdated_result.returncode == 2
+    assert "does not match this installed package" in outdated_result.stderr
+    assert outdated.read_bytes() == outdated_before
+
+    port = _free_local_port()
+    process = subprocess.Popen(
+        [
+            str(console_script),
+            "serve",
+            "--host",
+            "127.0.0.1",
+            "--port",
+            str(port),
+        ],
+        cwd=outside,
+        env=migrated_env,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        text=True,
+    )
+    try:
+        health_payload: dict[str, object] | None = None
+        last_error: Exception | None = None
+        for _ in range(100):
+            if process.poll() is not None:
+                stdout, stderr = process.communicate()
+                raise AssertionError(
+                    "installed runtime exited before health check: "
+                    f"stdout={stdout!r} stderr={stderr!r}"
+                )
+            try:
+                status, body = _http_text(f"http://127.0.0.1:{port}/health")
+                assert status == 200
+                health_payload = json.loads(body)
+                break
+            except (URLError, TimeoutError, ConnectionError) as exc:
+                last_error = exc
+                time.sleep(0.1)
+
+        assert health_payload is not None, last_error
+        assert health_payload["status"] == "ok"
+        assert health_payload["llm_provider"] == "heuristic"
+
+        index_status, index_body = _http_text(f"http://127.0.0.1:{port}/")
+        assert index_status == 200
+        assert "Inventory chat" in index_body
+        assert "/static/chat.js" in index_body
+
+        asset_status, asset_body = _http_text(
+            f"http://127.0.0.1:{port}/static/style.css"
+        )
+        assert asset_status == 200
+        assert len(asset_body) > 100
+    finally:
+        if process.poll() is None:
+            process.send_signal(signal.SIGINT)
+        try:
+            process.wait(timeout=10)
+        except subprocess.TimeoutExpired:
+            process.kill()
+            process.wait(timeout=5)
+
+    assert process.returncode == 0

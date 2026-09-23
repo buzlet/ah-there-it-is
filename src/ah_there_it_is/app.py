@@ -18,7 +18,7 @@ from ah_there_it_is.db.session import create_db_engine, create_session_factory
 from ah_there_it_is.web.routes import build_router
 
 _PACKAGE_DIR = Path(__file__).resolve().parent
-_TEMPLATES = Jinja2Templates(directory=str(_PACKAGE_DIR / "web" / "templates"))
+_TEMPLATES_DIR = _PACKAGE_DIR / "web" / "templates"
 _STATIC_DIR = _PACKAGE_DIR / "web" / "static"
 
 
@@ -30,6 +30,7 @@ def create_app(
 ) -> FastAPI:
     settings = settings or get_settings()
     application = FastAPI(title=settings.app_name, version="0.2.0")
+    templates = Jinja2Templates(directory=str(_TEMPLATES_DIR))
     application.state.settings = settings
     application.state.system_prompt = _load_system_prompt(settings)
 
@@ -41,7 +42,7 @@ def create_app(
     application.state.llm_factory = llm_factory or build_llm_factory(settings)
 
     application.mount("/static", StaticFiles(directory=str(_STATIC_DIR)), name="static")
-    application.include_router(build_router(_TEMPLATES))
+    application.include_router(build_router(templates))
 
     @application.get("/health")
     def health() -> dict[str, str]:
@@ -58,7 +59,3 @@ def _load_system_prompt(settings: Settings) -> str:
     if settings.prompt_file is None:
         return SYSTEM_PROMPT
     return Path(settings.prompt_file).read_text(encoding="utf-8")
-
-
-
-app = create_app()
