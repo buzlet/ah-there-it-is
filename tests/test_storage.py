@@ -20,6 +20,7 @@ from ah_there_it_is.eval_fixture import seed_inventory_fixture
 from ah_there_it_is.services.inventory import InventoryService
 from ah_there_it_is.services.search import SearchService
 from ah_there_it_is.storage import (
+    CURRENT_SCHEMA_REVISION,
     PORTABLE_EXPORT_VERSION,
     DatabaseValidationError,
     StorageError,
@@ -89,6 +90,10 @@ def _seed_operational_state(database_url: str) -> dict[str, int]:
             }
     finally:
         engine.dispose()
+
+
+def test_runtime_schema_revision_matches_migration_head() -> None:
+    assert CURRENT_SCHEMA_REVISION == expected_alembic_head()
 
 
 def test_backup_restore_round_trip_preserves_application_state(tmp_path: Path) -> None:
