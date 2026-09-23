@@ -1,0 +1,84 @@
+{
+  "format": "inventory-bootstrap-v1",
+  "locations": [
+    {
+      "path": ["Office"],
+      "description": "Primary work room"
+    },
+    {
+      "path": ["Office", "Desk"],
+      "description": null
+    },
+    {
+      "path": ["Office", "Desk", "Right drawer"],
+      "description": "Small electronics"
+    },
+    {
+      "path": ["Workshop"],
+      "description": null
+    },
+    {
+      "path": ["Workshop", "Shelf 1"],
+      "description": null
+    }
+  ],
+  "categories": [
+    {
+      "path": ["Electronics"],
+      "description": null
+    },
+    {
+      "path": ["Electronics", "Adapters"],
+      "description": "Interface adapters"
+    },
+    {
+      "path": ["Tools"],
+      "description": null
+    },
+    {
+      "path": ["Tools", "Measuring"],
+      "description": null
+    }
+  ],
+  "items": [
+    {
+      "name": "ORICO USB-SATA adapter",
+      "description": "Adapter for firmware recovery disks",
+      "state": "working",
+      "category_path": ["Electronics", "Adapters"],
+      "location_path": ["Office", "Desk", "Right drawer"],
+      "quantity": 1,
+      "attributes": {
+        "manufacturer": "ORICO",
+        "interface": "USB 3.0 to SATA"
+      },
+      "aliases": ["USB-SATA bridge"],
+      "tags": ["USB", "SATA"]
+    },
+    {
+      "name": "UNI-T UT61E+",
+      "description": "Main bench multimeter",
+      "state": "working",
+      "category_path": ["Tools", "Measuring"],
+      "location_path": ["Workshop", "Shelf 1"],
+      "quantity": 1,
+      "attributes": {
+        "manufacturer": "UNI-T",
+        "model": "UT61E+"
+      },
+      "aliases": ["main multimeter"],
+      "tags": ["measurement", "multimeter"]
+    },
+    {
+      "name": "Loose HDMI cable",
+      "description": null,
+      "state": "used",
+      "category_path": null,
+      "location_path": null,
+      "quantity": 2,
+      "attributes": {},
+      "aliases": [],
+      "tags": ["HDMI"]
+    }
+  ]
+}
