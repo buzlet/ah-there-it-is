@@ -103,7 +103,15 @@ The first request reserves the key in local SQLite **before** the LLM is constru
 
 There is intentionally no time-based automatic retry/expiry for `processing` records. If the server dies after a business commit but before the client receives the response, blindly expiring the key is exactly how duplicate mutations are born.
 
-The browser stores the pending submission and key in `localStorage`. Reloading after an uncertain network result resends the same logical request, so a completed server-side operation is replayed from SQLite rather than executed twice.
+Stage 10 adds local operational inspection at `/chat-requests` plus read APIs under `/api/chat-requests`. A blocked `processing` or `failed` request may be recovered only through an explicit operator action that:
+
+- requires acknowledgement of duplicate-execution risk and a written recovery note;
+- creates a **new** request key instead of reopening or rewriting the old record;
+- links the new record to the original with `recovered_from_id`;
+- preserves both the original status/error and the recovery decision as an audit trail;
+- refuses recovery of a completed record because completed requests should be replayed normally.
+
+The browser stores the pending submission and key in `localStorage`. Reloading after an uncertain network result resends the same logical request, so a completed server-side operation is replayed from SQLite rather than executed twice. HTTP 425 and 409 leave that pending key in place; the browser does not silently invent a replacement key for a blocked request. Manual recovery is performed from the Requests page.
 
 ## Prompt/model evaluation
 
@@ -193,7 +201,7 @@ Native Gemini and OpenAI-compatible adapters remain replaceable implementations 
 
 ## Current scope
 
-Stages 0–9 are complete. The application regression pipeline covers the full 40-case corpus with independent persisted-state/event postconditions, agent turns are transactionally atomic, and chat submissions are retry-safe through persisted idempotency keys. Provider/model compatibility remains a separate contract pipeline. Stage 10 focuses on inspection/recovery of blocked idempotency records and concurrent-reservation evidence. Real-provider probes remain optional adapter verification.
+Stages 0–10 are complete. The application regression pipeline covers the full 40-case corpus with independent persisted-state/event postconditions, agent turns are transactionally atomic, and chat submissions are retry-safe through persisted idempotency keys plus explicit audited recovery. Provider/model compatibility remains a separate contract pipeline. Stage 11 focuses on local backup/restore, integrity verification, and portable export so the local-first database is operationally durable. Real-provider probes remain optional adapter verification.
 
 Voice, Telegram, images, QR, MCP, PWA, embeddings, and multi-user support remain out of scope until the text workflow is stable.
 
