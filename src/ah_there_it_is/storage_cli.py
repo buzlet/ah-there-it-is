@@ -5,6 +5,10 @@ from __future__ import annotations
 import argparse
 import json
 
+from ah_there_it_is.bootstrap import (
+    apply_bootstrap_import,
+    preflight_bootstrap_import,
+)
 from ah_there_it_is.config import get_settings
 from ah_there_it_is.db.migrations import check_database_schema, upgrade_database
 from ah_there_it_is.storage import (
@@ -39,6 +43,12 @@ def main() -> None:
     subparsers.add_parser("upgrade")
     subparsers.add_parser("migration-check")
 
+    bootstrap_preflight = subparsers.add_parser("bootstrap-preflight")
+    bootstrap_preflight.add_argument("source")
+
+    bootstrap_apply = subparsers.add_parser("bootstrap-apply")
+    bootstrap_apply.add_argument("source")
+
     import_json = subparsers.add_parser("import-json")
     import_json.add_argument("source")
     import_json.add_argument("destination")
@@ -67,6 +77,10 @@ def main() -> None:
     elif args.command == "migration-check":
         check_database_schema(database_url)
         result = {"migration_check": "ok"}
+    elif args.command == "bootstrap-preflight":
+        result = preflight_bootstrap_import(database_url, args.source).as_dict()
+    elif args.command == "bootstrap-apply":
+        result = apply_bootstrap_import(database_url, args.source).as_dict()
     elif args.command == "export-json":
         document = export_portable_inventory(database_url, args.destination)
         result = {

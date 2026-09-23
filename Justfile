@@ -88,3 +88,9 @@ portable-import source destination:
 
 portable-import-dry-run source destination:
     python -m ah_there_it_is.storage_cli import-json "{{source}}" "{{destination}}" --dry-run
+
+bootstrap-preflight source:
+    python -m ah_there_it_is.storage_cli bootstrap-preflight "{{source}}"
+
+bootstrap-apply source:
+    python -m ah_there_it_is.storage_cli bootstrap-apply "{{source}}"
