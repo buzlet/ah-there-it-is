@@ -131,7 +131,13 @@ def test_backup_restore_round_trip_preserves_application_state(tmp_path: Path) -
 
     assert Path(restored.safety_backup_path).is_file()
     assert restored.restored.alembic_revision == expected_alembic_head()
-    assert restored.restored.sha256 == restored.candidate.sha256
+    assert restored.restored.integrity_check == ("ok",)
+    assert restored.restored.foreign_key_violations == ()
+    # SQLite's backup API guarantees a consistent logical snapshot, not
+    # byte-for-byte page layout identity. Physical SHA-256 values may differ
+    # after writing the validated candidate into the active database.
+    assert restored.restored.sha256
+    assert restored.candidate.sha256
 
     engine = create_db_engine(url)
     try:
