@@ -389,3 +389,10 @@ Assignment 0012 proposed a read-only browser Activity timeline. External archite
 - Item-detail history uses the same bounded read boundary and provides previous/next history links without hydrating the full Event collection. Existing internal unbounded helpers remain outside request paths.
 - Structural tests with 1000 Events and 351 direct Items check page-only ORM materialization and bounded statement counts; browser navigation, tool schemas, replay capabilities and installed-wheel assets are covered.
 - Focused and canonical verification passed: 308 tests, 42/42 deterministic scenarios, migration/corpus/scenario/provider checks. Review: `agent-tasks/reviews/0016-r1.md`.
+
+### Post-Stage-25 hardening — Assignment 0017 complete
+
+- `LLMClientInfo.config` now explicitly carries only intentional non-secret evaluation metadata. OpenAI-compatible and Gemini adapters retain stable timeout/retry/temperature/transport fields, persist base URLs without userinfo/query/fragment, and record only a boolean for configured extra request body rather than copying its values.
+- Provider request bodies remain unchanged. New run metadata groups deterministically while historical rows remain readable without migration or redaction.
+- Malicious URL and nested-body tests cover persisted run metadata, evaluation rendering, provider request preservation and historical config compatibility.
+- Focused and canonical verification passed: 311 tests, 42/42 deterministic scenarios, migration/corpus/scenario/provider checks. Review: `agent-tasks/reviews/0017-r1.md`.

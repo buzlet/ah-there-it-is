@@ -11,6 +11,7 @@ from typing import Any
 import httpx
 
 from ah_there_it_is.agent.errors import ProviderProtocolError, ProviderRequestError
+from ah_there_it_is.agent.metadata import safe_trace_base_url
 from ah_there_it_is.agent.protocol import (
     AgentMessage,
     LLMClientInfo,
@@ -71,7 +72,7 @@ class OpenAICompatibleLLMClient:
     @property
     def info(self) -> LLMClientInfo:
         logged_config: dict[str, Any] = {
-            "base_url": self.config.base_url.rstrip("/"),
+            "base_url": safe_trace_base_url(self.config.base_url),
             "timeout_seconds": self.config.timeout_seconds,
             "max_retries": self.config.max_retries,
             "retry_backoff_seconds": self.config.retry_backoff_seconds,
@@ -80,7 +81,7 @@ class OpenAICompatibleLLMClient:
         if self.config.temperature is not None:
             logged_config["temperature"] = self.config.temperature
         if self.config.extra_body:
-            logged_config["extra_body"] = dict(self.config.extra_body)
+            logged_config["has_extra_body"] = True
         return LLMClientInfo(
             provider=self.config.provider_name,
             model=self.config.model,
