@@ -258,14 +258,23 @@ Stage 6 was deliberately restructured after live-provider work began coupling ap
 - Full SQLite disaster recovery remains separate and operational/chat/evaluation/provider state remains outside the portable compatibility contract.
 - Stage 13 passed the complete provider-independent application/migration/scenario pipeline plus provider adapter contract on Python 3.12/3.13 CI.
 
-### Stage 14 — next
+### Stage 14 — complete
 
-Make database migrations self-contained in the installed package instead of depending on repository-root `alembic.ini` and `migrations/` paths:
+- Moved the existing Alembic environment and unchanged revision history under installed `ah_there_it_is` package resources.
+- Added one packaged migration configuration/runner boundary using an explicit database URL; ambient `AH_THERE_IT_IS_DATABASE_URL` cannot redirect programmatic upgrade/import targets.
+- Routed portable import through the packaged migration runner, preserving the Stage 12-13 non-destructive reconstruction contract outside a source checkout.
+- Added explicit database upgrade and migration-check CLI/Just surfaces without introducing automatic migration during application import/startup.
+- Source-development Alembic configuration now points at the packaged migration tree while preserving normal migration authoring/check workflows.
+- Packaging metadata includes migration resources and a real wheel smoke test proves fresh migration plus portable-v1 import/search from a wheel installation in an unrelated working directory.
+- Final Stage 14 verification passed the complete deterministic application/migration/scenario/provider-contract pipeline and Python 3.12/3.13 CI. No provider/model behavior or dependency/runtime policy was changed.
 
-1. Ship the existing Alembic migration environment/revisions as package resources without changing historical revision IDs.
-2. Add one programmatic packaged migration configuration/runner boundary that receives an explicit database URL and cannot be redirected by ambient database settings.
-3. Route portable import through that boundary so Stage 12-13 recovery works from an arbitrary working directory after package installation.
-4. Add an explicit application database-upgrade operation and minimal CLI/Just surface; do not auto-migrate during import, `create_app()`, or server startup.
-5. Test fresh upgrade and v1 portable import/search from a working directory that contains no repository `alembic.ini`.
-6. Build a real wheel with the sandbox-aligned setuptools/wheel toolchain and prove migration resources are present and executable from the wheel-installed package outside the source tree.
-7. Keep dependency/tool/workflow versions aligned with the active sandbox and make no provider/model or deferred product-feature changes in this stage.
+### Stage 15 — next
+
+Add deterministic evidence-based location suggestions for items whose current stored location is unknown, while preserving the strict distinction between known state and inference:
+
+1. Keep `Item.current_location_id` as the only authoritative current-location fact; do not persist a second inferred/probable location field.
+2. Derive read-only suggestions from existing item history plus current locations of related items sharing category/tags.
+3. Return typed candidates with stable IDs, full paths, explicit evidence metadata, and deterministic ranking; do not invent probability percentages.
+4. Expose suggestions through a read-only agent tool that requires a resolved item. Suggested location IDs may be inspected but must not become mutation-authorized merely because they were suggested.
+5. Add provider-independent unit/tool/scenario coverage including last-known, peer-evidence, no-evidence, and no-mutation cases.
+6. Keep `inventory-portable-v1`, full SQLite backup/restore, versioned prompts, providers/models, embeddings, and deferred channels/features unchanged.

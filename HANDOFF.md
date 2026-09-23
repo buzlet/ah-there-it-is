@@ -6,7 +6,7 @@
 - Default branch: `main`
 - Always verify current `origin/main`, PR state, and CI before starting new work.
 - This handoff supersedes the pre-Stage-12 handoff that existed at commit `198061c9c88353a950cb90f2ec8fcd6cabd51edf`.
-- **Stages 0–13 are complete. Stage 14 is next.**
+- **Stages 0–14 are complete. Stage 15 is next.**
 - `AGENTS.md` remains the authoritative architecture/development/stage plan.
 - Full SQLite backup/restore and portable inventory import are intentionally separate recovery products.
 
@@ -48,30 +48,45 @@
 - old source revision treated only as metadata while current migrations/schema/domain invariants own reconstruction;
 - portable/full-backup separation preserved.
 
-## Stage 14 objective
+## Stage 14 delivered
 
-Remove the source-checkout/current-working-directory dependency from runtime migrations:
+- packaged Alembic environment/revisions under `ah_there_it_is` with historical revision IDs unchanged;
+- one explicit-URL packaged migration runner shared by operator upgrade/check flows and portable import;
+- programmatic migrations immune to ambient active-database URL redirection;
+- explicit upgrade/migration-check CLI and Just surfaces, with no startup auto-migration;
+- source-development Alembic workflow retained against the packaged migration tree;
+- migration package data included in the wheel;
+- real wheel build/install smoke from outside the checkout proving fresh migration and portable-v1 import/search;
+- complete protocol-v3 local verification and Python 3.12/3.13 CI green after one ordinary CI portability correction.
 
-1. Package the existing Alembic environment/revision files with `ah_there_it_is`.
-2. Build one programmatic migration configuration/runner from packaged resources and an explicit database URL.
-3. Make portable import work outside the repository without `alembic.ini` in the current directory.
-4. Add an explicit database-upgrade operation plus minimal CLI/Just entry point, with no automatic migration during application startup.
-5. Test fresh upgrade and v1 compatibility import/search from an unrelated temporary working directory.
-6. Keep sandbox-compatible dependency/tool versions and avoid provider/model/deferred-product scope.
+## Stage 15 objective
+
+Add deterministic evidence-based location suggestions without conflating them with known current location:
+
+1. Keep `Item.current_location_id` as the sole authoritative current-location fact and add no persistent inferred-location state.
+2. When current location is unknown, derive read-only candidates from the item's own location history and from current locations of related items sharing category/tags.
+3. Rank suggestions deterministically and expose explicit evidence rather than fabricated confidence/probability.
+4. Add a read-only agent tool requiring a resolved item; suggestions must not directly grant mutation authorization for returned locations.
+5. Extend deterministic corpus/scenario coverage for last-known and related-item suggestions while preserving no-mutation guarantees.
+6. Keep portable-v1, backup/restore, prompt versions, providers/models, embeddings, and deferred channels/features unchanged.
 
 ## Files to read first
 
 1. `HANDOFF.md`
 2. `AGENTS.md`
 3. `README.md`
-4. `pyproject.toml`
-5. `migrations/env.py`
-6. `src/ah_there_it_is/storage.py`
-7. `src/ah_there_it_is/storage_cli.py`
-8. `tests/test_migrations.py`
-9. `tests/test_storage.py`
-10. `tests/test_portable_compatibility.py`
-11. `Justfile`
+4. `src/ah_there_it_is/domain/search.py`
+5. `src/ah_there_it_is/services/search.py`
+6. `src/ah_there_it_is/services/inventory.py`
+7. `src/ah_there_it_is/agent/tools.py`
+8. `src/ah_there_it_is/eval_fixture.py`
+9. `eval/corpus-v1.json`
+10. `eval/scenarios-v1.json`
+11. `src/ah_there_it_is/eval_checks.py`
+12. `tests/test_search.py`
+13. `tests/test_agent.py`
+14. `tests/test_scenario_eval.py`
+15. `Justfile`
 
 ## Orchestrated implementation workflow
 
@@ -81,7 +96,7 @@ For a normal implementation handoff, the agent fast-forwards `main`, implements 
 
 The orchestrator retains product/architecture direction, stage transitions, assignment formulation, and decisions where requirements conflict or a materially new design choice is needed. It does not repeat routine review/tests/CI already owned by the agent. The orchestrator guarantees that no concurrent repository work occurs between assignment publication and the agent's initial pull.
 
-Assignment 0001 completed under v1. Assignment 0002/v2 was superseded before execution and is recorded in `agent-tasks/reviews/0002-r0.md`. Future implementation uses `agent-tasks/common/v3.md`; active Stage 14 work is `agent-tasks/assignments/0003-stage14-packaged-migrations.md`.
+Assignment 0001 completed under v1. Assignment 0002/v2 was superseded before execution and is recorded in `agent-tasks/reviews/0002-r0.md`. Future implementation uses `agent-tasks/common/v3.md`; active Stage 15 work is `agent-tasks/assignments/0004-stage15-location-suggestions.md`.
 
 ## Development environment checkpoint
 
