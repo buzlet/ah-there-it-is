@@ -262,6 +262,12 @@ ah-there-it-is serve
 
 Installed `serve` opens the configured SQLite database read-only for its schema gate and requires its Alembic head set to match the migration heads packaged in the installed wheel exactly. A missing, uninitialized, behind, ahead, or otherwise incompatible database is rejected before Uvicorn starts. The gate never creates, upgrades, repairs, restores, or replaces the database. Only the explicit storage upgrade operation may create the missing parent directory and database.
 
+## Active database doctor and derived search repair
+
+`ah-there-it-is doctor` inspects the effective configured SQLite database read-only and prints a JSON report. Exit status 0 means all fatal checks pass; status 2 means the database is missing, at a different packaged Alembic head, or unhealthy. The report includes SQLite integrity and foreign keys, normalized identities, hierarchy, item state/quantity, and FTS schema/content. Allowed duplicate item identities appear as warnings and do not change the exit status. Doctor does not create, migrate, repair, or checkpoint the database, and it does not repair domain data.
+
+`ah-there-it-is repair-search-index` is a separate explicit operation. It requires an existing current-schema database with all non-FTS checks healthy, then restores the current FTS table/triggers and rebuilds only derived search content from inventory rows. It cannot repair inventory or history corruption. Run `doctor` again after a repair to inspect the final report; the repair command itself also returns the post-repair report and succeeds only when healthy.
+
 For source-checkout development, `just serve` remains separate: it runs `ah_there_it_is.app:create_app` in Uvicorn factory mode with reload enabled and an explicit loopback bind. Reload is not enabled by the installed runtime command.
 
 ## Local backup, restore, and portable export/import

@@ -13,7 +13,7 @@ from pathlib import Path
 from typing import Any
 
 from pydantic import BaseModel, ConfigDict, Field, ValidationError
-from sqlalchemy import select, text
+from sqlalchemy import select
 from sqlalchemy.engine import make_url
 from sqlalchemy.orm import Session, selectinload
 
@@ -811,51 +811,14 @@ def _portable_tree_order(nodes: list[PortableTreeNode]) -> list[PortableTreeNode
 
 
 def _validate_imported_search_state(session: Session) -> None:
-    mismatches = list(
-        session.scalars(
-            text(
-                """
-                SELECT items.id
-                FROM items
-                LEFT JOIN item_search_fts ON item_search_fts.rowid = items.id
-                WHERE item_search_fts.rowid IS NULL
-                   OR item_search_fts.name != items.name
-                   OR item_search_fts.description != COALESCE(items.description, '')
-                   OR item_search_fts.aliases != COALESCE((
-                        SELECT group_concat(aliases.name, ' ')
-                        FROM aliases
-                        WHERE aliases.item_id = items.id
-                   ), '')
-                   OR item_search_fts.tags != COALESCE((
-                        SELECT group_concat(tags.name, ' ')
-                        FROM item_tags
-                        JOIN tags ON tags.id = item_tags.tag_id
-                        WHERE item_tags.item_id = items.id
-                   ), '')
-                   OR item_search_fts.attributes != COALESCE(
-                        CAST(items.attributes AS TEXT), ''
-                   )
-                ORDER BY items.id
-                """
-            )
-        )
-    )
-    extras = list(
-        session.scalars(
-            text(
-                """
-                SELECT rowid
-                FROM item_search_fts
-                WHERE rowid NOT IN (SELECT id FROM items)
-                ORDER BY rowid
-                """
-            )
-        )
-    )
-    if mismatches or extras:
+    from ah_there_it_is.db.search_consistency import search_consistency
+
+    result = search_consistency(session.connection())
+    if not result.ok:
         raise StorageError(
             "portable import produced inconsistent FTS state: "
-            f"mismatched_items={mismatches!r}, extra_rows={extras!r}"
+            f"missing={result.missing_count}, mismatched={result.mismatched_count}, "
+            f"extra={result.extra_count}"
         )
 
 

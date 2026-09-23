@@ -161,8 +161,9 @@ def drop_fts_schema(connection: Connection) -> None:
 
 def rebuild_fts_index(connection: Connection) -> None:
     """Rebuild all indexed item text, useful after importing pre-existing rows."""
-    connection.exec_driver_sql("DELETE FROM item_search_fts")
-    connection.exec_driver_sql(
+    _execute(connection, "DELETE FROM item_search_fts")
+    _execute(
+        connection,
         """
         INSERT INTO item_search_fts(rowid, name, aliases, description, tags, attributes)
         SELECT
@@ -188,4 +189,11 @@ def rebuild_fts_index(connection: Connection) -> None:
 
 def _execute_all(connection: Connection, statements: Iterable[str]) -> None:
     for statement in statements:
+        _execute(connection, statement)
+
+
+def _execute(connection: Connection, statement: str) -> None:
+    if hasattr(connection, "exec_driver_sql"):
         connection.exec_driver_sql(statement)
+    else:
+        connection.execute(statement)

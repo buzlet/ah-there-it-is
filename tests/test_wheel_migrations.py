@@ -176,6 +176,16 @@ def test_wheel_contains_and_runs_packaged_migrations_and_runtime(
     }
     assert path_payloads == [expected_paths, expected_paths]
     assert not data_dir.exists()
+    missing_doctor = subprocess.run(
+        [str(console_script), "doctor"],
+        cwd=outside,
+        env=runtime_env,
+        capture_output=True,
+        text=True,
+    )
+    assert missing_doctor.returncode == 2
+    assert json.loads(missing_doctor.stdout)["ok"] is False
+    assert not data_dir.exists()
 
     subprocess.run(
         [
@@ -191,6 +201,15 @@ def test_wheel_contains_and_runs_packaged_migrations_and_runtime(
         text=True,
     )
     assert fresh.is_file()
+    healthy_doctor = subprocess.run(
+        [str(console_script), "doctor"],
+        cwd=serve_cwd,
+        env=runtime_env,
+        check=True,
+        capture_output=True,
+        text=True,
+    )
+    assert json.loads(healthy_doctor.stdout)["ok"] is True
 
     migration_smoke = r'''
 import json

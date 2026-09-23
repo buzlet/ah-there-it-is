@@ -102,6 +102,8 @@ def build_parser() -> argparse.ArgumentParser:
     subparsers = parser.add_subparsers(dest="command", required=True)
 
     subparsers.add_parser("paths", help="show resolved local data paths")
+    subparsers.add_parser("doctor", help="read-only active database health check")
+    subparsers.add_parser("repair-search-index", help="explicitly rebuild derived FTS state")
 
     serve = subparsers.add_parser("serve", help="start the local web application")
     serve.add_argument("--host", type=_host, default="127.0.0.1")
@@ -152,6 +154,14 @@ def main(argv: Sequence[str] | None = None) -> int:
     if args.command == "paths":
         print(json.dumps(runtime_paths(settings.database_url), sort_keys=True))
         return 0
+
+    if args.command in {"doctor", "repair-search-index"}:
+        from ah_there_it_is.database_doctor import diagnose_database, repair_search_index
+
+        operation = diagnose_database if args.command == "doctor" else repair_search_index
+        report = operation(settings.database_url)
+        print(json.dumps(report.as_dict(), sort_keys=True))
+        return 0 if report.ok else 2
 
     if args.command == "serve":
         try:
