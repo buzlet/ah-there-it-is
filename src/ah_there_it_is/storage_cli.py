@@ -4,6 +4,8 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
+import uuid
 from pathlib import Path
 
 from ah_there_it_is.config import get_settings
@@ -30,10 +32,12 @@ def main() -> None:
     restore.add_argument("candidate")
     restore.add_argument("--rollback-backup")
     restore.add_argument("--confirm-app-stopped", action="store_true")
+    restore.add_argument("--skip-rollback", action="store_true")
 
     export = subparsers.add_parser("export")
     export.add_argument("output")
     export.add_argument("--include-evaluations", action="store_true")
+    export.add_argument("--overwrite", action="store_true")
 
     args = parser.parse_args()
     database_url = get_settings().database_url
@@ -52,18 +56,31 @@ def main() -> None:
             args.candidate,
             confirm_app_stopped=args.confirm_app_stopped,
             rollback_backup=args.rollback_backup,
+            skip_rollback=args.skip_rollback,
         ).as_dict()
     else:
         document = export_portable_json(
             database_url,
             include_evaluations=args.include_evaluations,
         )
-        output = Path(args.output).expanduser()
+        output = Path(args.output).expanduser().resolve()
+        if output.exists() and not args.overwrite:
+            raise SystemExit(
+                f"export destination already exists: {output}; "
+                "pass --overwrite explicitly"
+            )
         output.parent.mkdir(parents=True, exist_ok=True)
-        output.write_text(
-            json.dumps(document, ensure_ascii=False, indent=2) + "\n",
-            encoding="utf-8",
+        temporary = output.with_name(
+            f".{output.name}.{uuid.uuid4().hex}.tmp"
         )
+        try:
+            temporary.write_text(
+                json.dumps(document, ensure_ascii=False, indent=2) + "\n",
+                encoding="utf-8",
+            )
+            os.replace(temporary, output)
+        finally:
+            temporary.unlink(missing_ok=True)
         result = {
             "output": str(output.resolve()),
             "format": document["format"],
