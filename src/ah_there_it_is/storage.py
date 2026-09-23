@@ -407,7 +407,7 @@ def _readonly_uri(path: Path) -> str:
 
 
 def _default_safety_backup(target: Path) -> Path:
-    stamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
+    stamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%S%fZ")
     suffix = target.suffix or ".sqlite3"
     return target.with_name(f"{target.stem}.pre-restore-{stamp}{suffix}")
 
