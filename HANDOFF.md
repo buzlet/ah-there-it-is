@@ -75,12 +75,16 @@ Remove the source-checkout/current-working-directory dependency from runtime mig
 
 ## Orchestrated implementation workflow
 
-Implementation-agent assignments are archived under `agent-tasks/`. Under this workflow the orchestrator owns repository verification and acceptance.
+Implementation-agent assignments and review records are archived under `agent-tasks/`. Current protocol v3 treats the trusted agent as both implementer and verifier.
 
-For an implementation handoff, the agent follows the referenced versioned common protocol, fast-forwards `main`, creates the assigned branch, implements only the assignment, opens a PR, and stops. It does not inspect unrelated branches/PRs/CI or run tests/checks unless the concrete assignment explicitly requests them. The orchestrator guarantees that no concurrent repository work occurs across the handoff interval.
+For a normal implementation handoff, the agent fast-forwards `main`, implements only the assignment, self-reviews the complete diff, runs focused plus canonical local verification, opens the PR, waits for and diagnoses its own CI, applies task-related corrections, repeats until green, merges the PR, synchronizes local `main`, writes the compact review record required by the protocol, and returns only an aggregated summary. Raw test/Alembic/CI logs remain out of the orchestrator conversation unless needed to explain a blocker.
 
-The assignment/review archive now includes completed Assignment 0001 plus `agent-tasks/reviews/0001-r1.md`. Future implementation work uses `agent-tasks/common/v2.md`; Stage 14 is `agent-tasks/assignments/0002-stage14-packaged-migrations.md`.
+The orchestrator retains product/architecture direction, stage transitions, assignment formulation, and decisions where requirements conflict or a materially new design choice is needed. It does not repeat routine review/tests/CI already owned by the agent. The orchestrator guarantees that no concurrent repository work occurs between assignment publication and the agent's initial pull.
 
-## Verification checkpoint
+Assignment 0001 completed under v1. Assignment 0002/v2 was superseded before execution and is recorded in `agent-tasks/reviews/0002-r0.md`. Future implementation uses `agent-tasks/common/v3.md`; active Stage 14 work is `agent-tasks/assignments/0003-stage14-packaged-migrations.md`.
 
-The orchestrator, not the implementation agent, verifies the resulting PR against current `main`, the assignment, canonical tests/checks, and CI before acceptance. Trust newer repository state over this handoff if they differ.
+## Development environment checkpoint
+
+Internal ChatGPT sandbox baseline relevant to project/build compatibility: Python 3.13.5, pip 25.1.1, setuptools 82.0.1, wheel 0.46.3; the separate `build` package is not installed.
+
+U24 project venv at `/home/gpt/projects/ah-there-it-is/.venv` is aligned for the same build path where practical: Python 3.12.3 (project-supported), pip 25.1.1, setuptools 82.0.1, wheel 0.46.3, no `build` package. `python -m pip wheel --no-build-isolation --no-deps .` was verified successfully there. Do not upgrade these merely because newer versions or deprecation notices exist; the active sandbox remains the primary compatibility reference.

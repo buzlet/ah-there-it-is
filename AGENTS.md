@@ -43,7 +43,7 @@
 - Use **Just** (`Justfile`) as the canonical runner for repeated development operations such as tests, checks, migrations, and the development server. Do not duplicate recurring command sequences in documentation or ad-hoc scripts when a Just recipe is appropriate.
 - If `just` itself is unavailable in a constrained environment, keep the `Justfile` authoritative and run the exact underlying recipe commands directly until `just` is available; do not add a network dependency merely to bootstrap the task runner.
 - Development tool/dependency/workflow versions are chosen primarily for compatibility with versions available and exercisable in the active development sandbox. Do not upgrade dependencies, GitHub Actions, or runtimes merely to silence upstream deprecation warnings; change them when the active environment or required functionality makes the change necessary, or when a task explicitly requests it.
-- When work is delegated through the orchestrated implementation workflow, follow the versioned protocol and assignment archive under `agent-tasks/`. The implementation agent performs the assigned change and opens a PR; repository verification and acceptance belong to the orchestrator unless an assignment explicitly delegates a check.
+- When work is delegated through the orchestrated implementation workflow, follow the versioned protocol and assignment archive under `agent-tasks/`. Current protocol v3 delegates the complete routine execution cycle to one trusted implementation+verification agent: implementation, self-review, local canonical checks, PR/CI diagnosis and corrections, merge, main synchronization, and compact reporting. The orchestrator retains product/architecture direction, assignment design, stage transitions, and decisions on genuine blockers.
 
 ## Stage status
 
@@ -267,4 +267,5 @@ Make database migrations self-contained in the installed package instead of depe
 3. Route portable import through that boundary so Stage 12-13 recovery works from an arbitrary working directory after package installation.
 4. Add an explicit application database-upgrade operation and minimal CLI/Just surface; do not auto-migrate during import, `create_app()`, or server startup.
 5. Test fresh upgrade and v1 portable import/search from a working directory that contains no repository `alembic.ini`.
-6. Keep dependency/tool/workflow versions aligned with the active sandbox and make no provider/model or deferred product-feature changes in this stage.
+6. Build a real wheel with the sandbox-aligned setuptools/wheel toolchain and prove migration resources are present and executable from the wheel-installed package outside the source tree.
+7. Keep dependency/tool/workflow versions aligned with the active sandbox and make no provider/model or deferred product-feature changes in this stage.
