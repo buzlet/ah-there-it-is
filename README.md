@@ -207,6 +207,18 @@ Normal application CI receives no provider secrets. Provider secrets/variables r
 Native Gemini and OpenAI-compatible adapters remain replaceable implementations behind the same `LLMClient` boundary. Provider-specific protocol work belongs in adapter/contract tests, not in inventory scenarios.
 
 
+## Installed-package database upgrades
+
+Database upgrades are explicit operator actions and use Alembic resources shipped inside the installed `ah_there_it_is` package. They do not depend on the current working directory, a repository-root `alembic.ini`, or a sibling top-level `migrations/` directory.
+
+```bash
+just migrate
+# or, from an installed package:
+python -m ah_there_it_is.storage_cli upgrade
+```
+
+Application startup does not run migrations automatically. Portable import uses the same packaged migration runner for its brand-new staging database and pins that migration to the explicit destination URL rather than any ambient `AH_THERE_IT_IS_DATABASE_URL`.
+
 ## Local backup, restore, and portable export/import
 
 Stage 11/12 storage operations are application-only and require no LLM/provider access.

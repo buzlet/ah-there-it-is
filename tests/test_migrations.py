@@ -2,20 +2,17 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from alembic import command
-from alembic.config import Config
 from sqlalchemy import inspect, text
 
+from ah_there_it_is.db.migrations import downgrade_database, upgrade_database
 from ah_there_it_is.db.session import create_db_engine
+from ah_there_it_is.storage import CURRENT_SCHEMA_REVISION, validate_database
 
 
 def test_initial_migration_round_trip(tmp_path: Path) -> None:
     database = tmp_path / "migration.db"
     url = f"sqlite:///{database}"
-    config = Config("alembic.ini")
-    config.set_main_option("sqlalchemy.url", url)
-
-    command.upgrade(config, "head")
+    upgrade_database(url)
 
     engine = create_db_engine(url)
     try:
@@ -65,7 +62,7 @@ def test_initial_migration_round_trip(tmp_path: Path) -> None:
     finally:
         engine.dispose()
 
-    command.downgrade(config, "base")
+    downgrade_database(url)
 
     engine = create_db_engine(url)
     try:
@@ -79,7 +76,7 @@ def test_initial_migration_round_trip(tmp_path: Path) -> None:
     finally:
         engine.dispose()
 
-    command.upgrade(config, "head")
+    upgrade_database(url)
 
 
 def test_search_migration_backfills_existing_stage1_items(tmp_path: Path) -> None:
@@ -89,10 +86,7 @@ def test_search_migration_backfills_existing_stage1_items(tmp_path: Path) -> Non
 
     database = tmp_path / "stage1_upgrade.db"
     url = f"sqlite:///{database}"
-    config = Config("alembic.ini")
-    config.set_main_option("sqlalchemy.url", url)
-
-    command.upgrade(config, "ae83dd1ff537")
+    upgrade_database(url, "ae83dd1ff537")
 
     engine = create_db_engine(url)
     try:
@@ -109,7 +103,7 @@ def test_search_migration_backfills_existing_stage1_items(tmp_path: Path) -> Non
     finally:
         engine.dispose()
 
-    command.upgrade(config, "head")
+    upgrade_database(url)
 
     engine = create_db_engine(url)
     try:
@@ -120,3 +114,20 @@ def test_search_migration_backfills_existing_stage1_items(tmp_path: Path) -> Non
             assert search.search_items("BIOS")[0].id == item_id
     finally:
         engine.dispose()
+
+
+def test_packaged_upgrade_is_cwd_independent_and_ignores_ambient_url(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    database = tmp_path / "fresh.db"
+    ambient = tmp_path / "ambient.db"
+    unrelated = tmp_path / "unrelated"
+    unrelated.mkdir()
+    monkeypatch.setenv("AH_THERE_IT_IS_DATABASE_URL", f"sqlite:///{ambient}")
+    monkeypatch.chdir(unrelated)
+
+    upgrade_database(f"sqlite:///{database}")
+
+    assert validate_database(database).alembic_revision == CURRENT_SCHEMA_REVISION
+    assert not ambient.exists()

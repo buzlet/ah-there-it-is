@@ -12,14 +12,12 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
-from alembic import command
-from alembic.config import Config
 from pydantic import BaseModel, ConfigDict, Field, ValidationError
-from alembic.script import ScriptDirectory
 from sqlalchemy import select, text
 from sqlalchemy.engine import make_url
 from sqlalchemy.orm import Session, selectinload
 
+from ah_there_it_is.db.migrations import migration_heads, upgrade_database
 from ah_there_it_is.db.models import (
     Alias,
     Category,
@@ -431,9 +429,8 @@ def _json_object_no_duplicates(pairs: list[tuple[str, Any]]) -> dict[str, Any]:
     return result
 
 
-def expected_alembic_head(alembic_ini: str | Path = "alembic.ini") -> str:
-    config = Config(str(alembic_ini))
-    heads = ScriptDirectory.from_config(config).get_heads()
+def expected_alembic_head() -> str:
+    heads = migration_heads()
     if len(heads) != 1:
         raise StorageError(f"expected exactly one Alembic head, found {heads!r}")
     return heads[0]
@@ -639,8 +636,6 @@ def import_portable_inventory(
     database_url: str,
     source: str | Path,
     destination: str | Path,
-    *,
-    alembic_ini: str | Path = "alembic.ini",
 ) -> PortableImportResult:
     """Reconstruct portable inventory/history into a brand-new migrated database."""
     document = load_portable_inventory(source)
@@ -650,7 +645,7 @@ def import_portable_inventory(
     working = _temporary_sibling(target, "portable-work")
     publish = _temporary_sibling(target, "portable-final")
     try:
-        _migrate_new_database(working, alembic_ini=alembic_ini)
+        _migrate_new_database(working)
         working_url = f"sqlite:///{working}"
         engine = create_db_engine(working_url)
         factory = create_session_factory(engine)
@@ -699,17 +694,13 @@ def import_portable_inventory(
         _unlink_sqlite_files(publish)
 
 
-def _migrate_new_database(path: Path, *, alembic_ini: str | Path) -> None:
+def _migrate_new_database(path: Path) -> None:
     if path.exists():
         raise StorageError(f"portable import staging path already exists: {path}")
-    config = Config(str(alembic_ini))
     database_url = f"sqlite:///{path}"
-    config.set_main_option("sqlalchemy.url", database_url)
-    # migrations/env.py normally permits AH_THERE_IT_IS_DATABASE_URL to
-    # override alembic.ini. Portable import must be immune to that ambient
-    # setting because its only legal migration target is this staging DB.
-    config.attributes["database_url_override"] = database_url
-    command.upgrade(config, "head")
+    # The packaged runner always pins Alembic to this explicit staging URL,
+    # so ambient active-database configuration cannot hijack portable import.
+    upgrade_database(database_url)
 
 
 def _write_portable_inventory(

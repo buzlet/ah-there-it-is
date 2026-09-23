@@ -6,8 +6,6 @@ from copy import deepcopy
 from pathlib import Path
 
 import pytest
-from alembic import command
-from alembic.config import Config
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
@@ -17,6 +15,7 @@ from ah_there_it_is.db.models import (
     Event,
     Message,
 )
+from ah_there_it_is.db.migrations import upgrade_database
 from ah_there_it_is.db.session import create_db_engine
 from ah_there_it_is.eval_fixture import seed_inventory_fixture
 from ah_there_it_is.services.inventory import InventoryService
@@ -41,9 +40,7 @@ from ah_there_it_is.storage_cli import main as storage_cli_main
 
 def _migrate(database: Path) -> str:
     url = f"sqlite:///{database}"
-    config = Config("alembic.ini")
-    config.set_main_option("sqlalchemy.url", url)
-    command.upgrade(config, "head")
+    upgrade_database(url)
     return url
 
 

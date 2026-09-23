@@ -34,6 +34,7 @@ where = ["src"]
 ah_there_it_is = [
     "web/templates/*.html",
     "web/static/*",
+    "db/migrations/script.py.mako",
 ]
 
 [tool.pytest.ini_options]

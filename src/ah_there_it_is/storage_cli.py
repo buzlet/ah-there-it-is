@@ -6,6 +6,7 @@ import argparse
 import json
 
 from ah_there_it_is.config import get_settings
+from ah_there_it_is.db.migrations import check_database_schema, upgrade_database
 from ah_there_it_is.storage import (
     create_backup,
     export_portable_inventory,
@@ -35,6 +36,9 @@ def main() -> None:
     export = subparsers.add_parser("export-json")
     export.add_argument("destination")
 
+    subparsers.add_parser("upgrade")
+    subparsers.add_parser("migration-check")
+
     import_json = subparsers.add_parser("import-json")
     import_json.add_argument("source")
     import_json.add_argument("destination")
@@ -57,6 +61,12 @@ def main() -> None:
             args.candidate,
             safety_backup=args.safety_backup,
         ).as_dict()
+    elif args.command == "upgrade":
+        upgrade_database(database_url)
+        result = {"upgraded_to": "head"}
+    elif args.command == "migration-check":
+        check_database_schema(database_url)
+        result = {"migration_check": "ok"}
     elif args.command == "export-json":
         document = export_portable_inventory(database_url, args.destination)
         result = {
