@@ -170,3 +170,14 @@ Assignment 0001 completed under v1. Assignment 0002/v2 was superseded before exe
 Internal ChatGPT sandbox baseline relevant to project/build compatibility: Python 3.13.5, pip 25.1.1, setuptools 82.0.1, wheel 0.46.3; the separate `build` package is not installed.
 
 U24 project venv at `/home/gpt/projects/ah-there-it-is/.venv` is aligned for the same build path where practical: Python 3.12.3 (project-supported), pip 25.1.1, setuptools 82.0.1, wheel 0.46.3, no `build` package. `python -m pip wheel --no-build-isolation --no-deps .` was verified successfully there. Do not upgrade these merely because newer versions or deprecation notices exist; the active sandbox remains the primary compatibility reference.
+
+## Stage 23 current objective — write target safety
+
+Assignment 0013 replaces the superseded Activity plan.
+
+- `move_item.location_id` must be required but nullable.
+- Search ranking remains read evidence only; result count, `limit`, score and score gap never imply write authorization.
+- Item identity resolution checks all canonical-name and alias collisions together.
+- Location/Category resolution uses exact path or globally unique exact leaf identity.
+- The evidence that authorized a stable ID must be revalidated in the same write transaction as the mutation, or by an equivalent atomic write condition.
+- This stage does not yet redesign whole-turn rollback, receipts, idempotency commit boundaries, location lifecycle semantics, or Activity/history rendering.

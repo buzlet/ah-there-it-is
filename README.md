@@ -332,6 +332,6 @@ The parser rejects unknown format identifiers, unknown structural fields, malfor
 
 Stages 0–22 are complete. The browser can create, correct, and discover Items, Categories, and Locations without an LLM while the domain/service layer owns identity, tree, history, transaction, and FTS rules. The provider-independent 42-case scenario suite, explicit recovery/doctor tooling, CWD-independent installed runtime, and 1000-item / 200-location structural scale coverage remain in place.
 
-The previously seeded Stage 23 browser Activity plan (Assignment 0012) was superseded before implementation after an external write-safety audit. Activity remains deferred until write-target safety and historical evidence semantics are strengthened.
+The previously seeded Stage 23 browser Activity plan (Assignment 0012) was superseded before implementation after an external write-safety audit. Replacement Assignment 0013 makes agent write-target authorization independent of weak/truncated search evidence and closes the implicit-null move argument hazard. Activity remains deferred until write safety and historical evidence semantics are strengthened.
 
 Deletion/retirement policy remains deliberately deferred pending a separate domain/portable-history decision. Voice, Telegram, images, QR, MCP, PWA, embeddings, multi-user support, public deployment, service-manager integration, containerization, and installer packaging also remain deferred.

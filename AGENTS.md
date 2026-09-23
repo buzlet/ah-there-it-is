@@ -357,3 +357,14 @@ Assignment 0012 proposed a read-only browser Activity timeline. External archite
 - Review record: `agent-tasks/reviews/0012-r0.md`.
 - The Activity concept is deferred until historical evidence semantics are trustworthy.
 - The next Stage 23 plan is issued separately under Assignment 0013.
+
+### Stage 23 — assigned replacement plan
+
+Harden agent write-target resolution independently of model quality:
+
+1. Make `move_item.location_id` required-but-nullable so omission is an invalid tool call while explicit null remains intentional.
+2. Separate read ranking from write authorization; singleton results and score gaps never grant mutation rights.
+3. Resolve Item writes only from globally unique strong identity evidence across canonical names and aliases; generic attributes, tags, substring and FTS remain read-only evidence.
+4. Resolve Location/Category writes only from exact full path or globally unique exact leaf identity.
+5. Revalidate the resolution evidence atomically with the mutation so stale earlier search state cannot authorize a write.
+6. Add adversarial tests for truncated search, canonical/alias collisions, weak singleton matches and provider tool-schema handling.
