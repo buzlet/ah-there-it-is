@@ -348,6 +348,18 @@ def test_completed_chat_request_cannot_be_recovered_via_api() -> None:
         engine.dispose()
 
 
+def test_browser_keeps_blocked_request_key_for_manual_recovery() -> None:
+    app, _, engine = build_test_app()
+    try:
+        with TestClient(app) as client:
+            script = client.get("/static/chat.js")
+        assert script.status_code == 200
+        assert "response.status === 425 || response.status === 409" in script.text
+        assert "Inspect Requests before creating a new attempt." in script.text
+    finally:
+        engine.dispose()
+
+
 def test_conversation_can_continue_and_be_restored_with_rating() -> None:
     app, factory, engine = build_test_app()
     try:
