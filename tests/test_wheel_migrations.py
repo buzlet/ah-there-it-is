@@ -19,18 +19,28 @@ def test_wheel_contains_and_runs_packaged_migrations(tmp_path: Path) -> None:
     outside.mkdir()
     shutil.copy2(repo / "tests/fixtures/inventory-portable-v1.json", fixture)
 
+    build_command = [
+        sys.executable,
+        "-m",
+        "pip",
+        "wheel",
+        "--no-deps",
+        "--wheel-dir",
+        str(wheelhouse),
+        str(repo),
+    ]
+    # U24 is intentionally provisioned with the build backend toolchain and
+    # must exercise the no-build-isolation path. Generic CI only installs the
+    # project/test dependencies, so let pip isolate pyproject build requirements
+    # there instead of adding wheel/setuptools as application dependencies.
+    if (
+        importlib.util.find_spec("setuptools") is not None
+        and importlib.util.find_spec("wheel") is not None
+    ):
+        build_command.insert(4, "--no-build-isolation")
+
     subprocess.run(
-        [
-            sys.executable,
-            "-m",
-            "pip",
-            "wheel",
-            "--no-build-isolation",
-            "--no-deps",
-            "--wheel-dir",
-            str(wheelhouse),
-            str(repo),
-        ],
+        build_command,
         cwd=repo,
         check=True,
         capture_output=True,
