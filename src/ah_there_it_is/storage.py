@@ -166,19 +166,27 @@ class PortableImportResult:
 
 
 def parse_portable_inventory(data: Any) -> PortableInventoryDocument:
-    """Purely validate an already-decoded portable inventory document."""
+    """Dispatch an already-decoded portable inventory document by format."""
     if not isinstance(data, dict):
         raise PortableInventoryValidationError("portable document must be a JSON object")
     if "format" not in data:
         raise PortableInventoryValidationError("portable document is missing required format")
     if not isinstance(data["format"], str):
         raise PortableInventoryValidationError("portable document format must be a string")
-    if data["format"] != PORTABLE_EXPORT_VERSION:
+
+    parser = _PORTABLE_FORMAT_PARSERS.get(data["format"])
+    if parser is None:
         raise PortableInventoryValidationError(
             f"unsupported portable format {data['format']!r}; "
             f"expected {PORTABLE_EXPORT_VERSION!r}"
         )
+    return parser(data)
 
+
+def _parse_portable_inventory_v1(
+    data: dict[str, Any],
+) -> PortableInventoryDocument:
+    """Validate the frozen inventory-portable-v1 contract."""
     try:
         document = PortableInventoryDocument.model_validate(data)
     except ValidationError as exc:
@@ -192,6 +200,11 @@ def parse_portable_inventory(data: Any) -> PortableInventoryDocument:
 
     _validate_portable_semantics(document)
     return document
+
+
+_PORTABLE_FORMAT_PARSERS = {
+    PORTABLE_EXPORT_VERSION: _parse_portable_inventory_v1,
+}
 
 
 def load_portable_inventory(path: str | Path) -> PortableInventoryDocument:

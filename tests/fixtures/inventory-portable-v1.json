@@ -1,0 +1,173 @@
+{
+  "format": "inventory-portable-v1",
+  "exported_at": "2026-06-15T12:00:00+00:00",
+  "source": {
+    "alembic_revision": "c4cfe3a3e921"
+  },
+  "inventory": {
+    "categories": [
+      {
+        "id": 10,
+        "parent_id": null,
+        "name": "Electronics",
+        "description": "Electronic parts and tools",
+        "created_at": "2026-01-10T08:00:00+00:00",
+        "updated_at": "2026-01-10T08:00:00+00:00"
+      },
+      {
+        "id": 11,
+        "parent_id": 10,
+        "name": "Programming Tools",
+        "description": "Flash and firmware programming equipment",
+        "created_at": "2026-01-10T08:05:00+00:00",
+        "updated_at": "2026-02-01T09:00:00+00:00"
+      },
+      {
+        "id": 12,
+        "parent_id": 10,
+        "name": "Cables",
+        "description": null,
+        "created_at": "2026-01-10T08:06:00+00:00",
+        "updated_at": "2026-01-10T08:06:00+00:00"
+      }
+    ],
+    "locations": [
+      {
+        "id": 20,
+        "parent_id": null,
+        "name": "Workshop",
+        "description": "Main work room",
+        "created_at": "2026-01-10T08:10:00+00:00",
+        "updated_at": "2026-01-10T08:10:00+00:00"
+      },
+      {
+        "id": 21,
+        "parent_id": 20,
+        "name": "Cabinet A",
+        "description": "Metal cabinet",
+        "created_at": "2026-01-10T08:11:00+00:00",
+        "updated_at": "2026-01-10T08:11:00+00:00"
+      },
+      {
+        "id": 22,
+        "parent_id": 21,
+        "name": "Top Drawer",
+        "description": "Small tools drawer",
+        "created_at": "2026-01-10T08:12:00+00:00",
+        "updated_at": "2026-03-05T10:30:00+00:00"
+      },
+      {
+        "id": 23,
+        "parent_id": 21,
+        "name": "Cable Box",
+        "description": null,
+        "created_at": "2026-01-10T08:13:00+00:00",
+        "updated_at": "2026-03-05T10:35:00+00:00"
+      }
+    ],
+    "items": [
+      {
+        "id": 1001,
+        "name": "USB Programmer",
+        "description": "Black USB SPI programmer for firmware recovery",
+        "state": "used",
+        "category_id": 11,
+        "location_id": 22,
+        "quantity": 2,
+        "attributes": {
+          "model": "CH341A",
+          "voltage_v": 3.3,
+          "interfaces": ["SPI", "I2C"]
+        },
+        "aliases": ["CH341A", "Black programmer"],
+        "tags": ["BIOS", "SPI"],
+        "created_at": "2026-02-01T09:15:00+00:00",
+        "updated_at": "2026-04-20T11:20:00+00:00"
+      },
+      {
+        "id": 1002,
+        "name": "SOIC8 Clip",
+        "description": "Test clip for in-circuit flash programming",
+        "state": "working",
+        "category_id": 11,
+        "location_id": 22,
+        "quantity": 1,
+        "attributes": {
+          "pin_count": 8,
+          "connector": "2.54mm"
+        },
+        "aliases": ["Pomona-style clip"],
+        "tags": ["SPI", "adapter"],
+        "created_at": "2026-02-01T09:20:00+00:00",
+        "updated_at": "2026-05-02T15:00:00+00:00"
+      },
+      {
+        "id": 1003,
+        "name": "USB-C Cable",
+        "description": "Braided USB data cable",
+        "state": "new",
+        "category_id": 12,
+        "location_id": 23,
+        "quantity": 3,
+        "attributes": {
+          "length_m": 1.0,
+          "color": "blue"
+        },
+        "aliases": ["Type-C cable"],
+        "tags": ["USB", "cable"],
+        "created_at": "2026-03-05T10:00:00+00:00",
+        "updated_at": "2026-03-05T10:35:00+00:00"
+      }
+    ]
+  },
+  "history": {
+    "events": [
+      {
+        "id": 5001,
+        "event_type": "item_created",
+        "item_id": 1001,
+        "from_location_id": null,
+        "to_location_id": 22,
+        "payload": {
+          "name": "USB Programmer",
+          "quantity": 2,
+          "state": "used"
+        },
+        "original_text": "Added two CH341A programmers",
+        "created_at": "2026-02-01T09:15:00+00:00"
+      },
+      {
+        "id": 5002,
+        "event_type": "item_state_changed",
+        "item_id": 1002,
+        "from_location_id": 22,
+        "to_location_id": 22,
+        "payload": {
+          "from": "needs_test",
+          "to": "working"
+        },
+        "original_text": "SOIC8 clip tested and working",
+        "created_at": "2026-05-02T15:00:00+00:00"
+      },
+      {
+        "id": 5003,
+        "event_type": "item_moved",
+        "item_id": 1003,
+        "from_location_id": 22,
+        "to_location_id": 23,
+        "payload": {
+          "reason": "sorted cables"
+        },
+        "original_text": "Moved USB-C cables to the cable box",
+        "created_at": "2026-03-05T10:35:00+00:00"
+      }
+    ]
+  },
+  "excluded": [
+    "agent_run_logs",
+    "agent_feedback",
+    "experiment_runs",
+    "experiment_reviews",
+    "provider_metadata"
+  ]
+}
