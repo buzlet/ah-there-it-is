@@ -1,0 +1,75 @@
+{% extends "base.html" %}
+{% block title %}Chat requests · {{ app_name }}{% endblock %}
+{% block content %}
+<section class="section-head">
+  <div>
+    <h1>Chat requests</h1>
+    <p class="muted">Local idempotency records. Recovery creates a new audited attempt; it never rewrites the original record.</p>
+  </div>
+</section>
+
+<div class="card">
+  <strong>Recovery warning.</strong>
+  A <code>processing</code> record may represent a request whose mutation committed before the client received a response.
+  Recover only after manual inspection; the new attempt can duplicate an already-committed action.
+</div>
+
+<div class="table-wrap">
+<table>
+  <thead>
+    <tr>
+      <th>Updated</th>
+      <th>Key</th>
+      <th>Status</th>
+      <th>Conversation / run</th>
+      <th>Message / error</th>
+      <th>Recovery</th>
+    </tr>
+  </thead>
+  <tbody>
+  {% for row in records %}
+    <tr>
+      <td>{{ row.updated_at }}</td>
+      <td><code>{{ row.request_key }}</code></td>
+      <td><strong>{{ row.status }}</strong></td>
+      <td>
+        {% if row.requested_conversation_id %}conversation {{ row.requested_conversation_id }}{% else %}new conversation{% endif %}
+        {% if row.agent_run_id %}<br><a href="/evaluations/{{ row.agent_run_id }}">run {{ row.agent_run_id }}</a>{% endif %}
+      </td>
+      <td>
+        <div>{{ row.message }}</div>
+        {% if row.error %}<pre>{{ row.error }}</pre>{% endif %}
+        {% if row.recovered_from_request_key %}
+          <div class="muted">Recovered from <code>{{ row.recovered_from_request_key }}</code></div>
+          <div class="muted">{{ row.recovery_note }}</div>
+        {% endif %}
+      </td>
+      <td>
+        {% if row.status in ["processing", "failed"] %}
+        <form class="recovery-form" data-source-key="{{ row.request_key }}">
+          <label>
+            Operator note
+            <textarea name="note" rows="2" required minlength="3" placeholder="What was checked before allowing a new attempt?"></textarea>
+          </label>
+          <label class="inline-check">
+            <input type="checkbox" name="ack" required>
+            I accept the risk that the original request may already have committed.
+          </label>
+          <button type="submit">Create and run new attempt</button>
+          <div class="status" aria-live="polite"></div>
+        </form>
+        {% else %}
+          <span class="muted">Completed requests are replayed, not recovered.</span>
+        {% endif %}
+      </td>
+    </tr>
+  {% else %}
+    <tr><td colspan="6" class="muted">No idempotent chat requests yet.</td></tr>
+  {% endfor %}
+  </tbody>
+</table>
+</div>
+{% endblock %}
+{% block scripts %}
+<script src="/static/chat_requests.js" defer></script>
+{% endblock %}
