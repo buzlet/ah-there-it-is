@@ -289,13 +289,23 @@ Stage 6 was deliberately restructured after live-provider work began coupling ap
 - Added bootstrap preflight/apply CLI and Just surfaces plus a hand-authored fixture and rollback/search/FTS/portable-export integration coverage.
 - Final Stage 16 verification passed 195 tests, migration/corpus/scenario/provider-contract checks, all 42 deterministic scenarios, and Python 3.12/3.13 CI.
 
-### Stage 17 — next
+### Stage 17 — complete
 
-Make the installed wheel directly runnable as the local web application with an explicit, non-migrating runtime lifecycle:
+- Added installed `ah-there-it-is serve` console entry point with explicit host/port parsing and loopback-only defaults.
+- Added a read-only runtime schema gate requiring an existing file-backed SQLite database whose Alembic head set exactly equals the packaged migration heads before Uvicorn starts.
+- Missing, uninitialized, behind, ahead, or incompatible databases are rejected without creation or migration; explicit upgrade remains operator-owned.
+- Removed module-level application/Jinja runtime construction; `create_app()` is the true factory and development `just serve` uses Uvicorn factory mode with reload.
+- Real wheel smoke now verifies console metadata plus installed-package health/index/static serving from outside the checkout and clean shutdown.
+- No schema/data-format/provider/dependency/runtime/workflow or deployment-service behavior changed.
+- Final Stage 17 verification passed 210 tests, all 42 deterministic scenarios, provider contract, and Python 3.12/3.13 CI.
 
-1. Add an `ah-there-it-is serve` console entry point with loopback-only defaults.
-2. Remove module-level application construction and use `create_app()` as a true Uvicorn factory; keep dev reload only in `just serve`.
-3. Before installed serve, read-only verify that the configured database already exists and is at the exact packaged Alembic head; fail without creating/migrating it otherwise.
-4. Keep explicit upgrade/bootstrap/recovery operations separate from runtime startup.
-5. Extend wheel-installed smoke coverage to start the app outside the checkout and verify health/index/static assets on localhost.
-6. Keep provider/model behavior, data formats, schema, dependencies, and deployment/service-manager concerns unchanged.
+### Stage 18 — next
+
+Give the installed local application one stable per-user data home so its default database no longer depends on the process working directory:
+
+1. Resolve a deterministic platform-appropriate per-user data directory using only the standard library, with `AH_THERE_IT_IS_DATA_DIR` override.
+2. When `AH_THERE_IT_IS_DATABASE_URL` is absent, derive the default SQLite URL from `<data dir>/inventory.db`; an explicit database URL always wins.
+3. Keep settings/import/runtime reads side-effect-free; only the explicit upgrade operation may create a missing data-directory parent/database.
+4. Add a read-only installed `paths` surface so the operator can see the resolved local paths without exposing secrets.
+5. Prove explicit upgrade and installed serve use the same default database from unrelated working directories.
+6. Extend real-wheel coverage for cross-CWD default-path operation while leaving data/recovery/provider semantics unchanged.

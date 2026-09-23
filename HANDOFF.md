@@ -6,7 +6,7 @@
 - Default branch: `main`
 - Always verify current `origin/main`, PR state, and CI before starting new work.
 - This handoff supersedes the pre-Stage-12 handoff that existed at commit `198061c9c88353a950cb90f2ec8fcd6cabd51edf`.
-- **Stages 0–16 are complete. Stage 17 is next.**
+- **Stages 0–17 are complete. Stage 18 is next.**
 - `AGENTS.md` remains the authoritative architecture/development/stage plan.
 - Full SQLite backup/restore and portable inventory import are intentionally separate recovery products.
 
@@ -81,32 +81,42 @@
 - hand-authored fixture plus validator/preflight/dry-run/rollback/search/FTS/portable-v1 integration coverage;
 - complete protocol-v3 verification green: 195 tests, 42/42 scenarios, provider contract, Python 3.12/3.13 CI.
 
-## Stage 17 objective
+## Stage 17 delivered
 
-Make the installed package directly runnable while keeping database lifecycle explicit:
+- installed `ah-there-it-is serve` console command with local-only defaults and explicit host/port override;
+- exact-head read-only SQLite runtime gate before Uvicorn, rejecting missing/uninitialized/behind/ahead/incompatible schema without creation or migration;
+- side-effect-light `ah_there_it_is.app` import with `create_app()` as the real factory;
+- development `just serve` separated as factory + reload behavior;
+- real wheel smoke exercises installed console metadata and localhost health/index/static serving outside checkout;
+- explicit migration/bootstrap/recovery lifecycle preserved;
+- complete protocol-v3 verification green: 210 tests, 42/42 scenarios, provider contract, Python 3.12/3.13 CI.
 
-1. Add an `ah-there-it-is serve` console entry point with `127.0.0.1:8000` defaults and explicit host/port overrides.
-2. Remove module-level `app = create_app()` side effects; use `create_app()` as the Uvicorn factory and keep reload only in the development Just recipe.
-3. Before installed serve, read-only verify that the configured database already exists and its Alembic head set exactly matches packaged heads; reject missing/behind/ahead schema without creating or migrating it.
-4. Keep `storage_cli upgrade`, bootstrap, portable recovery, and backup/restore explicit and separate from startup.
-5. Extend real wheel smoke coverage to run installed CLI/app outside checkout and verify localhost health/index/static assets.
-6. Keep schema/data formats/provider/model/dependency/deployment-service concerns unchanged.
+## Stage 18 objective
+
+Remove the remaining current-working-directory dependency from the installed application's default local data location:
+
+1. Resolve a deterministic platform-appropriate per-user data directory with stdlib only and `AH_THERE_IT_IS_DATA_DIR` override.
+2. If `AH_THERE_IT_IS_DATABASE_URL` is absent, use `<data dir>/inventory.db`; explicit database URL configuration always has precedence.
+3. Keep all settings/import/runtime reads side-effect-free and keep Stage 17 serve rejection for a missing database.
+4. Let only the existing explicit upgrade write path create a missing SQLite parent directory/database.
+5. Add a read-only installed `paths` command exposing resolved non-secret local paths.
+6. Prove upgrade and serve use the same default database from different CWDs, including real-wheel installed coverage.
 
 ## Files to read first
 
 1. `HANDOFF.md`
 2. `AGENTS.md`
 3. `README.md`
-4. `pyproject.toml`
-5. `src/ah_there_it_is/app.py`
-6. `src/ah_there_it_is/config.py`
-7. `src/ah_there_it_is/db/migrations/__init__.py`
-8. `src/ah_there_it_is/db/session.py`
-9. `src/ah_there_it_is/storage_cli.py`
-10. `tests/test_app.py`
-11. `tests/test_migrations.py`
-12. `tests/test_wheel_migrations.py`
-13. `Justfile`
+4. `src/ah_there_it_is/config.py`
+5. `src/ah_there_it_is/runtime_cli.py`
+6. `src/ah_there_it_is/storage_cli.py`
+7. `src/ah_there_it_is/storage.py`
+8. `src/ah_there_it_is/db/migrations/__init__.py`
+9. `tests/test_runtime_cli.py`
+10. `tests/test_storage.py`
+11. `tests/test_wheel_migrations.py`
+12. `Justfile`
+13. `pyproject.toml`
 
 ## Orchestrated implementation workflow
 
@@ -116,7 +126,7 @@ For a normal implementation handoff, the agent fast-forwards `main`, implements 
 
 The orchestrator retains product/architecture direction, stage transitions, assignment formulation, and decisions where requirements conflict or a materially new design choice is needed. It does not repeat routine review/tests/CI already owned by the agent. The orchestrator guarantees that no concurrent repository work occurs between assignment publication and the agent's initial pull.
 
-Assignment 0001 completed under v1. Assignment 0002/v2 was superseded before execution and is recorded in `agent-tasks/reviews/0002-r0.md`. Future implementation uses `agent-tasks/common/v3.md`; active Stage 17 work is `agent-tasks/assignments/0006-stage17-runtime-entrypoint.md`.
+Assignment 0001 completed under v1. Assignment 0002/v2 was superseded before execution and is recorded in `agent-tasks/reviews/0002-r0.md`. Future implementation uses `agent-tasks/common/v3.md`; active Stage 18 work is `agent-tasks/assignments/0007-stage18-stable-data-home.md`.
 
 ## Development environment checkpoint
 

@@ -300,8 +300,8 @@ The parser rejects unknown format identifiers, unknown structural fields, malfor
 
 ## Current scope
 
-Stages 0–16 are complete. The application regression pipeline covers 42 provider-independent scenarios with persisted-state/event postconditions. Agent turns remain transactionally atomic, chat submissions are retry-safe, unknown-location suggestions remain read-only, the local SQLite store has validated backup/restore plus versioned portable recovery, and strict bootstrap onboarding can populate an empty current-schema inventory without importing database identity/history state. Packaged migrations and recovery paths work outside the checkout. Provider/model compatibility remains a separate contract pipeline.
+Stages 0–17 are complete. The application regression pipeline covers 42 provider-independent scenarios with persisted-state/event postconditions. Agent turns remain transactionally atomic, chat submissions are retry-safe, unknown-location suggestions remain read-only, strict bootstrap onboarding and versioned recovery are available, and an installed wheel now runs directly through a local-only console entry point guarded by an exact non-migrating schema check. Provider/model compatibility remains a separate contract pipeline.
 
-Stage 17 makes the installed wheel directly runnable as the local web application. Installed serve will use an explicit console entry point and refuse to start unless the configured database already exists at the exact packaged schema head; startup will never migrate or create the database automatically.
+Stage 18 removes the last implicit source/development assumption from normal installed storage: the default database will live in one deterministic per-user application data directory rather than whichever working directory happened to launch the process. Explicit database URL configuration remains authoritative.
 
-Voice, Telegram, images, QR, MCP, PWA, embeddings, multi-user support, public deployment, service-manager integration, and containerization remain deferred and are not part of Stage 17.
+Voice, Telegram, images, QR, MCP, PWA, embeddings, multi-user support, public deployment, service-manager integration, containerization, and installer packaging remain deferred and are not part of Stage 18.
