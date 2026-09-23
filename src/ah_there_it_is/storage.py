@@ -13,6 +13,7 @@ from pathlib import Path
 from typing import Any
 
 from alembic.config import Config
+from pydantic import BaseModel, ConfigDict, Field, ValidationError
 from alembic.script import ScriptDirectory
 from sqlalchemy import select, text
 from sqlalchemy.engine import make_url
@@ -27,6 +28,8 @@ from ah_there_it_is.db.models import (
     Location,
 )
 from ah_there_it_is.db.session import create_db_engine, create_session_factory
+from ah_there_it_is.domain.names import normalize_name
+from ah_there_it_is.domain.states import ItemState
 
 
 PORTABLE_EXPORT_VERSION = "inventory-portable-v1"
@@ -39,6 +42,72 @@ class StorageError(RuntimeError):
 
 class DatabaseValidationError(StorageError):
     """A SQLite candidate failed integrity/schema validation."""
+
+
+class PortableInventoryValidationError(StorageError):
+    """A portable inventory document is structurally or semantically invalid."""
+
+
+class _PortableModel(BaseModel):
+    model_config = ConfigDict(extra="forbid", strict=True, frozen=True)
+
+
+class PortableSource(_PortableModel):
+    alembic_revision: str
+
+
+class PortableTreeNode(_PortableModel):
+    id: int = Field(gt=0)
+    parent_id: int | None
+    name: str
+    description: str | None
+    created_at: str
+    updated_at: str
+
+
+class PortableItem(_PortableModel):
+    id: int = Field(gt=0)
+    name: str
+    description: str | None
+    state: str
+    category_id: int | None
+    location_id: int | None
+    quantity: int = Field(ge=1)
+    attributes: dict[str, Any]
+    aliases: list[str]
+    tags: list[str]
+    created_at: str
+    updated_at: str
+
+
+class PortableEvent(_PortableModel):
+    id: int = Field(gt=0)
+    event_type: str
+    item_id: int | None
+    from_location_id: int | None
+    to_location_id: int | None
+    payload: dict[str, Any]
+    original_text: str | None
+    created_at: str
+
+
+class PortableInventory(_PortableModel):
+    categories: list[PortableTreeNode]
+    locations: list[PortableTreeNode]
+    items: list[PortableItem]
+
+
+class PortableHistory(_PortableModel):
+    events: list[PortableEvent]
+
+
+class PortableInventoryDocument(_PortableModel):
+    format: str
+    exported_at: str
+    source: PortableSource
+    inventory: PortableInventory
+    history: PortableHistory
+    excluded: list[str]
 
 
 @dataclass(frozen=True)
@@ -68,6 +137,236 @@ class RestoreResult:
             "candidate": self.candidate.as_dict(),
             "restored": self.restored.as_dict(),
         }
+
+
+def parse_portable_inventory(data: Any) -> PortableInventoryDocument:
+    """Purely validate an already-decoded portable inventory document."""
+    if not isinstance(data, dict):
+        raise PortableInventoryValidationError("portable document must be a JSON object")
+    if "format" not in data:
+        raise PortableInventoryValidationError("portable document is missing required format")
+    if not isinstance(data["format"], str):
+        raise PortableInventoryValidationError("portable document format must be a string")
+    if data["format"] != PORTABLE_EXPORT_VERSION:
+        raise PortableInventoryValidationError(
+            f"unsupported portable format {data['format']!r}; "
+            f"expected {PORTABLE_EXPORT_VERSION!r}"
+        )
+
+    try:
+        document = PortableInventoryDocument.model_validate(data)
+    except ValidationError as exc:
+        details = []
+        for error in exc.errors():
+            location = ".".join(str(part) for part in error["loc"]) or "<document>"
+            details.append(f"{location}: {error['msg']}")
+        raise PortableInventoryValidationError(
+            "invalid portable document structure: " + "; ".join(details)
+        ) from exc
+
+    _validate_portable_semantics(document)
+    return document
+
+
+def load_portable_inventory(path: str | Path) -> PortableInventoryDocument:
+    """Read and purely validate portable JSON without touching any database."""
+    source = Path(path).expanduser().resolve()
+    try:
+        serialized = source.read_text(encoding="utf-8")
+    except OSError as exc:
+        raise StorageError(f"cannot read portable inventory: {source}: {exc}") from exc
+    try:
+        data = json.loads(serialized, object_pairs_hook=_json_object_no_duplicates)
+    except _DuplicateJsonKey as exc:
+        raise PortableInventoryValidationError(str(exc)) from exc
+    except json.JSONDecodeError as exc:
+        raise PortableInventoryValidationError(
+            f"invalid portable JSON at line {exc.lineno}, column {exc.colno}: {exc.msg}"
+        ) from exc
+    return parse_portable_inventory(data)
+
+
+def validate_portable_inventory(path: str | Path) -> PortableInventoryDocument:
+    """Validate a portable JSON file without creating or mutating a database."""
+    return load_portable_inventory(path)
+
+
+def _validate_portable_semantics(document: PortableInventoryDocument) -> None:
+    _portable_datetime(document.exported_at, "exported_at")
+    if not document.source.alembic_revision.strip():
+        raise PortableInventoryValidationError(
+            "source.alembic_revision must not be empty"
+        )
+    if len(document.excluded) != len(set(document.excluded)):
+        raise PortableInventoryValidationError("excluded contains duplicate entries")
+
+    categories = _portable_ids(document.inventory.categories, "category")
+    locations = _portable_ids(document.inventory.locations, "location")
+    items = _portable_ids(document.inventory.items, "item")
+    _portable_ids(document.history.events, "event")
+
+    _validate_portable_tree(categories, "category")
+    _validate_portable_tree(locations, "location")
+
+    known_tags: dict[str, str] = {}
+    for index, item in enumerate(document.inventory.items):
+        path = f"inventory.items.{index}"
+        _portable_name(item.name, f"{path}.name")
+        _portable_created_updated(item.created_at, item.updated_at, path)
+        try:
+            ItemState(item.state)
+        except ValueError as exc:
+            allowed = ", ".join(state.value for state in ItemState)
+            raise PortableInventoryValidationError(
+                f"{path}.state has invalid value {item.state!r}; allowed: {allowed}"
+            ) from exc
+        if item.category_id is not None and item.category_id not in categories:
+            raise PortableInventoryValidationError(
+                f"{path}.category_id references missing category id={item.category_id}"
+            )
+        if item.location_id is not None and item.location_id not in locations:
+            raise PortableInventoryValidationError(
+                f"{path}.location_id references missing location id={item.location_id}"
+            )
+        _validate_portable_names(item.aliases, f"{path}.aliases")
+        _validate_portable_names(item.tags, f"{path}.tags")
+        for tag in item.tags:
+            normalized = normalize_name(tag)
+            previous = known_tags.setdefault(normalized, tag)
+            if previous != tag:
+                raise PortableInventoryValidationError(
+                    f"tag {tag!r} conflicts with existing spelling {previous!r} "
+                    f"for normalized name {normalized!r}"
+                )
+
+    for index, event in enumerate(document.history.events):
+        path = f"history.events.{index}"
+        _portable_name(event.event_type, f"{path}.event_type")
+        _portable_datetime(event.created_at, f"{path}.created_at")
+        if event.item_id is not None and event.item_id not in items:
+            raise PortableInventoryValidationError(
+                f"{path}.item_id references missing item id={event.item_id}"
+            )
+        for field_name, location_id in (
+            ("from_location_id", event.from_location_id),
+            ("to_location_id", event.to_location_id),
+        ):
+            if location_id is not None and location_id not in locations:
+                raise PortableInventoryValidationError(
+                    f"{path}.{field_name} references missing location id={location_id}"
+                )
+
+
+def _portable_ids(entries: list[Any], label: str) -> dict[int, Any]:
+    by_id: dict[int, Any] = {}
+    for entry in entries:
+        if entry.id in by_id:
+            raise PortableInventoryValidationError(
+                f"duplicate {label} id={entry.id}"
+            )
+        by_id[entry.id] = entry
+    return by_id
+
+
+def _validate_portable_tree(
+    nodes: dict[int, PortableTreeNode],
+    label: str,
+) -> None:
+    siblings: dict[tuple[int | None, str], int] = {}
+    for node in nodes.values():
+        _portable_name(node.name, f"{label} id={node.id} name")
+        _portable_created_updated(
+            node.created_at,
+            node.updated_at,
+            f"{label} id={node.id}",
+        )
+        if node.parent_id == node.id:
+            raise PortableInventoryValidationError(
+                f"{label} id={node.id} cannot be its own parent"
+            )
+        if node.parent_id is not None and node.parent_id not in nodes:
+            raise PortableInventoryValidationError(
+                f"{label} id={node.id} references missing parent id={node.parent_id}"
+            )
+        key = (node.parent_id, normalize_name(node.name))
+        previous = siblings.get(key)
+        if previous is not None:
+            raise PortableInventoryValidationError(
+                f"duplicate sibling {label} names under parent {node.parent_id}: "
+                f"ids {previous} and {node.id}"
+            )
+        siblings[key] = node.id
+
+    for start_id in nodes:
+        positions: dict[int, int] = {}
+        chain: list[int] = []
+        current_id: int | None = start_id
+        while current_id is not None:
+            if current_id in positions:
+                cycle = chain[positions[current_id]:] + [current_id]
+                raise PortableInventoryValidationError(
+                    f"{label} hierarchy cycle: "
+                    + " -> ".join(str(node_id) for node_id in cycle)
+                )
+            positions[current_id] = len(chain)
+            chain.append(current_id)
+            current_id = nodes[current_id].parent_id
+
+
+def _validate_portable_names(values: list[str], path: str) -> None:
+    seen: dict[str, str] = {}
+    for value in values:
+        normalized = _portable_name(value, path)
+        previous = seen.get(normalized)
+        if previous is not None:
+            raise PortableInventoryValidationError(
+                f"{path} contains duplicate normalized name {value!r}"
+            )
+        seen[normalized] = value
+
+
+def _portable_name(value: str, path: str) -> str:
+    normalized = normalize_name(value)
+    if not normalized:
+        raise PortableInventoryValidationError(f"{path} must not be blank")
+    return normalized
+
+
+def _portable_created_updated(created: str, updated: str, path: str) -> None:
+    created_at = _portable_datetime(created, f"{path}.created_at")
+    updated_at = _portable_datetime(updated, f"{path}.updated_at")
+    if updated_at < created_at:
+        raise PortableInventoryValidationError(
+            f"{path}.updated_at precedes created_at"
+        )
+
+
+def _portable_datetime(value: str, path: str) -> datetime:
+    candidate = value[:-1] + "+00:00" if value.endswith("Z") else value
+    try:
+        parsed = datetime.fromisoformat(candidate)
+    except ValueError as exc:
+        raise PortableInventoryValidationError(
+            f"{path} is not a valid ISO-8601 timestamp"
+        ) from exc
+    if parsed.tzinfo is None or parsed.utcoffset() is None:
+        raise PortableInventoryValidationError(
+            f"{path} must include a timezone offset"
+        )
+    return parsed.astimezone(timezone.utc)
+
+
+class _DuplicateJsonKey(ValueError):
+    pass
+
+
+def _json_object_no_duplicates(pairs: list[tuple[str, Any]]) -> dict[str, Any]:
+    result: dict[str, Any] = {}
+    for key, value in pairs:
+        if key in result:
+            raise _DuplicateJsonKey(f"duplicate JSON object key {key!r}")
+        result[key] = value
+    return result
 
 
 def expected_alembic_head(alembic_ini: str | Path = "alembic.ini") -> str:
