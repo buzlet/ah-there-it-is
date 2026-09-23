@@ -366,3 +366,12 @@ Assignment 0012 proposed a read-only browser Activity timeline. External archite
 - Read ranking and result order are unchanged. Five deterministic write scenarios now search exact full paths.
 - Focused dispatcher/provider/atomicity tests, 284 project tests, 42/42 scenarios, migration, corpus, and provider-contract checks passed locally.
 - Review record: `agent-tasks/reviews/0013-r1.md`.
+
+### Stage 24 — complete (Assignment 0014)
+
+- A mutation-tool error ends the agent turn immediately; after the first changed mutation any tool error or empty final response rolls back the turn. Read errors before a change remain correctable.
+- Failed turns keep diagnostic run logs but contribute no normal conversation messages or committed receipts.
+- Typed compact mutation receipts record backend-observed changes, stable IDs and produced Event IDs. No-op Item updates/moves report `changed=false` without an Event.
+- A packaged migration persists committed receipts; chat responses and completed idempotent replay expose `changes_applied` and those receipts independently of assistant text.
+- Focused and full verification passed: 295 tests, 42/42 deterministic scenarios, migration/corpus/scenario/provider checks and installed-wheel coverage.
+- Review record: `agent-tasks/reviews/0014-r1.md`.

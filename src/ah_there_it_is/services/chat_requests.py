@@ -10,6 +10,7 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from ah_there_it_is.agent.runner import AgentRunResult
+from ah_there_it_is.agent.receipts import MutationReceipt
 from ah_there_it_is.db.models import AgentRunLog, ChatRequestRecord, utc_now
 
 
@@ -238,11 +239,16 @@ class ChatRequestService:
                 f"request key {record.request_key!r} points to "
                 "an unavailable completed run"
             )
+        receipts = tuple(
+            MutationReceipt.model_validate(value) for value in run.mutation_receipts
+        )
         return AgentRunResult(
             conversation_id=run.conversation_id,
             run_id=run.id,
             content=run.final_content,
             rounds=run.rounds,
+            changes_applied=any(receipt.changed for receipt in receipts),
+            receipts=receipts,
         )
 
     def _mark_completed(self, record_id: int, run_id: int) -> None:

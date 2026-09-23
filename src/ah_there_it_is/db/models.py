@@ -249,6 +249,9 @@ class AgentRunLog(Base):
     llm_config: Mapped[dict[str, Any]] = mapped_column(JSON, default=dict, nullable=False)
     input_messages: Mapped[list[dict[str, Any]]] = mapped_column(JSON, default=list, nullable=False)
     tool_trace: Mapped[list[dict[str, Any]]] = mapped_column(JSON, default=list, nullable=False)
+    mutation_receipts: Mapped[list[dict[str, Any]]] = mapped_column(
+        JSON, default=list, server_default="[]", nullable=False
+    )
     final_content: Mapped[str | None] = mapped_column(Text, nullable=True)
     rounds: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
     status: Mapped[str] = mapped_column(String(20), nullable=False, index=True)

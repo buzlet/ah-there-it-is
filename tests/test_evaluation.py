@@ -282,7 +282,7 @@ def test_failed_agent_turn_rolls_back_item_update(session: Session) -> None:
     )
 
 
-def test_failed_agent_turn_keeps_user_message_but_no_assistant_message(
+def test_failed_agent_turn_keeps_diagnostics_but_no_conversation_message(
     session: Session,
 ) -> None:
     from ah_there_it_is.services.conversations import ConversationService
@@ -306,8 +306,8 @@ def test_failed_agent_turn_keeps_user_message_but_no_assistant_message(
 
     run = EvaluationService(session).recent_runs()[0]
     messages = ConversationService(session).list_messages(run.conversation_id)
-    assert [(message.role, message.content) for message in messages] == [
-        ("user", "Найди nothing")
-    ]
-    assert run.user_message_id == messages[0].id
+    assert messages == []
+    assert run.user_message_id is None
     assert run.assistant_message_id is None
+    assert run.input_messages[-1]["content"] == "Найди nothing"
+    assert run.mutation_receipts == []

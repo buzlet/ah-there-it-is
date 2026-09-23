@@ -17,6 +17,10 @@ class AgentLoopLimitError(AgentError):
     pass
 
 
+class AgentTurnFailedError(AgentError):
+    """A tool error or empty post-mutation response invalidated the turn."""
+
+
 class ProviderRequestError(AgentError):
     """A model provider could not complete the HTTP request."""
 

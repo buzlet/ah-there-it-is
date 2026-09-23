@@ -8,7 +8,8 @@ from typing import Any
 
 from sqlalchemy.orm import Session
 
-from ah_there_it_is.agent.errors import AgentLoopLimitError
+from ah_there_it_is.agent.errors import AgentLoopLimitError, AgentTurnFailedError
+from ah_there_it_is.agent.receipts import MutationReceipt
 from ah_there_it_is.agent.protocol import AgentMessage, LLMClient
 from ah_there_it_is.agent.tools import ToolDispatcher
 from ah_there_it_is.services.conversations import ConversationService
@@ -32,6 +33,8 @@ class AgentRunResult:
     run_id: int
     content: str
     rounds: int
+    changes_applied: bool = False
+    receipts: tuple[MutationReceipt, ...] = ()
 
 
 class AgentRunner:
@@ -71,7 +74,6 @@ class AgentRunner:
             for message in prior
         )
         messages.append(AgentMessage(role="user", content=text))
-        user_message = self.conversations.add_message(conversation_id, "user", text)
 
         input_messages = [message.model_dump(mode="json") for message in messages]
         tool_trace: list[dict[str, Any]] = []
@@ -81,6 +83,7 @@ class AgentRunner:
             autocommit=False,
         )
         rounds = 0
+        changed_seen = False
 
         try:
             for round_number in range(1, self.max_rounds + 1):
@@ -109,6 +112,15 @@ class AgentRunner:
                 )
                 if not response.tool_calls:
                     final = response.content.strip()
+                    if changed_seen and not final:
+                        raise AgentTurnFailedError("empty final response after mutation")
+                    for prior_round in tool_trace:
+                        for tool_result in prior_round["tool_results"]:
+                            if tool_result["result"].get("commit_state") == "provisional":
+                                tool_result["result"]["commit_state"] = "committed"
+                    user_message = self.conversations.add_message(
+                        conversation_id, "user", text, commit=False
+                    )
                     assistant_message = self.conversations.add_message(
                         conversation_id,
                         "assistant",
@@ -121,6 +133,9 @@ class AgentRunner:
                         assistant_message_id=assistant_message.id,
                         input_messages=input_messages,
                         tool_trace=tool_trace,
+                        mutation_receipts=[
+                            receipt.model_dump(mode="json") for receipt in dispatcher.receipts
+                        ],
                         final_content=final,
                         rounds=round_number,
                         status="completed",
@@ -132,6 +147,8 @@ class AgentRunner:
                         run_id=run.id,
                         content=final,
                         rounds=round_number,
+                        changes_applied=changed_seen,
+                        receipts=tuple(dispatcher.receipts),
                     )
 
                 dispatcher.begin_round()
@@ -154,6 +171,14 @@ class AgentRunner:
                                 tool_name=call.name,
                             )
                         )
+                        if not result["ok"] and (
+                            changed_seen or call.name in ToolDispatcher.MUTATION_TOOLS
+                        ):
+                            raise AgentTurnFailedError(
+                                f"tool {call.name} failed: {result['error']['type']}"
+                            )
+                        if result.get("changed") is True:
+                            changed_seen = True
                 finally:
                     dispatcher.end_round()
 
@@ -162,12 +187,17 @@ class AgentRunner:
             )
         except Exception as exc:
             self.session.rollback()
+            for round_trace in tool_trace:
+                for tool_result in round_trace["tool_results"]:
+                    if tool_result["result"].get("commit_state") == "provisional":
+                        tool_result["result"]["commit_state"] = "rolled_back"
             self._record_run(
                 conversation_id=conversation_id,
-                user_message_id=user_message.id,
+                user_message_id=None,
                 assistant_message_id=None,
                 input_messages=input_messages,
                 tool_trace=tool_trace,
+                mutation_receipts=[],
                 final_content=None,
                 rounds=rounds,
                 status="failed",
@@ -179,10 +209,11 @@ class AgentRunner:
         self,
         *,
         conversation_id: int,
-        user_message_id: int,
+        user_message_id: int | None,
         assistant_message_id: int | None,
         input_messages: list[dict[str, Any]],
         tool_trace: list[dict[str, Any]],
+        mutation_receipts: list[dict[str, Any]],
         final_content: str | None,
         rounds: int,
         status: str,
@@ -203,6 +234,7 @@ class AgentRunner:
             llm_config=info.config,
             input_messages=input_messages,
             tool_trace=tool_trace,
+            mutation_receipts=mutation_receipts,
             final_content=final_content,
             rounds=rounds,
             status=status,
