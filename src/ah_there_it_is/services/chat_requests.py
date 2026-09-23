@@ -29,6 +29,14 @@ class IdempotencyPreviousFailureError(IdempotencyError):
     """The original request already failed and is not replayed automatically."""
 
 
+class ChatRequestNotFoundError(IdempotencyError):
+    """A requested chat idempotency record does not exist."""
+
+
+class IdempotencyRecoveryNotAllowedError(IdempotencyError):
+    """An operator recovery request is invalid for the stored state."""
+
+
 @dataclass(frozen=True)
 class IdempotentExecution:
     result: AgentRunResult
@@ -63,15 +71,56 @@ class ChatRequestService:
                 replayed=True,
             )
 
-        try:
-            result = operation()
-        except Exception as exc:
-            self.session.rollback()
-            self._mark_failed(record.id, f"{type(exc).__name__}: {exc}")
-            raise
+        return self._execute_reserved(record, created, operation)
 
-        self._mark_completed(record.id, result.run_id)
-        return IdempotentExecution(result=result, replayed=False)
+    def recover(
+        self,
+        *,
+        source_request_key: str,
+        new_request_key: str,
+        recovery_note: str,
+        operation: Callable[[], AgentRunResult],
+    ) -> IdempotentExecution:
+        source = self.get(source_request_key)
+        if source is None:
+            raise ChatRequestNotFoundError(
+                f"chat request {source_request_key!r} does not exist"
+            )
+        if source.status == "completed":
+            raise IdempotencyRecoveryNotAllowedError(
+                f"completed request {source.request_key!r} must be replayed, not recovered"
+            )
+
+        note = recovery_note.strip()
+        if not note:
+            raise IdempotencyRecoveryNotAllowedError(
+                "recovery note must describe the operator decision"
+            )
+        key = new_request_key.strip()
+        if not key or key == source.request_key:
+            raise IdempotencyRecoveryNotAllowedError(
+                "recovery requires a distinct new request key"
+            )
+
+        record, created = self._reserve(
+            request_key=key,
+            message=source.message,
+            conversation_id=source.requested_conversation_id,
+            recovered_from_id=source.id,
+            recovery_note=note,
+        )
+        return self._execute_reserved(record, created, operation)
+
+    def recent(self, *, limit: int = 100) -> list[ChatRequestRecord]:
+        if limit < 1:
+            raise ValueError("limit must be >= 1")
+        return list(
+            self.session.scalars(
+                select(ChatRequestRecord)
+                .order_by(ChatRequestRecord.updated_at.desc(), ChatRequestRecord.id.desc())
+                .limit(limit)
+            )
+        )
 
     def get(self, request_key: str) -> ChatRequestRecord | None:
         return self.session.scalar(
@@ -86,10 +135,18 @@ class ChatRequestService:
         request_key: str,
         message: str,
         conversation_id: int | None,
+        recovered_from_id: int | None = None,
+        recovery_note: str | None = None,
     ) -> tuple[ChatRequestRecord, bool]:
         existing = self.get(request_key)
         if existing is not None:
-            self._assert_same_request(existing, message, conversation_id)
+            self._assert_same_request(
+                existing,
+                message,
+                conversation_id,
+                recovered_from_id=recovered_from_id,
+                recovery_note=recovery_note,
+            )
             return existing, False
 
         record = ChatRequestRecord(
@@ -97,6 +154,8 @@ class ChatRequestService:
             requested_conversation_id=conversation_id,
             message=message,
             status="processing",
+            recovered_from_id=recovered_from_id,
+            recovery_note=recovery_note,
         )
         self.session.add(record)
         try:
@@ -106,7 +165,13 @@ class ChatRequestService:
             existing = self.get(request_key)
             if existing is None:
                 raise
-            self._assert_same_request(existing, message, conversation_id)
+            self._assert_same_request(
+                existing,
+                message,
+                conversation_id,
+                recovered_from_id=recovered_from_id,
+                recovery_note=recovery_note,
+            )
             return existing, False
         self.session.refresh(record)
         return record, True
@@ -116,15 +181,40 @@ class ChatRequestService:
         record: ChatRequestRecord,
         message: str,
         conversation_id: int | None,
+        *,
+        recovered_from_id: int | None = None,
+        recovery_note: str | None = None,
     ) -> None:
         if (
             record.message != message
             or record.requested_conversation_id != conversation_id
+            or record.recovered_from_id != recovered_from_id
+            or record.recovery_note != recovery_note
         ):
             raise IdempotencyConflictError(
                 f"request key {record.request_key!r} is already bound "
                 "to different chat content"
             )
+
+    def _execute_reserved(
+        self,
+        record: ChatRequestRecord,
+        created: bool,
+        operation: Callable[[], AgentRunResult],
+    ) -> IdempotentExecution:
+        if not created:
+            return IdempotentExecution(
+                result=self._resolve_existing(record),
+                replayed=True,
+            )
+        try:
+            result = operation()
+        except Exception as exc:
+            self.session.rollback()
+            self._mark_failed(record.id, f"{type(exc).__name__}: {exc}")
+            raise
+        self._mark_completed(record.id, result.run_id)
+        return IdempotentExecution(result=result, replayed=False)
 
     def _resolve_existing(
         self,
