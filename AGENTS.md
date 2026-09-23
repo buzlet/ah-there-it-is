@@ -42,6 +42,8 @@
 - Google/Gemma provider probes are contract-only and must remain outside application CI. The current hosted probe uses `gemma-4-31b-it`, optional `thinkingConfig=HIGH`, and a 3.2-second minimum gap between every model request to stay below a 20 RPM target.
 - Use **Just** (`Justfile`) as the canonical runner for repeated development operations such as tests, checks, migrations, and the development server. Do not duplicate recurring command sequences in documentation or ad-hoc scripts when a Just recipe is appropriate.
 - If `just` itself is unavailable in a constrained environment, keep the `Justfile` authoritative and run the exact underlying recipe commands directly until `just` is available; do not add a network dependency merely to bootstrap the task runner.
+- Development tool/dependency/workflow versions are chosen primarily for compatibility with versions available and exercisable in the active development sandbox. Do not upgrade dependencies, GitHub Actions, or runtimes merely to silence upstream deprecation warnings; change them when the active environment or required functionality makes the change necessary, or when a task explicitly requests it.
+- When work is delegated through the orchestrated implementation workflow, follow the versioned protocol and assignment archive under `agent-tasks/`. The implementation agent performs the assigned change and opens a PR; repository verification and acceptance belong to the orchestrator unless an assignment explicitly delegates a check.
 
 ## Stage status
 
