@@ -215,16 +215,32 @@ Stage 6 was deliberately restructured after live-provider work began coupling ap
 - The full 40-case deterministic application scenario suite remains green after the operational changes. Python 3.12/3.13 tests and migration checks are green.
 - Provider/model tests remain a separate optional pipeline. Stage 10 added no provider-specific application behavior and required no live-model call.
 
-### Stage 11 — next
+### Stage 11 — complete
 
-Make the local-first store durable and portable before adding more interaction channels:
+- Added application-only SQLite storage tooling; no provider/model API, prompt behavior, or network dependency is involved.
+- `create_backup` uses SQLite's native backup API against the active file-backed database rather than copying a live WAL-mode `.db` file. A regression test keeps committed data uncheckpointed in `-wal` and proves that the produced backup still contains it.
+- Backups are staged in a same-directory temporary file, independently validated, fsynced, and atomically published. Existing destinations are never silently overwritten.
+- `validate_database` opens the candidate independently and requires `PRAGMA integrity_check = ok`, zero `foreign_key_check` violations, and the exact runtime schema revision. Corrupt/non-SQLite candidates are normalized to `DatabaseValidationError`.
+- Runtime schema compatibility no longer depends on finding `alembic.ini` beside an installed package. `CURRENT_SCHEMA_REVISION` is embedded in the storage layer, while a test requires it to equal the actual Alembic migration head.
+- Restore validates the candidate before touching the active database, creates a distinct pre-restore safety backup, stages/validates the replacement, checkpoints WAL, atomically replaces the database, and validates the result. An unexpected post-replace validation failure attempts rollback from the safety copy.
+- Pre-restore safety backup names include sub-second UTC precision so rapid consecutive operations do not collide.
+- Restore is explicitly an offline operation: documentation requires the application to be stopped first because SQLite cannot reliably prove that another process is still holding a read-only descriptor to the old database inode.
+- Added `inventory-portable-v1` JSON export for the implementation-independent inventory domain: nested categories/locations, items, aliases, tags, structured attributes, current locations, stable IDs/timestamps, and domain history events.
+- Portable JSON deliberately excludes agent/evaluation/provider/experiment traces. Full SQLite backup remains the disaster-recovery format for conversations, chat idempotency/recovery audit records, evaluations, and all other application tables.
+- Round-trip tests cover nested fixture state, aliases/tags/attributes, FTS search after restore, item history, conversation messages, chat-request recovery ancestry/note, corrupt-candidate rejection, backup overwrite protection, and schema-revision mismatch.
+- Added canonical Just recipes: `storage-test`, `db-backup`, `db-validate`, `db-restore`, and `portable-export`.
+- Stage 11 application CI is green on Python 3.12/3.13 and the unchanged 40-case deterministic scenario suite remains green. Provider/model pipelines remain separate and optional.
 
-1. Add a consistent SQLite backup command using SQLite's backup API rather than copying a live WAL-mode database file.
-2. Validate every produced backup by opening it independently, running SQLite integrity/foreign-key checks, and verifying the Alembic schema revision.
-3. Add an explicit restore workflow that validates a candidate backup before replacement; never overwrite the active database with an unvalidated file.
-4. Add a portable, versioned JSON export for domain state and audit/history needed to reconstruct inventory independently of SQLite internals. Keep evaluation/provider traces separable from core inventory data.
-5. Add deterministic backup/restore round-trip tests covering nested locations/categories, aliases/tags/attributes, item history, conversations, idempotency/recovery audit records, and FTS/search behavior after restore.
-6. Document WAL/checkpoint behavior and atomic replacement semantics so backup/restore remains safe during ordinary local use.
-7. Keep cloud sync, multi-user replication, voice, Telegram, images, QR, MCP, PWA, and embeddings out of this stage.
-8. Keep provider/model probes independent and optional; backup/restore is pure application/storage infrastructure.
+### Stage 12 — next
 
+Make the versioned portable inventory representation reconstructable without weakening the full SQLite disaster-recovery path:
+
+1. Add a strict `inventory-portable-v1` parser/validator with explicit format/version rejection and useful structural errors.
+2. Import only into a **new empty database** (or a new output path), never destructively merge/overwrite the active database.
+3. Validate all stable-ID references before writing: category/location parent links, item category/location links, event item/source/destination links, duplicate IDs, duplicate sibling names, and hierarchy cycles.
+4. Preserve stable IDs and timestamps from the portable document where they carry audit meaning; recompute derived normalized fields rather than trusting serialized implementation details.
+5. Reconstruct aliases/tags/attributes/history and verify SQLite FTS/search derived state after import.
+6. Add export -> import -> export semantic round-trip tests that ignore only intentionally volatile export metadata such as `exported_at`.
+7. Keep portable import scoped to inventory/history. Conversations, chat-request idempotency/recovery state, evaluation traces, and provider traces remain available through full SQLite backup/restore, not silently mixed into the portable domain format.
+8. Add a dry-run validation command before any import creates an output database.
+9. Keep provider/model probes, voice, Telegram, images, QR, MCP, PWA, cloud sync, multi-user replication, and embeddings out of this stage.
