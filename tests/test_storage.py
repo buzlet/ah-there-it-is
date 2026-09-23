@@ -180,6 +180,46 @@ def test_backup_restore_round_trip_preserves_application_state(tmp_path: Path) -
         engine.dispose()
 
 
+def test_backup_includes_committed_uncheckpointed_wal_data(
+    tmp_path: Path,
+) -> None:
+    active = tmp_path / "active.db"
+    backup = tmp_path / "wal-backup.db"
+    url = _migrate(active)
+    ids = _seed_operational_state(url)
+
+    raw = __import__("sqlite3").connect(str(active))
+    try:
+        raw.execute("PRAGMA journal_mode=WAL")
+        raw.execute("PRAGMA wal_autocheckpoint=0")
+        raw.execute("PRAGMA wal_checkpoint(TRUNCATE)")
+        raw.execute(
+            "INSERT INTO messages(conversation_id, role, content, created_at) "
+            "VALUES (?, 'user', ?, CURRENT_TIMESTAMP)",
+            (ids["conversation"], "committed only in WAL"),
+        )
+        raw.commit()
+        wal = Path(str(active) + "-wal")
+        assert wal.is_file()
+        assert wal.stat().st_size > 0
+
+        create_backup(url, backup)
+    finally:
+        raw.close()
+
+    validate_database(backup)
+    backup_connection = __import__("sqlite3").connect(str(backup))
+    try:
+        count = backup_connection.execute(
+            "SELECT count(*) FROM messages WHERE content = ?",
+            ("committed only in WAL",),
+        ).fetchone()[0]
+    finally:
+        backup_connection.close()
+
+    assert count == 1
+
+
 def test_invalid_restore_candidate_never_replaces_active_database(
     tmp_path: Path,
 ) -> None:
