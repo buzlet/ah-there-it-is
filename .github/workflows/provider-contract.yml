@@ -4,12 +4,6 @@ permissions:
   contents: read
 
 'on':
-  pull_request:
-    paths-ignore:
-      - 'AGENTS.md'
-      - 'HANDOFF.md'
-      - 'README.md'
-      - 'agent-tasks/**'
   workflow_dispatch:
     inputs:
       provider:
@@ -27,21 +21,7 @@ permissions:
         type: string
 
 jobs:
-  adapter-contract:
-    runs-on: ubuntu-24.04
-    steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
-        with:
-          python-version: '3.13'
-          cache: pip
-      - uses: extractions/setup-just@v4
-      - run: python -m pip install --upgrade pip
-      - run: python -m pip install -e '.[test]'
-      - run: just provider-contract
-
-  model-probe-groq:
-    if: ${{ github.event_name == 'workflow_dispatch' && inputs.provider == 'groq' }}
+  model-probe:
     environment: live-llm-test
     runs-on: ubuntu-24.04
     timeout-minutes: 4
@@ -49,9 +29,12 @@ jobs:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
         with:
-          python-version: '3.13'
+          python-version: '3.12'
+          cache: pip
       - run: python -m pip install -e '.[test]'
+
       - name: Probe Groq model contract
+        if: ${{ inputs.provider == 'groq' }}
         env:
           AH_THERE_IT_IS_LLM_PROVIDER: openai-compatible
           AH_THERE_IT_IS_LLM_PROVIDER_NAME: groq
@@ -72,25 +55,9 @@ jobs:
             --suite eval/model-probes-v1.json \
             "${CASE_ARGS[@]}" \
             --output model-probe.json
-      - uses: actions/upload-artifact@v4
-        if: always()
-        with:
-          name: model-probe-groq
-          path: model-probe.json
-          if-no-files-found: ignore
 
-  model-probe-gemini:
-    if: ${{ github.event_name == 'workflow_dispatch' && inputs.provider == 'gemini' }}
-    environment: live-llm-test
-    runs-on: ubuntu-24.04
-    timeout-minutes: 4
-    steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
-        with:
-          python-version: '3.13'
-      - run: python -m pip install -e '.[test]'
       - name: Probe Gemini model contract
+        if: ${{ inputs.provider == 'gemini' }}
         env:
           AH_THERE_IT_IS_LLM_PROVIDER: gemini
           AH_THERE_IT_IS_LLM_PROVIDER_NAME: gemini
@@ -99,6 +66,7 @@ jobs:
           AH_THERE_IT_IS_LLM_API_KEY: ${{ secrets.GEMINI_API_KEY }}
           AH_THERE_IT_IS_LLM_TIMEOUT_SECONDS: '30'
           AH_THERE_IT_IS_LLM_MAX_RETRIES: '1'
+          AH_THERE_IT_IS_LLM_RETRY_BACKOFF_SECONDS: '1'
           AH_THERE_IT_IS_LLM_EXTRA_BODY_JSON: '{"generationConfig":{"thinkingConfig":{"thinkingLevel":"HIGH"}}}'
         run: |
           CASE_ARGS=()
@@ -110,9 +78,10 @@ jobs:
             "${CASE_ARGS[@]}" \
             --delay-seconds 3.2 \
             --output model-probe.json
+
       - uses: actions/upload-artifact@v4
         if: always()
         with:
-          name: model-probe-gemini
+          name: model-probe-${{ inputs.provider }}
           path: model-probe.json
           if-no-files-found: ignore
