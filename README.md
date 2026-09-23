@@ -262,8 +262,8 @@ The parser rejects unknown format identifiers, unknown structural fields, malfor
 
 ## Current scope
 
-Stages 0–14 are complete. The application regression pipeline covers the provider-independent corpus with persisted-state/event postconditions, agent turns are transactionally atomic, chat submissions are retry-safe through persisted idempotency keys plus explicit audited recovery, and the local SQLite store has validated WAL-safe backup/restore plus bidirectional versioned portable inventory/history export/import. `inventory-portable-v1` is protected by a hand-authored compatibility fixture and explicit version dispatch. Alembic resources now ship inside the installed package, and fresh upgrades plus portable-v1 reconstruction are wheel-tested outside the source checkout. Provider/model compatibility remains a separate contract pipeline.
+Stages 0–15 are complete. The application regression pipeline now covers 42 provider-independent scenarios with persisted-state/event postconditions. Agent turns remain transactionally atomic, chat submissions are retry-safe, the local SQLite store has validated backup/restore plus versioned portable inventory/history recovery, packaged migrations work outside the checkout, and unknown-location queries can return deterministic read-only evidence-based suggestions without changing stored current location. Provider/model compatibility remains a separate contract pipeline.
 
-Stage 15 adds deterministic evidence-based location suggestions when an item's stored current location is unknown. Known location remains an inventory fact; suggestions are read-only derived evidence and must be labelled as such rather than silently becoming current state.
+Stage 16 adds a separate `inventory-bootstrap-v1` onboarding path for initially populating an empty current-schema inventory from a strict human/agent-authored manifest. Bootstrap remains distinct from `inventory-portable-v1` recovery and full SQLite disaster recovery.
 
-Voice, Telegram, images, QR, MCP, PWA, embeddings, and multi-user support remain deferred product features and are not part of Stage 15.
+Voice, Telegram, images, QR, MCP, PWA, embeddings, and multi-user support remain deferred product features and are not part of Stage 16.

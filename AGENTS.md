@@ -268,13 +268,24 @@ Stage 6 was deliberately restructured after live-provider work began coupling ap
 - Packaging metadata includes migration resources and a real wheel smoke test proves fresh migration plus portable-v1 import/search from a wheel installation in an unrelated working directory.
 - Final Stage 14 verification passed the complete deterministic application/migration/scenario/provider-contract pipeline and Python 3.12/3.13 CI. No provider/model behavior or dependency/runtime policy was changed.
 
-### Stage 15 — next
+### Stage 15 — complete
 
-Add deterministic evidence-based location suggestions for items whose current stored location is unknown, while preserving the strict distinction between known state and inference:
+- Added typed deterministic read-only location suggestions for items whose stored current location is unknown.
+- Suggestions derive only from the item's own location history plus current locations of related items sharing category and/or tags; no provider/model reasoning, embeddings, external data, or invented probability is involved.
+- Known `Item.current_location_id` remains authoritative. Items with a known current location do not receive inferred alternatives.
+- Candidate ranking is stable and evidence-bearing, including last-known, same-category, shared-tag, combined evidence, aggregation, and deterministic tie handling.
+- Added resolved-item-only `suggest_item_locations`; returned location IDs may become seen for read inspection but are not made resolved or mutation-authorized by suggestion.
+- Replay capability reconstruction preserves the same seen-not-resolved authorization boundary.
+- Provider-independent corpus/scenario coverage expanded from 40 to 42 cases with persisted-state/event checks proving suggestion turns remain read-only.
+- No schema migration, persistent suggestion state, prompt/provider/runtime/dependency/workflow change, or portable/storage semantic change was introduced.
 
-1. Keep `Item.current_location_id` as the only authoritative current-location fact; do not persist a second inferred/probable location field.
-2. Derive read-only suggestions from existing item history plus current locations of related items sharing category/tags.
-3. Return typed candidates with stable IDs, full paths, explicit evidence metadata, and deterministic ranking; do not invent probability percentages.
-4. Expose suggestions through a read-only agent tool that requires a resolved item. Suggested location IDs may be inspected but must not become mutation-authorized merely because they were suggested.
-5. Add provider-independent unit/tool/scenario coverage including last-known, peer-evidence, no-evidence, and no-mutation cases.
-6. Keep `inventory-portable-v1`, full SQLite backup/restore, versioned prompts, providers/models, embeddings, and deferred channels/features unchanged.
+### Stage 16 — next
+
+Add a safe bootstrap path for initially populating an empty inventory from a human/agent-authored manifest, without conflating onboarding with recovery:
+
+1. Introduce a strict versioned `inventory-bootstrap-v1` JSON manifest using name-component paths rather than database IDs.
+2. Purely validate complete hierarchy/item semantics before database mutation.
+3. Allow apply only to a current-schema database with an empty inventory domain; Stage 16 has no merge/upsert/overwrite mode.
+4. Create hierarchy/items through current `InventoryService` behavior in one transaction so generated IDs, normalization, FTS, timestamps, and `item_created` history are current-domain output.
+5. Add dry-run/preflight plus explicit CLI/Just apply surfaces.
+6. Prove normal search and portable-v1 export work over bootstrap-created inventory while operational/provider state remains untouched.
