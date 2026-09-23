@@ -6,7 +6,7 @@
 - Default branch: `main`
 - Always verify current `origin/main`, PR state, and CI before starting new work.
 - This handoff supersedes the pre-Stage-12 handoff that existed at commit `198061c9c88353a950cb90f2ec8fcd6cabd51edf`.
-- **Stages 0–12 are complete. Stage 13 is next.**
+- **Stages 0–13 are complete. Stage 14 is next.**
 - `AGENTS.md` remains the authoritative architecture/development/stage plan.
 - Full SQLite backup/restore and portable inventory import are intentionally separate recovery products.
 
@@ -39,29 +39,39 @@
 - Portable input never supplies trusted normalized/FTS state.
 - Full SQLite backup/restore remains the disaster-recovery mechanism for all application tables.
 
-## Stage 13 objective
+## Stage 13 delivered
 
-Freeze portable compatibility so future schema changes cannot silently invalidate existing `inventory-portable-v1` archives:
+- committed hand-authored `inventory-portable-v1` fixture using older revision `c4cfe3a3e921`;
+- executable fixture -> validate -> current-schema import -> SearchService -> re-export compatibility coverage;
+- semantic preservation of portable IDs, timestamps, hierarchy, items, aliases/tags, attributes, current references, and domain history;
+- explicit format-version parser dispatch with frozen v1 behavior and clear unsupported-format rejection;
+- old source revision treated only as metadata while current migrations/schema/domain invariants own reconstruction;
+- portable/full-backup separation preserved.
 
-1. Add a hand-authored committed v1 fixture independent of the current exporter.
-2. Keep an executable fixture -> validate -> import -> search -> re-export compatibility test across future schema migrations.
-3. Treat `inventory-portable-v1` as immutable; incompatible changes require a new format ID and explicit version dispatch.
-4. Test older `source.alembic_revision` metadata without executing or trusting source-schema implementation details.
-5. Keep operational/evaluation/provider tables out of portable compatibility and in full SQLite backup.
-6. Keep deferred product features out until this compatibility contract is protected.
+## Stage 14 objective
+
+Remove the source-checkout/current-working-directory dependency from runtime migrations:
+
+1. Package the existing Alembic environment/revision files with `ah_there_it_is`.
+2. Build one programmatic migration configuration/runner from packaged resources and an explicit database URL.
+3. Make portable import work outside the repository without `alembic.ini` in the current directory.
+4. Add an explicit database-upgrade operation plus minimal CLI/Just entry point, with no automatic migration during application startup.
+5. Test fresh upgrade and v1 compatibility import/search from an unrelated temporary working directory.
+6. Keep sandbox-compatible dependency/tool versions and avoid provider/model/deferred-product scope.
 
 ## Files to read first
 
 1. `HANDOFF.md`
 2. `AGENTS.md`
 3. `README.md`
-4. `src/ah_there_it_is/storage.py`
-5. `src/ah_there_it_is/storage_cli.py`
-6. `tests/test_storage.py`
-7. `migrations/env.py`
-8. `src/ah_there_it_is/db/models.py`
-9. `src/ah_there_it_is/services/search.py`
-10. `Justfile`
+4. `pyproject.toml`
+5. `migrations/env.py`
+6. `src/ah_there_it_is/storage.py`
+7. `src/ah_there_it_is/storage_cli.py`
+8. `tests/test_migrations.py`
+9. `tests/test_storage.py`
+10. `tests/test_portable_compatibility.py`
+11. `Justfile`
 
 ## Orchestrated implementation workflow
 
@@ -69,7 +79,7 @@ Implementation-agent assignments are archived under `agent-tasks/`. Under this w
 
 For an implementation handoff, the agent follows the referenced versioned common protocol, fast-forwards `main`, creates the assigned branch, implements only the assignment, opens a PR, and stops. It does not inspect unrelated branches/PRs/CI or run tests/checks unless the concrete assignment explicitly requests them. The orchestrator guarantees that no concurrent repository work occurs across the handoff interval.
 
-The first archived assignment is `agent-tasks/assignments/0001-stage13-portable-compatibility.md`.
+The assignment/review archive now includes completed Assignment 0001 plus `agent-tasks/reviews/0001-r1.md`. Future implementation work uses `agent-tasks/common/v2.md`; Stage 14 is `agent-tasks/assignments/0002-stage14-packaged-migrations.md`.
 
 ## Verification checkpoint
 
