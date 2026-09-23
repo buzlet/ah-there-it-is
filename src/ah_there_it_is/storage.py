@@ -602,6 +602,85 @@ def restore_backup(
         _unlink_sqlite_files(replacement)
 
 
+def rehearse_restore(database_url: str, candidate: str | Path) -> dict[str, Any]:
+    """Exercise the real restore path on an isolated current-schema database.
+
+    The configured active database is only resolved for identity comparison.
+    No connection is opened to it, so its WAL and sidecars cannot be changed.
+    """
+    source = Path(candidate).expanduser().resolve()
+    report: dict[str, Any] = {
+        "ok": False,
+        "candidate": str(source),
+        "restore_mechanics": {"ok": None, "error": None},
+        "physical_validation": {"ok": None, "error": None, "restored": None},
+        "doctor": {"ok": None, "report": None, "error": None},
+    }
+    try:
+        active = sqlite_path_from_url(database_url)
+        if source == active:
+            raise StorageError("restore rehearsal candidate must differ from active database")
+
+        from ah_there_it_is.database_doctor import diagnose_database
+
+        with tempfile.TemporaryDirectory(prefix="ah-restore-rehearsal-") as directory:
+            fake_active = Path(directory) / "fake-active.db"
+            fake_url = f"sqlite:///{fake_active}"
+            # A newly migrated empty inventory is an equivalent valid active
+            # target; the real configured active database is never opened.
+            upgrade_database(fake_url)
+            if not diagnose_database(fake_url).ok:
+                raise StorageError("temporary current-schema active database is unhealthy")
+            try:
+                restore_backup(
+                    fake_url, source,
+                    safety_backup=Path(directory) / "pre-restore-safety.db",
+                )
+            except Exception as exc:
+                report["restore_mechanics"] = {
+                    "ok": False, "error": f"{type(exc).__name__}: {exc}",
+                }
+                try:
+                    validate_database(source)
+                except Exception as validation_error:
+                    report["physical_validation"] = {
+                        "ok": False,
+                        "error": f"{type(validation_error).__name__}: {validation_error}",
+                        "restored": None,
+                    }
+                return report
+
+            report["restore_mechanics"] = {"ok": True, "error": None}
+            try:
+                physical = validate_database(fake_active)
+            except Exception as exc:
+                report["physical_validation"] = {
+                    "ok": False, "error": f"{type(exc).__name__}: {exc}",
+                    "restored": None,
+                }
+                return report
+            report["physical_validation"] = {
+                "ok": True, "error": None, "restored": physical.as_dict(),
+            }
+            try:
+                doctor = diagnose_database(fake_url)
+                report["doctor"] = {
+                    "ok": doctor.ok, "report": doctor.as_dict(), "error": None,
+                }
+            except Exception as exc:
+                report["doctor"] = {
+                    "ok": False, "report": None,
+                    "error": f"{type(exc).__name__}: {exc}",
+                }
+            report["ok"] = bool(report["doctor"]["ok"])
+    except Exception as exc:
+        report["restore_mechanics"] = {
+            "ok": False, "error": f"{type(exc).__name__}: {exc}",
+        }
+        report["ok"] = False
+    return report
+
+
 def export_portable_inventory(
     database_url: str,
     destination: str | Path,

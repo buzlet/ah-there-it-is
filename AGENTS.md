@@ -396,3 +396,10 @@ Assignment 0012 proposed a read-only browser Activity timeline. External archite
 - Provider request bodies remain unchanged. New run metadata groups deterministically while historical rows remain readable without migration or redaction.
 - Malicious URL and nested-body tests cover persisted run metadata, evaluation rendering, provider request preservation and historical config compatibility.
 - Focused and canonical verification passed: 311 tests, 42/42 deterministic scenarios, migration/corpus/scenario/provider checks. Review: `agent-tasks/reviews/0017-r1.md`.
+
+### Post-Stage-25 hardening — Assignment 0018 complete
+
+- Explicit `restore-rehearsal` exercises the real restore path against an isolated, migrated and doctor-healthy fake active SQLite database. The configured active path is only compared with the candidate; its database, WAL and sidecars are not opened for writes, checkpointed or replaced.
+- Machine-readable mechanics, physical integrity/FK/schema and application doctor outcomes distinguish invalid, wrong-revision and semantically unhealthy candidates. Exit status is successful only when all three pass; temporary replacement, sidecar and safety files are removed on all paths.
+- Healthy, corrupt, wrong-revision, doctor-unhealthy, WAL candidate, active-byte-preservation, cleanup and installed-wheel CLI tests passed.
+- Focused and canonical verification passed: 317 tests, 42/42 deterministic scenarios, migration/corpus/scenario/provider checks. Review: `agent-tasks/reviews/0018-r1.md`.

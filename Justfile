@@ -79,6 +79,9 @@ db-validate database:
 db-restore candidate:
     python -m ah_there_it_is.storage_cli restore "{{candidate}}"
 
+db-restore-rehearsal candidate:
+    python -m ah_there_it_is.storage_cli restore-rehearsal "{{candidate}}"
+
 portable-export destination="inventory-export.json":
     python -m ah_there_it_is.storage_cli export-json "{{destination}}"
 
