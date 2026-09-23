@@ -68,6 +68,25 @@ def test_backup_uses_consistent_sqlite_snapshot_and_validates(tmp_path: Path) ->
         engine.dispose()
 
 
+def test_backup_refuses_to_overwrite_existing_archive(tmp_path: Path) -> None:
+    _, url, engine, factory = _migrated_database(tmp_path)
+    backup = tmp_path / "backup.db"
+    try:
+        with factory() as session:
+            seed_inventory_fixture(session)
+        backup_database(url, backup)
+        original = backup.read_bytes()
+
+        with pytest.raises(StorageOperationError, match="already exists"):
+            backup_database(url, backup)
+
+        assert backup.read_bytes() == original
+        overwritten = backup_database(url, backup, overwrite=True)
+        assert overwritten.path == str(backup.resolve())
+    finally:
+        engine.dispose()
+
+
 def test_restore_is_validated_atomic_and_keeps_pre_restore_backup(
     tmp_path: Path,
 ) -> None:
@@ -124,6 +143,25 @@ def test_restore_is_validated_atomic_and_keeps_pre_restore_backup(
             assert len(inventory.get_item_history(item_id)) == 2
     finally:
         rollback_engine.dispose()
+
+
+def test_restore_refuses_rollback_path_that_is_candidate(tmp_path: Path) -> None:
+    _, url, engine, factory = _migrated_database(tmp_path)
+    candidate = tmp_path / "candidate.db"
+    try:
+        with factory() as session:
+            seed_inventory_fixture(session)
+        backup_database(url, candidate)
+    finally:
+        engine.dispose()
+
+    with pytest.raises(StorageOperationError, match="differ from the restore candidate"):
+        restore_database(
+            url,
+            candidate,
+            confirm_app_stopped=True,
+            rollback_backup=candidate,
+        )
 
 
 def test_restore_refuses_invalid_candidate_without_touching_active_database(
