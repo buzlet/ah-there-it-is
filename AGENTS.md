@@ -247,13 +247,24 @@ Stage 6 was deliberately restructured after live-provider work began coupling ap
 - Full SQLite backup/restore remains the only full-fidelity disaster-recovery path. Portable import remains inventory/history-only and adds no provider/model, voice, Telegram, images, QR, MCP, PWA, cloud sync, embeddings, or multi-user behavior.
 - Stage 12 local verification completed with the storage suite, migration check, full project test suite, and deterministic scenario pipeline; GitHub CI remains the merge gate.
 
-### Stage 13 — next
+### Stage 13 — complete
 
-Freeze the portable format as a compatibility contract so future schema work cannot silently break old archives:
+- Added a committed hand-authored `inventory-portable-v1` compatibility fixture independent of the current exporter, with fixed IDs/timestamps, nested inventory state, history, and the older real Alembic revision `c4cfe3a3e921`.
+- Added an executable fixture -> validate -> import into current schema -> SearchService -> re-export compatibility test.
+- Portable v1 semantic round-trip now protects stable category/location/item/event IDs, audit timestamps, hierarchy, state/quantity, attributes, aliases/tags, current references, and history payload/text/location references while treating alias/tag ordering as non-semantic.
+- Re-export intentionally refreshes `exported_at` and records the current database revision; the archived `source.alembic_revision` remains import metadata only and never selects source-schema code.
+- Parsing now has an explicit format-version dispatch boundary. `inventory-portable-v1` remains frozen and unsupported/future identifiers remain explicit validation errors rather than permissive v1 extensions.
+- Current normalized/FTS state is reconstructed from imported base data and verified through normal SearchService queries.
+- Full SQLite disaster recovery remains separate and operational/chat/evaluation/provider state remains outside the portable compatibility contract.
+- Stage 13 passed the complete provider-independent application/migration/scenario pipeline plus provider adapter contract on Python 3.12/3.13 CI.
 
-1. Commit a hand-authored `inventory-portable-v1` compatibility fixture that is independent of the current exporter implementation.
-2. Require the current parser/importer to load that fixture and reconstruct equivalent domain/search state after future Alembic migrations.
-3. Document and test the format-evolution rule: `inventory-portable-v1` is immutable; incompatible semantic changes require a new format identifier and explicit version dispatch rather than permissive parsing.
-4. Add compatibility cases for older `source.alembic_revision` metadata while continuing to validate against current domain invariants and never executing source-schema code.
-5. Keep full SQLite disaster recovery separate from portable compatibility; do not turn the portable format into a dump of conversations, request-recovery audit, evaluations, or provider traces.
-6. Do not begin deferred product features until the versioned portability contract is protected against future schema changes.
+### Stage 14 — next
+
+Make database migrations self-contained in the installed package instead of depending on repository-root `alembic.ini` and `migrations/` paths:
+
+1. Ship the existing Alembic migration environment/revisions as package resources without changing historical revision IDs.
+2. Add one programmatic packaged migration configuration/runner boundary that receives an explicit database URL and cannot be redirected by ambient database settings.
+3. Route portable import through that boundary so Stage 12-13 recovery works from an arbitrary working directory after package installation.
+4. Add an explicit application database-upgrade operation and minimal CLI/Just surface; do not auto-migrate during import, `create_app()`, or server startup.
+5. Test fresh upgrade and v1 portable import/search from a working directory that contains no repository `alembic.ini`.
+6. Keep dependency/tool/workflow versions aligned with the active sandbox and make no provider/model or deferred product-feature changes in this stage.
