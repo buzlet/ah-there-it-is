@@ -324,8 +324,8 @@ The parser rejects unknown format identifiers, unknown structural fields, malfor
 
 ## Current scope
 
-Stages 0–19 are complete. The application regression pipeline covers 42 provider-independent scenarios with persisted-state/event postconditions. Agent turns remain transactionally atomic, chat submissions are retry-safe, unknown-location suggestions remain read-only, strict bootstrap onboarding and versioned recovery are available, the installed runtime/data home are CWD-independent, and structural scale tests exercise exactly 1000 items / 200 nested locations with bounded search, suggestion, catalog, and tree-count reads. Provider/model compatibility remains a separate contract pipeline.
+Stages 0–20 are complete. The application regression pipeline covers 42 provider-independent scenarios with persisted-state/event postconditions. Agent turns remain transactionally atomic, chat submissions are retry-safe, strict onboarding/recovery and CWD-independent installed operation are available, structural tests exercise the intended 1000-item / 200-location scale, and the installed doctor can diagnose application-level database/FTS consistency with explicit derived-index-only repair. Provider/model compatibility remains a separate contract pipeline.
 
-Stage 20 adds an installed read-only database doctor for application-level consistency beyond SQLite integrity/foreign keys/schema. It also adds one explicit repair operation only for the derived FTS search schema/content, which can be reconstructed from authoritative inventory rows; domain/history corruption remains diagnostic-only.
+Stage 21 completes the browser as a deterministic manual maintenance fallback: Items, Categories, and Locations can be created/corrected without relying on an LLM while all identity, tree, history, transaction, and FTS rules remain owned by the domain/service layer. Deletion remains deliberately out of scope.
 
-Voice, Telegram, images, QR, MCP, PWA, embeddings, multi-user support, public deployment, service-manager integration, containerization, and installer packaging remain deferred and are not part of Stage 20.
+Voice, Telegram, images, QR, MCP, PWA, embeddings, multi-user support, public deployment, service-manager integration, containerization, and installer packaging remain deferred and are not part of Stage 21.
