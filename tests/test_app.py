@@ -173,6 +173,46 @@ def test_chat_api_rejects_conflicting_request_key() -> None:
         engine.dispose()
 
 
+def test_chat_api_returns_425_for_processing_idempotency_key() -> None:
+    from ah_there_it_is.db.models import ChatRequestRecord
+
+    app, factory, engine = build_test_app()
+    calls = 0
+
+    def forbidden_llm():
+        nonlocal calls
+        calls += 1
+        raise AssertionError("processing replay must not construct an LLM")
+
+    app.state.llm_factory = forbidden_llm
+    try:
+        with factory() as session:
+            session.add(
+                ChatRequestRecord(
+                    request_key="api-processing-key-0001",
+                    requested_conversation_id=None,
+                    message="same",
+                    status="processing",
+                )
+            )
+            session.commit()
+
+        with TestClient(app) as client:
+            response = client.post(
+                "/api/chat",
+                json={
+                    "message": "same",
+                    "request_key": "api-processing-key-0001",
+                },
+            )
+
+        assert response.status_code == 425
+        assert "still processing" in response.json()["detail"]
+        assert calls == 0
+    finally:
+        engine.dispose()
+
+
 def test_conversation_can_continue_and_be_restored_with_rating() -> None:
     app, factory, engine = build_test_app()
     try:
