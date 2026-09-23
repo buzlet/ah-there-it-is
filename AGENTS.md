@@ -202,16 +202,29 @@ Stage 6 was deliberately restructured after live-provider work began coupling ap
 - Added migration `f19b2c4d6e81` for `chat_requests`; migration round-trip/check remains part of normal application CI.
 - Provider/model pipelines remain completely separate. Stage 9 requires no live model, provider secret, network call, prompt tuning, or model-specific behavior.
 
-### Stage 10 — next
+### Stage 10 — complete
 
-Make idempotency state observable and recoverable without weakening its safety:
+- Added local operational visibility for persisted idempotency state: `GET /api/chat-requests`, per-key detail, and a `/chat-requests` admin page showing request key, status, timestamps, requested conversation, linked run, original failure, and recovery ancestry.
+- Added explicit manual recovery for `processing` and `failed` requests. Recovery never mutates/reopens the old record; it creates a distinct new request key using the original message/conversation and records `recovered_from_id` plus a required operator recovery note.
+- Recovery requires an explicit duplicate-risk acknowledgement at the HTTP boundary. Completed requests cannot be recovered because their safe behavior is ordinary idempotent replay.
+- Added migration `a31d7f4e9c20` for the recovery audit link/note. Upgrade/downgrade/autogenerate checks remain green.
+- The same recovery key is itself idempotent: repeating an already-completed recovery returns the persisted run and never executes a second agent loop. Reusing that key with different recovery ancestry/note conflicts.
+- Existing crash-like states are now operationally covered: reserved-without-run remains blocked, completed-run/lost-response safely replays from SQLite, failed execution remains terminal until an explicit new audited recovery attempt is created.
+- Added a two-thread/two-session test against file-backed SQLite proving concurrent reservation of one request key lets exactly one operation execute while the other observes the processing reservation. Only one request record/run is persisted.
+- Browser behavior is conservative for blocked keys: both HTTP 425 and 409 preserve the pending request/key in `localStorage`; the UI does not silently substitute a new key. Explicit recovery is performed from the Requests page.
+- The full 40-case deterministic application scenario suite remains green after the operational changes. Python 3.12/3.13 tests and migration checks are green.
+- Provider/model tests remain a separate optional pipeline. Stage 10 added no provider-specific application behavior and required no live-model call.
 
-1. Add a small local read/admin surface for recent `chat_requests` showing key, status, timestamps, requested conversation, linked run, and stored failure.
-2. Provide an explicit manual recovery operation for stale `processing`/failed records; never auto-expire or auto-reexecute them by wall-clock TTL alone.
-3. Recovery that permits a new execution must create a new logical attempt/key or otherwise preserve an audit trail linking the old blocked request to the operator decision.
-4. Add deterministic tests for process-crash-like states: reserved-without-run, completed-run-with-lost-client-response, and failed reservation after rollback.
-5. Add concurrent-reservation coverage against file-backed SQLite so two simultaneous requests with the same key prove exactly one operation can win.
-6. Keep the browser behavior conservative: pending requests may be safely replayed, but the UI must not silently discard/replace a blocked key.
-7. Continue keeping provider/model probes independent and optional; recovery/idempotency remains application infrastructure.
-8. Defer additional channels and embeddings until local text execution is atomic, retry-safe, and operationally inspectable.
+### Stage 11 — next
+
+Make the local-first store durable and portable before adding more interaction channels:
+
+1. Add a consistent SQLite backup command using SQLite's backup API rather than copying a live WAL-mode database file.
+2. Validate every produced backup by opening it independently, running SQLite integrity/foreign-key checks, and verifying the Alembic schema revision.
+3. Add an explicit restore workflow that validates a candidate backup before replacement; never overwrite the active database with an unvalidated file.
+4. Add a portable, versioned JSON export for domain state and audit/history needed to reconstruct inventory independently of SQLite internals. Keep evaluation/provider traces separable from core inventory data.
+5. Add deterministic backup/restore round-trip tests covering nested locations/categories, aliases/tags/attributes, item history, conversations, idempotency/recovery audit records, and FTS/search behavior after restore.
+6. Document WAL/checkpoint behavior and atomic replacement semantics so backup/restore remains safe during ordinary local use.
+7. Keep cloud sync, multi-user replication, voice, Telegram, images, QR, MCP, PWA, and embeddings out of this stage.
+8. Keep provider/model probes independent and optional; backup/restore is pure application/storage infrastructure.
 
