@@ -66,3 +66,19 @@ model-probe suite="eval/model-probes-v1.json" output="model-probe.json":
 
 provider-contract:
     python -m pytest tests/test_provider.py tests/test_model_probe.py
+
+db-backup file:
+    python -m ah_there_it_is.storage_cli backup "{{file}}"
+
+db-validate file:
+    python -m ah_there_it_is.storage_cli validate "{{file}}"
+
+db-restore file confirm:
+    test "{{confirm}}" = "APP_IS_STOPPED"
+    python -m ah_there_it_is.storage_cli restore "{{file}}" --confirm-app-stopped
+
+db-export file="inventory-export.json":
+    python -m ah_there_it_is.storage_cli export "{{file}}"
+
+db-export-full file="inventory-export-full.json":
+    python -m ah_there_it_is.storage_cli export "{{file}}" --include-evaluations
