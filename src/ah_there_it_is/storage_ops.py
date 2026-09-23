@@ -228,6 +228,7 @@ def restore_database(
     confirm_app_stopped: bool,
     rollback_backup: str | Path | None = None,
     expected_revision: str | None = None,
+    skip_rollback: bool = False,
 ) -> RestoreResult:
     if not confirm_app_stopped:
         raise StorageOperationError(
@@ -245,7 +246,11 @@ def restore_database(
 
     target.parent.mkdir(parents=True, exist_ok=True)
     rollback: Path | None = None
-    if target.exists():
+    if skip_rollback and rollback_backup is not None:
+        raise StorageOperationError(
+            "rollback_backup cannot be combined with skip_rollback"
+        )
+    if target.exists() and not skip_rollback:
         rollback = (
             Path(rollback_backup).expanduser().resolve()
             if rollback_backup is not None
