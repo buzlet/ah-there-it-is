@@ -348,11 +348,12 @@ Stage 6 was deliberately restructured after live-provider work began coupling ap
 - At the 1000-item / 200-location fixture, browser reads remain bounded; tree detail selects direct Item columns without materializing Item entities.
 - Final Stage 22 verification passed 263 tests, all 42 deterministic scenarios, migration/corpus/provider-contract checks, and installed-wheel coverage.
 
-### Stage 23 — assigned
+### Stage 23 — previous plan superseded before execution
 
-Expose the existing immutable Item event history as a bounded browser audit timeline:
+Assignment 0012 proposed a read-only browser Activity timeline. External architecture/write-safety audit performed after the seed identified higher-priority agent mutation safety gaps and a historical-path truth issue that should be resolved before expanding Activity.
 
-1. Add a newest-first paged global Activity view and stable Event detail view.
-2. Support deterministic filters by event type and Item while preserving clear/reset navigation.
-3. Link Activity records to surviving Item and Location entities through stable IDs and render missing optional references safely.
-4. Keep event/history storage, mutation semantics, provider behavior, and schema unchanged; this stage is read-only.
+- Assignment 0012 was not implemented.
+- Its immutable seed remains preserved in history.
+- Review record: `agent-tasks/reviews/0012-r0.md`.
+- The Activity concept is deferred until historical evidence semantics are trustworthy.
+- The next Stage 23 plan is issued separately under Assignment 0013.

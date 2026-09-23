@@ -141,16 +141,13 @@
 - Stable-ID links connect search results, Item pages, and tree pages.
 - Target-scale browser reads, installed-wheel assets, and 42 deterministic scenarios verified without changing schema, ranking, or mutation behavior.
 
-## Stage 23 objective
+## Assignment 0012 superseded before execution
 
-Add a read-only browser audit/history surface over the existing immutable `Event` data:
+The seeded Stage 23 browser Activity plan was not implemented.
 
-1. Provide newest-first bounded pagination for global Item activity.
-2. Filter by event type and stable Item ID without loading an unbounded history set.
-3. Add Event detail showing timestamp, type, Item, from/to Locations, payload and original text, with stable links where referenced entities still exist.
-4. Keep existing Item detail history semantics intact and cross-link it to the Event detail when useful.
-5. Handle nullable historical Item/location references defensively; do not invent replacement identities.
-6. No mutation, schema, event-generation, portable/recovery, provider, or prompt changes.
+The external architecture/write-safety audit identified higher-priority agent write-safety defects plus historical Location-path semantics that should be settled before expanding Activity. Assignment 0012 therefore remains an immutable historical plan and is closed by `agent-tasks/reviews/0012-r0.md`.
+
+The next implementation plan reuses the Stage 23 product-stage number under Assignment 0013 and focuses first on write-target safety.
 
 ## Orchestrated implementation workflow
 
