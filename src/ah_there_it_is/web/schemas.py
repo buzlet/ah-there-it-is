@@ -12,6 +12,12 @@ from ah_there_it_is.domain.states import ItemState
 class ChatRequest(BaseModel):
     message: str = Field(min_length=1, max_length=10_000)
     conversation_id: int | None = Field(default=None, gt=0)
+    request_key: str | None = Field(
+        default=None,
+        min_length=8,
+        max_length=128,
+        pattern=r"^[A-Za-z0-9._:-]+$",
+    )
 
 
 class ChatResponse(BaseModel):
@@ -19,6 +25,7 @@ class ChatResponse(BaseModel):
     run_id: int
     content: str
     rounds: int
+    replayed: bool = False
 
 
 class FeedbackRequest(BaseModel):
