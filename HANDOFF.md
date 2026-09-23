@@ -155,13 +155,19 @@ Complete the deterministic manual web fallback so normal inventory maintenance d
 
 ## Orchestrated implementation workflow
 
-Implementation-agent assignments and review records are archived under `agent-tasks/`. Current protocol v3 treats the trusted agent as both implementer and verifier.
+Implementation-agent assignments and review records are archived under `agent-tasks/`. Assignment 0010 is the final assignment issued under protocol v3. After this process change is merged, future assignments use `agent-tasks/common/v4.md`.
 
-For a normal implementation handoff, the agent fast-forwards `main`, implements only the assignment, self-reviews the complete diff, runs focused plus canonical local verification, opens the PR, waits for and diagnoses its own CI, applies task-related corrections, repeats until green, merges the PR, synchronizes local `main`, writes the compact review record required by the protocol, and returns only an aggregated summary. Raw test/Alembic/CI logs remain out of the orchestrator conversation unless needed to explain a blocker.
+Protocol v4 uses a stage-owned seeded branch rather than a separate orchestrator documentation PR. After accepting the previous agent's compact report, the orchestrator does not re-run routine tests, re-review the successful implementation diff, or monitor that implementation CI. It reads the prior review/current strategy plus only the source areas needed to choose the next product or architecture gap.
 
-The orchestrator retains product/architecture direction, stage transitions, assignment formulation, and decisions where requirements conflict or a materially new design choice is needed. It does not repeat routine review/tests/CI already owned by the agent. The orchestrator guarantees that no concurrent repository work occurs between assignment publication and the agent's initial pull.
+For the next stage the orchestrator synchronizes `main`, creates the assignment-named feature branch from it, writes exactly one immutable seed commit containing the new assignment and required strategy/status documentation, performs only lightweight structural/document consistency checks, and pushes the branch. It opens no PR and waits for no application CI. The pushed seed branch is then handed to the implementation+verification agent.
 
-Assignment 0001 completed under v1. Assignment 0002/v2 was superseded before execution and is recorded in `agent-tasks/reviews/0002-r0.md`. Future implementation uses `agent-tasks/common/v3.md`; active Stage 21 work is `agent-tasks/assignments/0010-stage21-manual-web-admin.md`.
+The agent fetches and continues that exact branch; it does not create a replacement branch, amend/rebase/squash the seed, or force-push rewritten history. The agent implements the assignment in later commits, self-reviews, runs focused plus canonical verification, writes the review record, updates the assigned stage to factually complete without choosing the next stage, opens the single implementation PR, owns its CI/fix loop, and merges with a merge commit so the seed remains in repository history. After merge it synchronizes clean local `main` and returns only the compact v4 report.
+
+Normal GitHub workflows run full application/provider-contract checks only for pull requests that change executable/test/schema/packaging/workflow content. Ordinary feature-branch pushes do not run CI, so orchestrator seed pushes are free of CI. Pull requests changing only the recognized strategy/process documentation (`AGENTS.md`, `HANDOFF.md`, `README.md`, `agent-tasks/**`) are ignored by those heavy workflows entirely. This keeps one normal full PR-CI cycle per implemented stage without weakening implementation verification. The repository currently has no required-status-check branch protection; if such protection is introduced later, reconcile it with docs-only path filtering so skipped workflows cannot become permanently required.
+
+The orchestrator guarantees no concurrent repository work between seed publication and the agent's initial pull. Ordinary implementation/test failures remain the agent's responsibility; only genuine architecture/product/infrastructure blockers return to the orchestrator.
+
+Assignment 0001 completed under v1. Assignment 0002/v2 was superseded before execution and is recorded in `agent-tasks/reviews/0002-r0.md`. Assignments 0003–0010 use the historical protocol recorded by each assignment; future assignments issued after this process transition use v4.
 
 ## Development environment checkpoint
 

@@ -4,8 +4,12 @@ permissions:
   contents: read
 
 'on':
-  push:
   pull_request:
+    paths-ignore:
+      - 'AGENTS.md'
+      - 'HANDOFF.md'
+      - 'README.md'
+      - 'agent-tasks/**'
   workflow_dispatch:
     inputs:
       provider:
