@@ -299,13 +299,23 @@ Stage 6 was deliberately restructured after live-provider work began coupling ap
 - No schema/data-format/provider/dependency/runtime/workflow or deployment-service behavior changed.
 - Final Stage 17 verification passed 210 tests, all 42 deterministic scenarios, provider contract, and Python 3.12/3.13 CI.
 
-### Stage 18 — next
+### Stage 18 — complete
 
-Give the installed local application one stable per-user data home so its default database no longer depends on the process working directory:
+- Added stdlib-only deterministic per-user data-home resolution for Unix/XDG, macOS, and Windows plus `AH_THERE_IT_IS_DATA_DIR` override.
+- Default database is now `<data-home>/inventory.db` and is independent of process CWD; non-blank `AH_THERE_IT_IS_DATABASE_URL` remains authoritative.
+- Relative data-home bases/overrides are anchored to the user home rather than CWD, and whitespace-only overrides are treated as unset.
+- Settings/import/create-app/runtime-schema/`paths` reads remain side-effect-free; only explicit storage upgrade creates a missing SQLite parent/database.
+- Added read-only installed `ah-there-it-is paths` JSON output without exposing explicit non-file database credentials.
+- Real wheel smoke proves explicit upgrade from one working directory and installed serve from another use the same stable default DB without stray CWD database/WAL/SHM files.
+- Final Stage 18 verification passed 225 tests, all 42 deterministic scenarios, provider contract, and Python 3.12/3.13 CI with no implementation or CI correction rounds.
 
-1. Resolve a deterministic platform-appropriate per-user data directory using only the standard library, with `AH_THERE_IT_IS_DATA_DIR` override.
-2. When `AH_THERE_IT_IS_DATABASE_URL` is absent, derive the default SQLite URL from `<data dir>/inventory.db`; an explicit database URL always wins.
-3. Keep settings/import/runtime reads side-effect-free; only the explicit upgrade operation may create a missing data-directory parent/database.
-4. Add a read-only installed `paths` surface so the operator can see the resolved local paths without exposing secrets.
-5. Prove explicit upgrade and installed serve use the same default database from unrelated working directories.
-6. Extend real-wheel coverage for cross-CWD default-path operation while leaving data/recovery/provider semantics unchanged.
+### Stage 19 — next
+
+Validate and harden core deterministic read paths at the intended local scale of roughly 1000 items and 100–250 nested locations:
+
+1. Add compact deterministic target-scale test data with 1000 items and about 200 nested locations.
+2. Make item search SQL/FTS-first so a limit-5 query does not materialize the whole inventory plus aliases/tags before ranking.
+3. Restrict location-suggestion evidence queries to same-category/shared-tag rows instead of all located items.
+4. Add the reverse `item_tags.tag_id` lookup index required by tag-based candidate/evidence queries.
+5. Page the `/items` catalog at 50 by default (100 maximum) and preserve deterministic ordering/navigation.
+6. Replace location/category per-node lazy item counts with bounded grouped SQL aggregation; verify structural bounded-work behavior without wall-clock SLA tests.
