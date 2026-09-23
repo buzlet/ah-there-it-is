@@ -14,7 +14,7 @@ Local-first inventory memory for finding physical things using natural-language 
 - replay-oriented agent run logs and 1–5 human evaluation feedback
 - controlled prompt/model replay against captured tool evidence
 
-The LLM is not a database client. Domain services own validation, identity, history, and mutations. The live agent can mutate only stable IDs that the backend has resolved from prior tool results. Experiment replay never executes mutations against the live inventory database. Agent turns are transactionally atomic: mutation tools flush but do not commit independently; a successful final response commits the turn, while any failed turn rolls back its business mutations/history before the failure run is logged.
+The LLM is not a database client. Domain services own validation, identity, history, and mutations. The live agent can mutate only stable IDs that the backend has resolved from prior tool results. Experiment replay never executes mutations against the live inventory database. Agent turns are transactionally atomic: mutation tools flush but do not commit independently; a successful final response commits the turn, while any failed turn rolls back its business mutations/history before the failure run is logged. Chat submissions can also carry a stable idempotency key: a completed retry returns the persisted run without invoking the LLM/tool loop again, while conflicting, still-processing, or previously failed keys are blocked rather than guessed/re-executed.
 
 ## Sandbox development
 
@@ -89,6 +89,21 @@ export AH_THERE_IT_IS_LLM_API_KEY=secret
 ```
 
 `AH_THERE_IT_IS_LLM_API_KEY` is used only for request authentication and is never written to run metadata. Optional request settings include `AH_THERE_IT_IS_LLM_TEMPERATURE`, timeout, and `AH_THERE_IT_IS_LLM_EXTRA_BODY_JSON`.
+
+## Retry-safe chat requests
+
+`POST /api/chat` accepts an optional `request_key` (8–128 characters, URL/token-friendly characters only). A client that may retry should generate one key per logical user submission and reuse that same key until it receives the response.
+
+The first request reserves the key in local SQLite **before** the LLM is constructed. Terminal behavior is deliberately conservative:
+
+- same key + same message/requested conversation + completed request: return the original `conversation_id`, `run_id`, content, and round count with `replayed=true`;
+- same key with different request content: HTTP 409;
+- same key while the original is still `processing`: HTTP 425;
+- same key after a failed execution: HTTP 409; use a new key only for an intentional new attempt.
+
+There is intentionally no time-based automatic retry/expiry for `processing` records. If the server dies after a business commit but before the client receives the response, blindly expiring the key is exactly how duplicate mutations are born.
+
+The browser stores the pending submission and key in `localStorage`. Reloading after an uncertain network result resends the same logical request, so a completed server-side operation is replayed from SQLite rather than executed twice.
 
 ## Prompt/model evaluation
 
@@ -178,7 +193,7 @@ Native Gemini and OpenAI-compatible adapters remain replaceable implementations 
 
 ## Current scope
 
-Stages 0–8 are complete. The application regression pipeline covers the full 40-case corpus with independent persisted-state/event postconditions, agent turns are transactionally atomic, and provider/model compatibility remains a separate contract pipeline. Stage 9 focuses on retry-safe/idempotent chat requests so duplicate client submissions cannot duplicate mutations. Real-provider probes remain optional adapter verification.
+Stages 0–9 are complete. The application regression pipeline covers the full 40-case corpus with independent persisted-state/event postconditions, agent turns are transactionally atomic, and chat submissions are retry-safe through persisted idempotency keys. Provider/model compatibility remains a separate contract pipeline. Stage 10 focuses on inspection/recovery of blocked idempotency records and concurrent-reservation evidence. Real-provider probes remain optional adapter verification.
 
 Voice, Telegram, images, QR, MCP, PWA, embeddings, and multi-user support remain out of scope until the text workflow is stable.
 

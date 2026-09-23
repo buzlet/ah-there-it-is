@@ -94,6 +94,125 @@ def test_chat_api_mutates_inventory_and_persists_evaluation_log() -> None:
         engine.dispose()
 
 
+def test_chat_api_replays_completed_request_without_new_llm() -> None:
+    engine = create_db_engine("sqlite://")
+    Base.metadata.create_all(engine)
+    with engine.begin() as connection:
+        install_fts_schema(connection)
+    factory = create_session_factory(engine)
+    calls = 0
+
+    def counted_llm():
+        nonlocal calls
+        calls += 1
+        return HeuristicLLMClient()
+
+    app = create_app(
+        Settings(app_name="Test Inventory"),
+        session_factory=factory,
+        llm_factory=counted_llm,
+    )
+    try:
+        with factory() as session:
+            inventory = InventoryService(session)
+            desk = inventory.create_location("Стол")
+            inventory.create_location("правый ящик", parent_id=desk.id)
+
+        payload = {
+            "message": "Положил USB тестер в правый ящик",
+            "conversation_id": None,
+            "request_key": "api-retry-key-0001",
+        }
+        with TestClient(app) as client:
+            first = client.post("/api/chat", json=payload)
+            second = client.post("/api/chat", json=payload)
+
+        assert first.status_code == 200
+        assert second.status_code == 200
+        assert first.json()["replayed"] is False
+        assert second.json()["replayed"] is True
+        assert second.json()["run_id"] == first.json()["run_id"]
+        assert second.json()["conversation_id"] == first.json()["conversation_id"]
+        assert calls == 1
+
+        with factory() as session:
+            items = [
+                item
+                for item in CatalogService(session).list_items()
+                if item["name"] == "USB тестер"
+            ]
+            assert len(items) == 1
+            assert len(InventoryService(session).get_item_history(items[0]["id"])) == 1
+    finally:
+        engine.dispose()
+
+
+def test_chat_api_rejects_conflicting_request_key() -> None:
+    app, _, engine = build_test_app()
+    try:
+        with TestClient(app) as client:
+            first = client.post(
+                "/api/chat",
+                json={
+                    "message": "Где CH341A?",
+                    "request_key": "api-conflict-key-0001",
+                },
+            )
+            conflict = client.post(
+                "/api/chat",
+                json={
+                    "message": "Где GTX 1070?",
+                    "request_key": "api-conflict-key-0001",
+                },
+            )
+
+        assert first.status_code == 200
+        assert conflict.status_code == 409
+        assert "different chat content" in conflict.json()["detail"]
+    finally:
+        engine.dispose()
+
+
+def test_chat_api_returns_425_for_processing_idempotency_key() -> None:
+    from ah_there_it_is.db.models import ChatRequestRecord
+
+    app, factory, engine = build_test_app()
+    calls = 0
+
+    def forbidden_llm():
+        nonlocal calls
+        calls += 1
+        raise AssertionError("processing replay must not construct an LLM")
+
+    app.state.llm_factory = forbidden_llm
+    try:
+        with factory() as session:
+            session.add(
+                ChatRequestRecord(
+                    request_key="api-processing-key-0001",
+                    requested_conversation_id=None,
+                    message="same",
+                    status="processing",
+                )
+            )
+            session.commit()
+
+        with TestClient(app) as client:
+            response = client.post(
+                "/api/chat",
+                json={
+                    "message": "same",
+                    "request_key": "api-processing-key-0001",
+                },
+            )
+
+        assert response.status_code == 425
+        assert "still processing" in response.json()["detail"]
+        assert calls == 0
+    finally:
+        engine.dispose()
+
+
 def test_conversation_can_continue_and_be_restored_with_rating() -> None:
     app, factory, engine = build_test_app()
     try:

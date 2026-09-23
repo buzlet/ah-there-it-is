@@ -12,6 +12,12 @@ from sqlalchemy.orm import Session
 from ah_there_it_is.agent.runner import AgentRunner
 from ah_there_it_is.domain.exceptions import EntityNotFoundError, InventoryError
 from ah_there_it_is.services.catalog import CatalogService
+from ah_there_it_is.services.chat_requests import (
+    ChatRequestService,
+    IdempotencyConflictError,
+    IdempotencyInProgressError,
+    IdempotencyPreviousFailureError,
+)
 from ah_there_it_is.services.conversations import ConversationService
 from ah_there_it_is.services.evaluation import EvaluationService
 from ah_there_it_is.services.inventory import InventoryService
@@ -48,29 +54,52 @@ def build_router(templates: Jinja2Templates) -> APIRouter:
         request: Request,
         session: Session = Depends(get_session),
     ) -> ChatResponse:
-        llm = request.app.state.llm_factory()
         settings = request.app.state.settings
-        runner = AgentRunner(
-            session,
-            llm,
-            max_rounds=settings.agent_max_rounds,
-            system_prompt=request.app.state.system_prompt,
-            prompt_version=settings.prompt_version,
-        )
+
+        def execute_agent():
+            llm = request.app.state.llm_factory()
+            try:
+                return AgentRunner(
+                    session,
+                    llm,
+                    max_rounds=settings.agent_max_rounds,
+                    system_prompt=request.app.state.system_prompt,
+                    prompt_version=settings.prompt_version,
+                ).run(
+                    payload.message,
+                    conversation_id=payload.conversation_id,
+                )
+            finally:
+                close = getattr(llm, "close", None)
+                if callable(close):
+                    close()
+
         try:
-            result = runner.run(
-                payload.message,
+            execution = ChatRequestService(session).execute(
+                request_key=payload.request_key,
+                message=payload.message,
                 conversation_id=payload.conversation_id,
+                operation=execute_agent,
             )
+        except IdempotencyInProgressError as exc:
+            raise HTTPException(status_code=425, detail=str(exc)) from exc
+        except (
+            IdempotencyConflictError,
+            IdempotencyPreviousFailureError,
+        ) as exc:
+            raise HTTPException(status_code=409, detail=str(exc)) from exc
         except EntityNotFoundError as exc:
             raise HTTPException(status_code=404, detail=str(exc)) from exc
         except InventoryError as exc:
             raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+        result = execution.result
         return ChatResponse(
             conversation_id=result.conversation_id,
             run_id=result.run_id,
             content=result.content,
             rounds=result.rounds,
+            replayed=execution.replayed,
         )
 
     @router.get("/api/conversations/{conversation_id}", response_model=ConversationResponse)
