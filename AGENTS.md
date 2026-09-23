@@ -375,3 +375,10 @@ Assignment 0012 proposed a read-only browser Activity timeline. External archite
 - A packaged migration persists committed receipts; chat responses and completed idempotent replay expose `changes_applied` and those receipts independently of assistant text.
 - Focused and full verification passed: 295 tests, 42/42 deterministic scenarios, migration/corpus/scenario/provider checks and installed-wheel coverage.
 - Review record: `agent-tasks/reviews/0014-r1.md`.
+
+### Stage 25 — complete (Assignment 0015)
+
+- Keyed chat requests retain a durable pre-execution reservation, while one coordinator-owned final commit persists business changes, successful messages, completed run, mutation receipts, and completed request linkage together.
+- Failed pre-commit work rolls back before separately marking the reservation failed. Uncertain final commits are reconciled from durable state in a fresh session: valid completion replays, uncommitted processing becomes an explicit failure, and inconsistent state is preserved for operator review.
+- Same-key concurrency, response loss, injected before/after-commit faults, conflict and explicit recovery behavior are covered without automatic retry or expiry. A local two-connection probe observed that SQLite blocks a second writer after the first flushed write.
+- Focused and canonical verification passed: 301 tests, 42/42 deterministic scenarios, migration/corpus/scenario/provider checks. Review record: `agent-tasks/reviews/0015-r1.md`.

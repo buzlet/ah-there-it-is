@@ -53,7 +53,7 @@ def test_create_retry_returns_same_run_without_duplicate_event(session: Session)
         request_key="create-retry-0001",
         message="Create USB tester",
         conversation_id=None,
-        operation=lambda: AgentRunner(session, llm).run("Create USB tester"),
+        operation=lambda commit: AgentRunner(session, llm).run("Create USB tester", commit_on_success=commit),
     )
     after_first = event_count(session)
     messages_after_first = message_count(session)
@@ -62,7 +62,7 @@ def test_create_retry_returns_same_run_without_duplicate_event(session: Session)
         request_key="create-retry-0001",
         message="Create USB tester",
         conversation_id=None,
-        operation=lambda: (_ for _ in ()).throw(
+        operation=lambda commit: (_ for _ in ()).throw(
             AssertionError("operation must not be invoked on replay")
         ),
     )
@@ -108,14 +108,14 @@ def test_move_retry_does_not_duplicate_history_event(session: Session) -> None:
         request_key="move-retry-0001",
         message="Move CH341A",
         conversation_id=None,
-        operation=lambda: AgentRunner(session, llm).run("Move CH341A"),
+        operation=lambda commit: AgentRunner(session, llm).run("Move CH341A", commit_on_success=commit),
     )
     after_first = event_count(session)
     second = service.execute(
         request_key="move-retry-0001",
         message="Move CH341A",
         conversation_id=None,
-        operation=lambda: (_ for _ in ()).throw(
+        operation=lambda commit: (_ for _ in ()).throw(
             AssertionError("operation must not be invoked on replay")
         ),
     )
@@ -152,8 +152,8 @@ def test_update_retry_does_not_duplicate_history_event(session: Session) -> None
         request_key="update-retry-0001",
         message="DT-830B has broken probes",
         conversation_id=None,
-        operation=lambda: AgentRunner(session, llm).run(
-            "DT-830B has broken probes"
+        operation=lambda commit: AgentRunner(session, llm).run(
+            "DT-830B has broken probes", commit_on_success=commit
         ),
     )
     after_first = event_count(session)
@@ -161,7 +161,7 @@ def test_update_retry_does_not_duplicate_history_event(session: Session) -> None
         request_key="update-retry-0001",
         message="DT-830B has broken probes",
         conversation_id=None,
-        operation=lambda: (_ for _ in ()).throw(
+        operation=lambda commit: (_ for _ in ()).throw(
             AssertionError("operation must not be invoked on replay")
         ),
     )
@@ -193,10 +193,10 @@ def test_completed_replay_is_loaded_from_persistent_database(tmp_path) -> None:
                 request_key="persistent-key-0001",
                 message="Where is it?",
                 conversation_id=None,
-                operation=lambda: AgentRunner(
+                operation=lambda commit: AgentRunner(
                     first_session,
                     ScriptedLLMClient([LLMResponse(content="Stored answer")]),
-                ).run("Where is it?"),
+                ).run("Where is it?", commit_on_success=commit),
             )
 
         with factory() as second_session:
@@ -204,7 +204,7 @@ def test_completed_replay_is_loaded_from_persistent_database(tmp_path) -> None:
                 request_key="persistent-key-0001",
                 message="Where is it?",
                 conversation_id=None,
-                operation=lambda: (_ for _ in ()).throw(
+                operation=lambda commit: (_ for _ in ()).throw(
                     AssertionError("persistent replay must not execute")
                 ),
             )
@@ -222,9 +222,9 @@ def test_reusing_key_with_different_payload_is_conflict(session: Session) -> Non
         request_key="conflict-key-0001",
         message="one",
         conversation_id=None,
-        operation=lambda: AgentRunner(
+        operation=lambda commit: AgentRunner(
             session, ScriptedLLMClient([LLMResponse(content="ok")])
-        ).run("one"),
+        ).run("one", commit_on_success=commit),
     )
 
     with pytest.raises(IdempotencyConflictError):
@@ -232,7 +232,7 @@ def test_reusing_key_with_different_payload_is_conflict(session: Session) -> Non
             request_key="conflict-key-0001",
             message="two",
             conversation_id=None,
-            operation=lambda: (_ for _ in ()).throw(
+            operation=lambda commit: (_ for _ in ()).throw(
                 AssertionError("conflicting request must not execute")
             ),
         )
@@ -254,7 +254,7 @@ def test_processing_key_never_starts_second_operation(session: Session) -> None:
             request_key="processing-key-0001",
             message="same",
             conversation_id=None,
-            operation=lambda: (_ for _ in ()).throw(
+            operation=lambda commit: (_ for _ in ()).throw(
                 AssertionError("processing request must not execute")
             ),
         )
@@ -267,7 +267,7 @@ def test_failed_key_never_restarts_implicitly(session: Session) -> None:
             request_key="failed-key-0001",
             message="same",
             conversation_id=None,
-            operation=lambda: (_ for _ in ()).throw(RuntimeError("boom")),
+            operation=lambda commit: (_ for _ in ()).throw(RuntimeError("boom")),
         )
 
     record = service.get("failed-key-0001")
@@ -279,7 +279,7 @@ def test_failed_key_never_restarts_implicitly(session: Session) -> None:
             request_key="failed-key-0001",
             message="same",
             conversation_id=None,
-            operation=lambda: (_ for _ in ()).throw(
+            operation=lambda commit: (_ for _ in ()).throw(
                 AssertionError("failed request must not restart")
             ),
         )
@@ -292,17 +292,17 @@ def test_failed_request_can_be_recovered_as_new_audited_attempt(session: Session
             request_key="failed-source-0001",
             message="Where is CH341A?",
             conversation_id=None,
-            operation=lambda: (_ for _ in ()).throw(RuntimeError("boom")),
+            operation=lambda commit: (_ for _ in ()).throw(RuntimeError("boom")),
         )
 
     recovered = service.recover(
         source_request_key="failed-source-0001",
         new_request_key="recovery-attempt-0001",
         recovery_note="Operator verified the failed turn rolled back.",
-        operation=lambda: AgentRunner(
+        operation=lambda commit: AgentRunner(
             session,
             ScriptedLLMClient([LLMResponse(content="Recovered answer")]),
-        ).run("Where is CH341A?"),
+        ).run("Where is CH341A?", commit_on_success=commit),
     )
 
     source = service.get("failed-source-0001")
@@ -333,16 +333,16 @@ def test_recovery_retry_replays_same_new_attempt_without_second_operation(
         source_request_key="processing-source-0001",
         new_request_key="manual-recovery-0001",
         recovery_note="Operator accepts duplicate-risk after inspection.",
-        operation=lambda: AgentRunner(
+        operation=lambda commit: AgentRunner(
             session,
             ScriptedLLMClient([LLMResponse(content="Recovered")]),
-        ).run("same"),
+        ).run("same", commit_on_success=commit),
     )
     second = service.recover(
         source_request_key="processing-source-0001",
         new_request_key="manual-recovery-0001",
         recovery_note="Operator accepts duplicate-risk after inspection.",
-        operation=lambda: (_ for _ in ()).throw(
+        operation=lambda commit: (_ for _ in ()).throw(
             AssertionError("recovery replay must not execute twice")
         ),
     )
@@ -357,10 +357,10 @@ def test_completed_request_cannot_be_recovered(session: Session) -> None:
         request_key="completed-source-0001",
         message="done",
         conversation_id=None,
-        operation=lambda: AgentRunner(
+        operation=lambda commit: AgentRunner(
             session,
             ScriptedLLMClient([LLMResponse(content="Done")]),
-        ).run("done"),
+        ).run("done", commit_on_success=commit),
     )
 
     with pytest.raises(IdempotencyRecoveryNotAllowedError, match="must be replayed"):
@@ -368,7 +368,7 @@ def test_completed_request_cannot_be_recovered(session: Session) -> None:
             source_request_key="completed-source-0001",
             new_request_key="should-not-run-0001",
             recovery_note="Not needed.",
-            operation=lambda: (_ for _ in ()).throw(
+            operation=lambda commit: (_ for _ in ()).throw(
                 AssertionError("completed source must not recover")
             ),
         )
@@ -381,7 +381,7 @@ def test_recovery_requires_existing_source_and_audit_note(session: Session) -> N
             source_request_key="missing-source-0001",
             new_request_key="recovery-0002",
             recovery_note="operator note",
-            operation=lambda: (_ for _ in ()).throw(AssertionError()),
+            operation=lambda commit: (_ for _ in ()).throw(AssertionError()),
         )
 
     session.add(
@@ -400,7 +400,7 @@ def test_recovery_requires_existing_source_and_audit_note(session: Session) -> N
             source_request_key="failed-source-0002",
             new_request_key="recovery-0003",
             recovery_note="   ",
-            operation=lambda: (_ for _ in ()).throw(AssertionError()),
+            operation=lambda commit: (_ for _ in ()).throw(AssertionError()),
         )
 
 
@@ -448,7 +448,7 @@ def test_concurrent_same_key_allows_exactly_one_operation(tmp_path) -> None:
         with factory() as worker_session:
             barrier.wait()
 
-            def operation():
+            def operation(commit: bool):
                 nonlocal operation_calls
                 with operation_lock:
                     operation_calls += 1
@@ -456,7 +456,7 @@ def test_concurrent_same_key_allows_exactly_one_operation(tmp_path) -> None:
                 return AgentRunner(
                     worker_session,
                     ScriptedLLMClient([LLMResponse(content="once")]),
-                ).run("same")
+                ).run("same", commit_on_success=commit)
 
             try:
                 ChatRequestService(worker_session).execute(

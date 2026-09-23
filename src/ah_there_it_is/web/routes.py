@@ -113,7 +113,7 @@ def build_router(templates: Jinja2Templates) -> APIRouter:
     ) -> ChatResponse:
         settings = request.app.state.settings
 
-        def execute_agent():
+        def execute_agent(commit_on_success: bool):
             llm = request.app.state.llm_factory()
             try:
                 return AgentRunner(
@@ -125,6 +125,7 @@ def build_router(templates: Jinja2Templates) -> APIRouter:
                 ).run(
                     payload.message,
                     conversation_id=payload.conversation_id,
+                    commit_on_success=commit_on_success,
                 )
             finally:
                 close = getattr(llm, "close", None)
@@ -253,7 +254,7 @@ def build_router(templates: Jinja2Templates) -> APIRouter:
             raise HTTPException(status_code=404, detail="chat request not found")
         settings = request.app.state.settings
 
-        def execute_agent():
+        def execute_agent(commit_on_success: bool):
             llm = request.app.state.llm_factory()
             try:
                 return AgentRunner(
@@ -265,6 +266,7 @@ def build_router(templates: Jinja2Templates) -> APIRouter:
                 ).run(
                     source.message,
                     conversation_id=source.requested_conversation_id,
+                    commit_on_success=commit_on_success,
                 )
             finally:
                 close = getattr(llm, "close", None)
