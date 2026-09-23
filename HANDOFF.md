@@ -63,12 +63,14 @@ Freeze portable compatibility so future schema changes cannot silently invalidat
 9. `src/ah_there_it_is/services/search.py`
 10. `Justfile`
 
+## Orchestrated implementation workflow
+
+Implementation-agent assignments are archived under `agent-tasks/`. Under this workflow the orchestrator owns repository verification and acceptance.
+
+For an implementation handoff, the agent follows the referenced versioned common protocol, fast-forwards `main`, creates the assigned branch, implements only the assignment, opens a PR, and stops. It does not inspect unrelated branches/PRs/CI or run tests/checks unless the concrete assignment explicitly requests them. The orchestrator guarantees that no concurrent repository work occurs across the handoff interval.
+
+The first archived assignment is `agent-tasks/assignments/0001-stage13-portable-compatibility.md`.
+
 ## Verification checkpoint
 
-Before Stage 13 work:
-
-- fetch/prune and fast-forward `main`;
-- verify no newer portable-format work exists on branches/PRs;
-- verify latest `application-ci` and `provider-contract` runs;
-- run the canonical local checks from `Justfile`;
-- trust newer repository state over this handoff if they differ.
+The orchestrator, not the implementation agent, verifies the resulting PR against current `main`, the assignment, canonical tests/checks, and CI before acceptance. Trust newer repository state over this handoff if they differ.
