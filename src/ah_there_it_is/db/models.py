@@ -308,7 +308,9 @@ class ChatRequestRecord(Base):
         DateTime(timezone=True), default=utc_now, onupdate=utc_now, nullable=False
     )
 
-    run: Mapped[AgentRunLog | None] = relationship()
+    run: Mapped[AgentRunLog | None] = relationship(
+        foreign_keys=[agent_run_id]
+    )
 
 
 class AgentFeedback(Base):
