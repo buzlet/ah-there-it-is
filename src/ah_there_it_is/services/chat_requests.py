@@ -65,12 +65,6 @@ class ChatRequestService:
             message=text,
             conversation_id=conversation_id,
         )
-        if not created:
-            return IdempotentExecution(
-                result=self._resolve_existing(record),
-                replayed=True,
-            )
-
         return self._execute_reserved(record, created, operation)
 
     def recover(
