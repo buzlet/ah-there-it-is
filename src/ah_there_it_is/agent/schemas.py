@@ -30,6 +30,11 @@ class LocationIdInput(_ToolInput):
     location_id: int = Field(gt=0)
 
 
+class SuggestItemLocationsInput(_ToolInput):
+    item_id: int = Field(gt=0)
+    limit: int = Field(default=5, ge=1, le=20)
+
+
 class CreateCategoryInput(_ToolInput):
     name: str = Field(min_length=1, max_length=200)
     parent_id: int | None = Field(default=None, gt=0)

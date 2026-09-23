@@ -413,3 +413,69 @@ def test_same_round_search_cannot_authorize_same_round_mutation(session: Session
     assert failed_move["ok"] is False
     assert failed_move["error"]["type"] == "ToolPreconditionError"
     assert inventory.get_item(item.id).current_location_id == balcony.id
+
+
+def test_location_suggestions_require_resolved_item(session: Session) -> None:
+    inventory = InventoryService(session)
+    item = inventory.create_item("Unresolved item")
+    dispatcher = ToolDispatcher(session)
+
+    assert "suggest_item_locations" not in {
+        tool.name for tool in dispatcher.definitions()
+    }
+    result = dispatcher.execute(
+        "suggest_item_locations",
+        {"item_id": item.id},
+    )
+
+    assert result["ok"] is False
+    assert result["error"]["type"] == "ToolPreconditionError"
+
+
+def test_suggested_location_is_seen_but_does_not_authorize_move(
+    session: Session,
+) -> None:
+    from sqlalchemy import func, select
+
+    from ah_there_it_is.db.models import Event
+
+    inventory = InventoryService(session)
+    category = inventory.create_category("Adapters")
+    location = inventory.create_location("Drawer")
+    target = inventory.create_item("Target adapter", category_id=category.id)
+    inventory.create_item(
+        "Related adapter",
+        category_id=category.id,
+        location_id=location.id,
+    )
+    dispatcher = ToolDispatcher(session)
+
+    searched = dispatcher.execute("search_items", {"query": "Target adapter"})
+    assert searched["ok"] is True
+    assert target.id in dispatcher.state.resolved["item"]
+    assert "suggest_item_locations" in {
+        tool.name for tool in dispatcher.definitions()
+    }
+
+    events_before = int(session.scalar(select(func.count(Event.id))) or 0)
+    suggested = dispatcher.execute(
+        "suggest_item_locations",
+        {"item_id": target.id},
+    )
+    assert suggested["ok"] is True
+    assert suggested["result"]["stored_current_location_id"] is None
+    assert suggested["result"]["suggestions"][0]["location_id"] == location.id
+    assert location.id in dispatcher.state.seen["location"]
+    assert location.id not in dispatcher.state.resolved["location"]
+
+    read = dispatcher.execute("get_location", {"id": location.id})
+    attempted_move = dispatcher.execute(
+        "move_item",
+        {"item_id": target.id, "location_id": location.id},
+    )
+
+    assert read["ok"] is True
+    assert attempted_move["ok"] is False
+    assert attempted_move["error"]["type"] == "ToolPreconditionError"
+    assert inventory.get_item(target.id).current_location_id is None
+    assert int(session.scalar(select(func.count(Event.id))) or 0) == events_before

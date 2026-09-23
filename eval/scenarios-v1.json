@@ -1838,6 +1838,192 @@
           "final": "CH341A перемещён после обязательного разрешения сущностей."
         }
       ]
+    },
+    {
+      "case_id": "suggest-01",
+      "steps": [
+        {
+          "expect_tools": [
+            "search_items"
+          ],
+          "forbid_tools": [
+            "suggest_item_locations"
+          ],
+          "tool_calls": [
+            {
+              "name": "search_items",
+              "arguments": {
+                "query": "CH341A"
+              }
+            }
+          ]
+        },
+        {
+          "expect_tools": [
+            "move_item",
+            "suggest_item_locations"
+          ],
+          "tool_calls": [
+            {
+              "name": "move_item",
+              "arguments": {
+                "item_id": "${tool:search_items:result.0.id}",
+                "location_id": null
+              }
+            }
+          ]
+        },
+        {
+          "final": "Текущее место CH341A теперь неизвестно."
+        },
+        {
+          "expect_tools": [
+            "search_items"
+          ],
+          "forbid_tools": [
+            "suggest_item_locations"
+          ],
+          "tool_calls": [
+            {
+              "name": "search_items",
+              "arguments": {
+                "query": "CH341A"
+              }
+            }
+          ]
+        },
+        {
+          "expect_tools": [
+            "suggest_item_locations"
+          ],
+          "tool_calls": [
+            {
+              "name": "suggest_item_locations",
+              "arguments": {
+                "item_id": "${tool:search_items:result.0.id}",
+                "limit": 5
+              }
+            }
+          ]
+        },
+        {
+          "expect_results": [
+            {
+              "tool_name": "suggest_item_locations",
+              "path": "result.suggestions.0.location_path",
+              "equals": "Квартира / Кабинет / Стол / Правый ящик"
+            },
+            {
+              "tool_name": "suggest_item_locations",
+              "path": "result.suggestions.0.evidence.reasons",
+              "equals": [
+                "last_known",
+                "same_category"
+              ]
+            }
+          ],
+          "final": "Текущее место неизвестно. Правый ящик — только предположение по истории и связанному предмету."
+        }
+      ]
+    },
+    {
+      "case_id": "suggest-02",
+      "steps": [
+        {
+          "expect_tools": [
+            "search_items"
+          ],
+          "forbid_tools": [
+            "suggest_item_locations"
+          ],
+          "tool_calls": [
+            {
+              "name": "search_items",
+              "arguments": {
+                "query": "DT-830B"
+              }
+            }
+          ]
+        },
+        {
+          "expect_tools": [
+            "move_item",
+            "suggest_item_locations"
+          ],
+          "tool_calls": [
+            {
+              "name": "move_item",
+              "arguments": {
+                "item_id": "${tool:search_items:result.0.id}",
+                "location_id": null
+              }
+            }
+          ]
+        },
+        {
+          "final": "Текущее место DT-830B теперь неизвестно."
+        },
+        {
+          "expect_tools": [
+            "search_items"
+          ],
+          "forbid_tools": [
+            "suggest_item_locations"
+          ],
+          "tool_calls": [
+            {
+              "name": "search_items",
+              "arguments": {
+                "query": "DT-830B"
+              }
+            }
+          ]
+        },
+        {
+          "expect_tools": [
+            "suggest_item_locations"
+          ],
+          "tool_calls": [
+            {
+              "name": "suggest_item_locations",
+              "arguments": {
+                "item_id": "${tool:search_items:result.0.id}",
+                "limit": 5
+              }
+            }
+          ]
+        },
+        {
+          "expect_results": [
+            {
+              "tool_name": "suggest_item_locations",
+              "path": "result.suggestions.0.location_path",
+              "equals": "Квартира / Балкон / Шкаф"
+            },
+            {
+              "tool_name": "suggest_item_locations",
+              "path": "result.suggestions.0.evidence.reasons",
+              "equals": [
+                "last_known"
+              ]
+            },
+            {
+              "tool_name": "suggest_item_locations",
+              "path": "result.suggestions.1.location_path",
+              "equals": "Квартира / Кабинет / Шкаф"
+            },
+            {
+              "tool_name": "suggest_item_locations",
+              "path": "result.suggestions.1.evidence.reasons",
+              "equals": [
+                "same_category",
+                "shared_tag"
+              ]
+            }
+          ],
+          "final": "Текущее место неизвестно. Сначала показано последнее известное место, затем предположение по связанному мультиметру."
+        }
+      ]
     }
   ]
 }

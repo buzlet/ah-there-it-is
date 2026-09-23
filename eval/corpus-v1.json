@@ -808,6 +808,56 @@
           "to_location_query": "Средний ящик"
         }
       ]
+    },
+    {
+      "id": "suggest-01",
+      "group": "suggestion",
+      "turns": [
+        "Взял CH341A из ящика, сейчас точное место неизвестно.",
+        "Где он, возможно, лежит?"
+      ],
+      "focus": "Unknown current location remains unknown while last-known and related-item evidence are returned only as suggestions.",
+      "checks": [
+        {
+          "kind": "item_location_none",
+          "item_query": "CH341A"
+        },
+        {
+          "kind": "event_count_delta",
+          "expected_delta": 1
+        },
+        {
+          "kind": "item_event",
+          "item_query": "CH341A",
+          "event_type": "item_taken",
+          "from_location_query": "Правый ящик"
+        }
+      ]
+    },
+    {
+      "id": "suggest-02",
+      "group": "suggestion",
+      "turns": [
+        "Взял DT-830B из шкафа, точное место теперь неизвестно.",
+        "Где он может быть? Покажи только предположения."
+      ],
+      "focus": "Last-known evidence ranks before related-item evidence; category and shared-tag support stay explicit.",
+      "checks": [
+        {
+          "kind": "item_location_none",
+          "item_query": "DT-830B"
+        },
+        {
+          "kind": "event_count_delta",
+          "expected_delta": 1
+        },
+        {
+          "kind": "item_event",
+          "item_query": "DT-830B",
+          "event_type": "item_taken",
+          "from_location_query": "Балкон Шкаф"
+        }
+      ]
     }
   ]
 }

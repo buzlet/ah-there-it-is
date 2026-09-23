@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from collections.abc import Callable
-from dataclasses import dataclass, field
+from dataclasses import asdict, dataclass, field
 import json
 from typing import Any
 
@@ -21,12 +21,14 @@ from ah_there_it_is.agent.schemas import (
     LocationIdInput,
     MoveItemInput,
     SearchInput,
+    SuggestItemLocationsInput,
     UpdateItemInput,
 )
 from ah_there_it_is.db.models import Category, Event, Item, Location
 from ah_there_it_is.domain.exceptions import InventoryError
 from ah_there_it_is.domain.names import normalize_search_text
 from ah_there_it_is.services.inventory import InventoryService
+from ah_there_it_is.services.location_suggestions import LocationSuggestionService
 from ah_there_it_is.services.search import SearchService
 
 
@@ -87,6 +89,7 @@ class ToolDispatcher:
         autocommit: bool = True,
     ) -> None:
         self.inventory = InventoryService(session, autocommit=autocommit)
+        self.location_suggestions = LocationSuggestionService(session)
         self.search = SearchService(session)
         self.original_text = original_text
         self.state = state or ToolRunState()
@@ -146,7 +149,7 @@ class ToolDispatcher:
             names.add("create_category")
 
         if self.state.resolved["item"]:
-            names.add("update_item")
+            names.update({"suggest_item_locations", "update_item"})
             # A move to a named location is useful only after the location is
             # resolved. With no location search yet, keep move_item available
             # so location_id=null can still represent "take/remove from storage".
@@ -231,6 +234,11 @@ class ToolDispatcher:
                 ItemIdInput,
                 self._get_item_history,
             ),
+            "suggest_item_locations": _ToolSpec(
+                "Read-only location suggestions for an unambiguously resolved item. Suggestions are derived from last-known history and related current items; they are not the stored current location and do not authorize a move. Search and resolve a location separately before mutation.",
+                SuggestItemLocationsInput,
+                self._suggest_item_locations,
+            ),
             "create_category": _ToolSpec(
                 "Create a category only when the user explicitly asked for a new category, after search_categories for the same name. Do not invent taxonomy merely to create an item.",
                 CreateCategoryInput,
@@ -312,6 +320,28 @@ class ToolDispatcher:
         args = self._cast(ItemIdInput, raw)
         self._require_seen("item", args.item_id)
         return [self._event_dict(event) for event in self.inventory.get_item_history(args.item_id)]
+
+    def _suggest_item_locations(self, raw: BaseModel) -> dict[str, Any]:
+        args = self._cast(SuggestItemLocationsInput, raw)
+        self._require_resolved("item", args.item_id)
+        item = self.inventory.get_item(args.item_id)
+        suggestions = self.location_suggestions.suggest_item_locations(
+            args.item_id,
+            limit=args.limit,
+        )
+        self._remember_seen(
+            "location",
+            [suggestion.location_id for suggestion in suggestions],
+        )
+        return {
+            "item_id": item.id,
+            "stored_current_location_id": item.current_location_id,
+            "suggestions": [asdict(suggestion) for suggestion in suggestions],
+            "note": (
+                "These are evidence-based suggestions, not the stored current location. "
+                "A suggested location must be searched/resolved separately before any move."
+            ),
+        }
 
     def _create_category(self, raw: BaseModel) -> dict[str, Any]:
         args = self._cast(CreateCategoryInput, raw)

@@ -135,6 +135,16 @@ class CapturedEvidenceReplay:
                 if isinstance(item, dict) and isinstance(item.get("id"), int)
             )
 
+        if name == "suggest_item_locations" and isinstance(payload, dict):
+            suggestions = payload.get("suggestions")
+            if isinstance(suggestions, list):
+                state.seen["location"].update(
+                    int(suggestion["location_id"])
+                    for suggestion in suggestions
+                    if isinstance(suggestion, dict)
+                    and isinstance(suggestion.get("location_id"), int)
+                )
+
 
 class ExperimentRunner:
     """Run a variant model/prompt without mutating inventory or conversation history."""
