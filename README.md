@@ -56,6 +56,13 @@ just scenario-check
 just scenario-eval
 just provider-contract
 just model-probe
+just storage-test
+just db-backup ah-there-it-is.backup.db
+just db-validate ah-there-it-is.backup.db
+just db-restore ah-there-it-is.backup.db
+just portable-export inventory-export.json
+just portable-import-dry-run inventory-export.json imported.db
+just portable-import inventory-export.json imported.db
 ```
 
 If `just` is unavailable in a constrained sandbox, execute the exact underlying recipe command rather than adding a network dependency to install it.
@@ -199,9 +206,10 @@ Normal application CI receives no provider secrets. Provider secrets/variables r
 
 Native Gemini and OpenAI-compatible adapters remain replaceable implementations behind the same `LLMClient` boundary. Provider-specific protocol work belongs in adapter/contract tests, not in inventory scenarios.
 
-## Local backup, restore, and portable export
 
-Stage 11 storage operations are application-only and require no LLM/provider access.
+## Local backup, restore, and portable export/import
+
+Stage 11/12 storage operations are application-only and require no LLM/provider access.
 
 The active SQLite database may use WAL mode. **Do not copy the live `.db` file as a backup.** A committed transaction can still live in the WAL sidecar. Use the SQLite backup API through the canonical commands:
 
@@ -219,21 +227,27 @@ Restore is deliberately stricter:
 just db-restore ah-there-it-is.backup.db
 ```
 
-Before replacing anything, restore validates the candidate and creates a separate pre-restore safety backup of the current database. It checkpoints the active WAL, stages and validates the replacement, and uses an atomic same-directory `os.replace`. If final validation unexpectedly fails, the code attempts to restore the safety copy. **The application must be stopped before restore**: SQLite cannot reliably prove that another process still has a read-only connection to the old inode, so replacing a database underneath a running process would be unsafe even when WAL checkpointing succeeds.
+Before replacing anything, restore validates the candidate and creates a separate pre-restore safety backup of the current database. It checkpoints the active WAL, stages and validates the replacement, and uses an atomic same-directory replacement. **The application must be stopped before restore** because SQLite cannot reliably prove that another process still has a read-only connection to the old inode.
 
-Every validation reports the concrete file SHA-256, but SHA equality is not used as a logical-database comparison. SQLite's backup API may produce a different physical page layout for equivalent database contents.
-
-For an implementation-independent inventory archive:
+For an implementation-independent inventory archive and reconstruction:
 
 ```bash
 just portable-export inventory-export.json
+just portable-import-dry-run inventory-export.json imported.db
+just portable-import inventory-export.json imported.db
 ```
 
-The versioned `inventory-portable-v1` JSON contains category/location trees, items, aliases, tags, structured attributes, current locations, and domain history events with stable IDs/timestamps. It intentionally excludes agent run logs, feedback, experiment/model traces, and provider metadata. This JSON is the portable **inventory/history** representation; a SQLite backup remains the full-fidelity disaster-recovery snapshot for conversations, chat idempotency/recovery audit state, evaluations, and all other application tables.
+The versioned `inventory-portable-v1` JSON contains category/location trees, items, aliases, tags, structured attributes, current locations, and domain history events with stable IDs/timestamps. It intentionally excludes conversations, chat-request idempotency/recovery state, agent/evaluation/experiment traces, and provider metadata from reconstruction. SQLite backup remains the full-fidelity disaster-recovery snapshot for every application table.
+
+Portable import is deliberately non-destructive. Validation is completed before any output database is created. The destination must be a new path, must not be the configured active database, and must not already contain a database or SQLite sidecars. There is no portable merge mode and no overwrite option. `portable-import-dry-run` performs the same strict document and target checks without creating the destination.
+
+Import migrates a private staging database to the current schema, preserves portable stable IDs and audit timestamps, reconstructs the inventory/history domain, and recomputes normalized/search-derived state through current code and SQLite triggers. It verifies FTS against the reconstructed base tables, validates the staged database, captures WAL state through SQLite's backup API, and publishes the result without overwrite semantics.
+
+The parser rejects unknown format identifiers, unknown structural fields, malformed section types, duplicate IDs, dangling parent/item/location references, self-parent links, hierarchy cycles, normalized duplicate sibling names, invalid states/timestamps, and other portable-domain integrity failures. A successful `export -> import -> export` is tested for semantic equality; `exported_at` is intentionally volatile and alias/tag list ordering is semantically irrelevant.
+
 
 ## Current scope
 
-Stages 0–11 are complete. The application regression pipeline covers the full 40-case corpus with independent persisted-state/event postconditions, agent turns are transactionally atomic, chat submissions are retry-safe through persisted idempotency keys plus explicit audited recovery, and the local SQLite store now has validated WAL-safe backup/restore plus a versioned portable inventory/history export. Provider/model compatibility remains a separate contract pipeline. Stage 12 focuses on strict portable import/reconstruction into a new database. Real-provider probes remain optional adapter verification.
+Stages 0–12 are complete. The application regression pipeline covers the full 40-case corpus with independent persisted-state/event postconditions, agent turns are transactionally atomic, chat submissions are retry-safe through persisted idempotency keys plus explicit audited recovery, and the local SQLite store has validated WAL-safe backup/restore plus bidirectional versioned portable inventory/history export/import. Provider/model compatibility remains a separate contract pipeline. Stage 13 will freeze `inventory-portable-v1` as a compatibility fixture/contract so future schema migrations cannot silently break old archives.
 
 Voice, Telegram, images, QR, MCP, PWA, embeddings, and multi-user support remain out of scope until the text workflow is stable.
-
