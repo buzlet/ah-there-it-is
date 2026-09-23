@@ -207,6 +207,8 @@ def test_emergency_restore_can_replace_corrupt_active_database(
     finally:
         engine.dispose()
 
+    Path(str(database) + "-wal").unlink(missing_ok=True)
+    Path(str(database) + "-shm").unlink(missing_ok=True)
     database.write_bytes(b"corrupt active database")
 
     with pytest.raises(BackupValidationError):
