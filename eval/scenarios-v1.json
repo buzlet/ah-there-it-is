@@ -439,7 +439,7 @@
             {
               "name": "search_locations",
               "arguments": {
-                "query": "Балкон Шкаф"
+                "query": "Квартира / Балкон / Шкаф"
               }
             }
           ]
@@ -488,7 +488,7 @@
             {
               "name": "search_locations",
               "arguments": {
-                "query": "Кабинет Шкаф Полка 1"
+                "query": "Квартира / Кабинет / Шкаф / Полка 1"
               }
             }
           ]
@@ -537,7 +537,7 @@
             {
               "name": "search_locations",
               "arguments": {
-                "query": "Балкон Стеллаж Полка 2"
+                "query": "Квартира / Балкон / Стеллаж / Полка 2"
               }
             }
           ]
@@ -869,7 +869,7 @@
             {
               "name": "search_locations",
               "arguments": {
-                "query": "Кабинет Шкаф"
+                "query": "Квартира / Кабинет / Шкаф"
               }
             }
           ]
@@ -1083,7 +1083,7 @@
             {
               "name": "search_locations",
               "arguments": {
-                "query": "Кабинет Шкаф"
+                "query": "Квартира / Кабинет / Шкаф"
               }
             }
           ]

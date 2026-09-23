@@ -357,3 +357,12 @@ Assignment 0012 proposed a read-only browser Activity timeline. External archite
 - Review record: `agent-tasks/reviews/0012-r0.md`.
 - The Activity concept is deferred until historical evidence semantics are trustworthy.
 - The next Stage 23 plan is issued separately under Assignment 0013.
+
+### Stage 23 — complete (Assignment 0013)
+
+- `move_item.location_id` is required but nullable: omission fails validation, explicit null remains an intentional take.
+- Agent writes require database-wide unique Item canonical/alias identity or an exact Location/Category full path or globally unique leaf. Weak search matches and result truncation remain read-only.
+- Each existing-ID reference is rechecked from its saved query after taking SQLite's write lock and before the service mutation in the same transaction; current-run created IDs retain frozen-capability behavior.
+- Read ranking and result order are unchanged. Five deterministic write scenarios now search exact full paths.
+- Focused dispatcher/provider/atomicity tests, 284 project tests, 42/42 scenarios, migration, corpus, and provider-contract checks passed locally.
+- Review record: `agent-tasks/reviews/0013-r1.md`.

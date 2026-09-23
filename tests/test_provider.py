@@ -648,3 +648,29 @@ def test_openai_compatible_adapter_reports_provider_and_client_timing() -> None:
     assert first.metadata["client_minus_provider_seconds"] >= 0
     assert second.metadata["transport"]["attempts"] == 1
     assert client.info.config["transport"] == "httpx-persistent"
+
+
+def test_move_target_is_required_nullable_in_exported_provider_schemas(session) -> None:
+    from ah_there_it_is.agent.gemini import GeminiConfig, GeminiLLMClient
+    from ah_there_it_is.agent.tools import ToolDispatcher
+    from ah_there_it_is.services.inventory import InventoryService
+
+    inventory = InventoryService(session)
+    inventory.create_item("Meter")
+    dispatcher = ToolDispatcher(session)
+    dispatcher.execute("search_items", {"query": "Meter"})
+    move = next(tool for tool in dispatcher.definitions() if tool.name == "move_item")
+    schema = move.input_schema
+    assert set(schema["required"]) == {"item_id", "location_id"}
+    assert {option["type"] for option in schema["properties"]["location_id"]["anyOf"]} == {"integer", "null"}
+
+    openai_payload = OpenAICompatibleLLMClient._tool_payload(move)
+    openai_schema = openai_payload["function"]["parameters"]
+    assert "location_id" in openai_schema["required"]
+    assert {option["type"] for option in openai_schema["properties"]["location_id"]["anyOf"]} == {"integer", "null"}
+
+    gemini = GeminiLLMClient(GeminiConfig(model="test-model"))
+    request = gemini._request_body([AgentMessage(role="user", content="Take Meter")], [move])
+    gemini_schema = request["tools"][0]["functionDeclarations"][0]["parametersJsonSchema"]
+    assert "location_id" in gemini_schema["required"]
+    assert gemini_schema["properties"]["location_id"]["type"] == ["integer", "null"]
