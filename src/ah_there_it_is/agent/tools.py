@@ -12,6 +12,7 @@ from sqlalchemy.orm import Session
 
 from ah_there_it_is.agent.errors import ToolExecutionError, ToolPreconditionError
 from ah_there_it_is.agent.protocol import ToolDefinition
+from ah_there_it_is.agent.write_resolution import WriteResolver
 from ah_there_it_is.agent.schemas import (
     CreateCategoryInput,
     CreateItemInput,
@@ -52,6 +53,12 @@ class ToolRunState:
             "tag": set(),
         }
     )
+    evidence: dict[str, dict[int, set[str]]] = field(
+        default_factory=lambda: {key: {} for key in ("item", "location", "category")}
+    )
+    created: dict[str, set[int]] = field(
+        default_factory=lambda: {key: set() for key in ("item", "location", "category")}
+    )
     searches: dict[str, set[str]] = field(
         default_factory=lambda: {
             "item": set(),
@@ -91,11 +98,14 @@ class ToolDispatcher:
         self.inventory = InventoryService(session, autocommit=autocommit)
         self.location_suggestions = LocationSuggestionService(session)
         self.search = SearchService(session)
+        self.write_resolver = WriteResolver(session)
         self.original_text = original_text
         self.state = state or ToolRunState()
         self._round_seen: dict[str, set[int]] | None = None
         self._round_resolved: dict[str, set[int]] | None = None
         self._round_searches: dict[str, set[str]] | None = None
+        self._round_evidence: dict[str, dict[int, set[str]]] | None = None
+        self._round_created: dict[str, set[int]] | None = None
         self._specs = self._build_specs()
 
 
@@ -108,11 +118,20 @@ class ToolDispatcher:
         self._round_searches = {
             key: set(values) for key, values in self.state.searches.items()
         }
+        self._round_evidence = {
+            key: {entity_id: set(queries) for entity_id, queries in values.items()}
+            for key, values in self.state.evidence.items()
+        }
+        self._round_created = {
+            key: set(values) for key, values in self.state.created.items()
+        }
 
     def end_round(self) -> None:
         self._round_seen = None
         self._round_resolved = None
         self._round_searches = None
+        self._round_evidence = None
+        self._round_created = None
 
     def definitions(self) -> tuple[ToolDefinition, ...]:
         """Return only tools whose preconditions can be useful in current state."""
@@ -348,7 +367,10 @@ class ToolDispatcher:
         self._require_prior_search("category", args.name)
         if args.parent_id is not None:
             self._require_resolved("category", args.parent_id)
-        category = self.inventory.create_category(**args.model_dump())
+        category = self._validated_write(
+            [("category", args.parent_id)] if args.parent_id is not None else [],
+            lambda: self.inventory.create_category(**args.model_dump()),
+        )
         self._remember_created("category", category.id)
         return self._category_dict(category)
 
@@ -357,7 +379,10 @@ class ToolDispatcher:
         self._require_prior_search("location", args.name)
         if args.parent_id is not None:
             self._require_resolved("location", args.parent_id)
-        location = self.inventory.create_location(**args.model_dump())
+        location = self._validated_write(
+            [("location", args.parent_id)] if args.parent_id is not None else [],
+            lambda: self.inventory.create_location(**args.model_dump()),
+        )
         self._remember_created("location", location.id)
         return self._location_dict(location)
 
@@ -370,7 +395,14 @@ class ToolDispatcher:
             self._require_resolved("location", args.location_id)
         kwargs = args.model_dump(mode="python")
         kwargs["original_text"] = self.original_text
-        item = self.inventory.create_item(**kwargs)
+        references = []
+        if args.category_id is not None:
+            references.append(("category", args.category_id))
+        if args.location_id is not None:
+            references.append(("location", args.location_id))
+        item = self._validated_write(
+            references, lambda: self.inventory.create_item(**kwargs)
+        )
         self._remember_created("item", item.id)
         return self._item_dict(item)
 
@@ -382,7 +414,12 @@ class ToolDispatcher:
         if "category_id" in payload and payload["category_id"] is not None:
             self._require_resolved("category", payload["category_id"])
         payload["original_text"] = self.original_text
-        item = self.inventory.update_item(item_id, **payload)
+        references = [("item", item_id)]
+        if "category_id" in payload and payload["category_id"] is not None:
+            references.append(("category", payload["category_id"]))
+        item = self._validated_write(
+            references, lambda: self.inventory.update_item(item_id, **payload)
+        )
         return self._item_dict(item)
 
     def _move_item(self, raw: BaseModel) -> dict[str, Any]:
@@ -390,8 +427,14 @@ class ToolDispatcher:
         self._require_resolved("item", args.item_id)
         if args.location_id is not None:
             self._require_resolved("location", args.location_id)
-        item = self.inventory.move_item(
-            args.item_id, args.location_id, original_text=self.original_text
+        references = [("item", args.item_id)]
+        if args.location_id is not None:
+            references.append(("location", args.location_id))
+        item = self._validated_write(
+            references,
+            lambda: self.inventory.move_item(
+                args.item_id, args.location_id, original_text=self.original_text
+            ),
         )
         return self._item_dict(item)
 
@@ -440,6 +483,7 @@ class ToolDispatcher:
     def _remember_created(self, entity_type: str, entity_id: int) -> None:
         self.state.seen[entity_type].add(entity_id)
         self.state.resolved[entity_type].add(entity_id)
+        self.state.created[entity_type].add(entity_id)
 
     def _remember_search_candidates(
         self,
@@ -454,14 +498,44 @@ class ToolDispatcher:
             if key:
                 self.state.empty_searches[entity_type].add(key)
             return
-        if len(candidates) == 1:
-            self.state.resolved[entity_type].add(candidates[0].id)
+        if entity_type not in self.state.evidence:
             return
-        # Search scores are deterministic Stage 2 evidence. A clear score gap may
-        # resolve the top candidate; tied/close candidates remain read-only until
-        # the model refines the search or asks the user.
-        if candidates[0].score - candidates[1].score >= 50:
-            self.state.resolved[entity_type].add(candidates[0].id)
+        resolved_id = self.write_resolver.resolve(entity_type, query)
+        if resolved_id in ids:
+            self.state.resolved[entity_type].add(resolved_id)
+            self.state.evidence[entity_type].setdefault(resolved_id, set()).add(query)
+
+    def _validated_write(
+        self,
+        references: list[tuple[str, int]],
+        operation: Callable[[], Any],
+    ) -> Any:
+        visible_evidence = self._round_evidence or self.state.evidence
+        visible_created = self._round_created or self.state.created
+        for entity_type, entity_id in references:
+            self._require_resolved(entity_type, entity_id)
+            if entity_id not in visible_created[entity_type] and not visible_evidence[entity_type].get(entity_id):
+                raise ToolPreconditionError(f"{entity_type} id={entity_id} has no write resolution evidence")
+
+        if references:
+            session = self.inventory.session
+            session.flush()
+            # Acquire SQLite's write lock before checking the complete matching
+            # set. A false predicate changes no row or event.
+            session.connection().exec_driver_sql("UPDATE items SET id = id WHERE 0")
+            session.expire_all()
+            for entity_type, entity_id in references:
+                if entity_id in visible_created[entity_type]:
+                    continue
+                queries = visible_evidence[entity_type][entity_id]
+                if not any(
+                    self.write_resolver.resolve(entity_type, query) == entity_id
+                    for query in queries
+                ):
+                    raise ToolPreconditionError(
+                        f"{entity_type} id={entity_id} resolution is stale or ambiguous; search again"
+                    )
+        return operation()
 
     @staticmethod
     def _cast(expected: type[BaseModel], raw: BaseModel):

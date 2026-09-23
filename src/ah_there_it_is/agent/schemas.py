@@ -73,4 +73,4 @@ class UpdateItemInput(_ToolInput):
 
 class MoveItemInput(_ToolInput):
     item_id: int = Field(gt=0)
-    location_id: int | None = Field(default=None, gt=0)
+    location_id: int | None = Field(gt=0)

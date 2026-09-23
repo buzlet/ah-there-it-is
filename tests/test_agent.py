@@ -361,7 +361,7 @@ def test_ambiguous_candidates_are_seen_but_not_mutation_resolved(session: Sessio
     assert inventory.get_item(first.id).current_location_id is None
 
 
-def test_clear_score_gap_resolves_top_candidate_for_mutation(session: Session) -> None:
+def test_unique_exact_identity_resolves_despite_weaker_candidates(session: Session) -> None:
     inventory = InventoryService(session)
     exact = inventory.create_item("Chieftec 750W")
     inventory.create_item(
