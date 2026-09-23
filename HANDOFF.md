@@ -188,3 +188,7 @@ Assignment 0015 preserves a durable request-key reservation and puts domain chan
 ## Assignment 0016 delivered — bounded high-cardinality reads
 
 Item Event history and direct Location Item reads now use 50-default/100-maximum service pages with deterministic ordering and navigation metadata. Agent tools return page objects and mark only returned Location Items as seen; replay capability reconstruction follows the same page shape. The browser Item-detail history renders one page with links. Scale tests cover 1000 Events, 351 direct Items, bounded ORM loads/queries, validation and installed-wheel template/tool contracts. Local verification passed 308 tests, 42/42 scenarios, migration, corpus and provider contract. Review: `agent-tasks/reviews/0016-r1.md`. No Stage 26 product policy was introduced.
+
+## Assignment 0017 delivered — trace config privacy
+
+New OpenAI-compatible and Gemini run metadata uses sanitized base URLs, stable non-secret operational fields and a boolean extra-body indicator; raw nested request configuration and API keys are excluded. Provider requests are unchanged. Historical trace rows remain readable, while new safe config groups deterministically in evaluation. Tests cover malicious URL components, nested secrets, persisted/run/UI metadata, request bodies and historical compatibility. Local verification passed 311 tests, 42/42 scenarios, migration, corpus and provider contract. Review: `agent-tasks/reviews/0017-r1.md`. No Stage 26 product policy was introduced.

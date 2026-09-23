@@ -41,7 +41,11 @@ class ToolDefinition(BaseModel):
 
 
 class LLMClientInfo(BaseModel):
-    """Stable metadata stored with every agent run for later evaluation."""
+    """Intentionally safe, stable metadata stored with every agent run.
+
+    Adapters must not copy credentials, raw request extensions or other
+    arbitrary provider configuration values into ``config``.
+    """
 
     model_config = ConfigDict(frozen=True)
 

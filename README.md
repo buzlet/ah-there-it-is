@@ -334,6 +334,8 @@ Stages 0–25 are complete. The browser can create, correct, and discover Items,
 
 Agent chat responses include backend-owned `changes_applied` and committed mutation receipts. Failed mutation turns roll back business changes and stay out of normal conversation history; no-op Item updates/moves produce no false Events. Keyed requests commit the successful turn and completed request record atomically; uncertain commits are reconciled against durable state before any failure mark or replay.
 
+New provider traces retain sanitized endpoint identity and stable non-secret evaluation settings while excluding URL credentials, query/fragment and raw extra request bodies. Existing traces remain readable.
+
 High-cardinality Item history and direct Location contents are now page bounded in agent tools; Item-detail browser history has page navigation. Only Location Items returned on the current page become seen by the agent.
 
 The previously seeded Stage 23 browser Activity plan (Assignment 0012) was superseded before implementation after an external write-safety audit. Replacement Assignment 0013 delivered database-wide strong identity/path checks and atomic revalidation for agent writes, and made an omitted move target invalid while explicit null remains intentional. Read search ranking is unchanged. Activity remains deferred pending historical evidence semantics.
