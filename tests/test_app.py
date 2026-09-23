@@ -213,6 +213,141 @@ def test_chat_api_returns_425_for_processing_idempotency_key() -> None:
         engine.dispose()
 
 
+def test_chat_request_admin_api_and_page_show_recovery_audit() -> None:
+    from ah_there_it_is.db.models import ChatRequestRecord
+
+    app, factory, engine = build_test_app()
+    try:
+        with factory() as session:
+            source = ChatRequestRecord(
+                request_key="admin-source-0001",
+                requested_conversation_id=None,
+                message="same",
+                status="failed",
+                error="provider failed",
+            )
+            session.add(source)
+            session.commit()
+
+        app.state.llm_factory = lambda: ScriptedLLMClient(
+            [LLMResponse(content="Recovered safely after inspection.")]
+        )
+        with TestClient(app) as client:
+            listing = client.get("/api/chat-requests")
+            detail = client.get("/api/chat-requests/admin-source-0001")
+            page = client.get("/chat-requests")
+            recovered = client.post(
+                "/api/chat-requests/admin-source-0001/recover",
+                json={
+                    "new_request_key": "admin-recovery-0001",
+                    "note": "Operator verified the prior attempt did not commit.",
+                    "acknowledge_duplicate_risk": True,
+                },
+            )
+            new_detail = client.get("/api/chat-requests/admin-recovery-0001")
+
+        assert listing.status_code == 200
+        assert listing.json()[0]["request_key"] == "admin-source-0001"
+        assert detail.status_code == 200
+        assert detail.json()["status"] == "failed"
+        assert page.status_code == 200
+        assert "Recovery warning" in page.text
+        assert "admin-source-0001" in page.text
+        assert "/static/chat_requests.js" in page.text
+
+        assert recovered.status_code == 200
+        body = recovered.json()
+        assert body["source_request_key"] == "admin-source-0001"
+        assert body["new_request_key"] == "admin-recovery-0001"
+        assert body["replayed"] is False
+        assert body["content"] == "Recovered safely after inspection."
+
+        assert new_detail.status_code == 200
+        new_body = new_detail.json()
+        assert new_body["status"] == "completed"
+        assert new_body["recovered_from_request_key"] == "admin-source-0001"
+        assert new_body["recovery_note"] == (
+            "Operator verified the prior attempt did not commit."
+        )
+
+        with factory() as session:
+            source = session.query(ChatRequestRecord).filter_by(
+                request_key="admin-source-0001"
+            ).one()
+            attempt = session.query(ChatRequestRecord).filter_by(
+                request_key="admin-recovery-0001"
+            ).one()
+            assert source.status == "failed"
+            assert attempt.recovered_from_id == source.id
+    finally:
+        engine.dispose()
+
+
+def test_chat_request_recovery_requires_explicit_risk_acknowledgement() -> None:
+    from ah_there_it_is.db.models import ChatRequestRecord
+
+    app, factory, engine = build_test_app()
+    try:
+        with factory() as session:
+            session.add(
+                ChatRequestRecord(
+                    request_key="ack-source-0001",
+                    requested_conversation_id=None,
+                    message="same",
+                    status="processing",
+                )
+            )
+            session.commit()
+
+        with TestClient(app) as client:
+            response = client.post(
+                "/api/chat-requests/ack-source-0001/recover",
+                json={
+                    "new_request_key": "ack-recovery-0001",
+                    "note": "I inspected the request.",
+                    "acknowledge_duplicate_risk": False,
+                },
+            )
+
+        assert response.status_code == 422
+        with factory() as session:
+            assert (
+                session.query(ChatRequestRecord)
+                .filter_by(request_key="ack-recovery-0001")
+                .one_or_none()
+                is None
+            )
+    finally:
+        engine.dispose()
+
+
+def test_completed_chat_request_cannot_be_recovered_via_api() -> None:
+    app, _, engine = build_test_app()
+    try:
+        with TestClient(app) as client:
+            completed = client.post(
+                "/api/chat",
+                json={
+                    "message": "Где CH341A?",
+                    "request_key": "completed-admin-0001",
+                },
+            )
+            recovery = client.post(
+                "/api/chat-requests/completed-admin-0001/recover",
+                json={
+                    "new_request_key": "completed-admin-recovery-0001",
+                    "note": "Should replay instead.",
+                    "acknowledge_duplicate_risk": True,
+                },
+            )
+
+        assert completed.status_code == 200
+        assert recovery.status_code == 409
+        assert "must be replayed" in recovery.json()["detail"]
+    finally:
+        engine.dispose()
+
+
 def test_conversation_can_continue_and_be_restored_with_rating() -> None:
     app, factory, engine = build_test_app()
     try:
