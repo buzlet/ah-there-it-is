@@ -18,17 +18,17 @@ test-provider:
     python -m pytest tests/test_provider.py
 
 compile:
-    python -m compileall -q src tests migrations
+    python -m compileall -q src tests
 
 check: compile test
 
 migrate:
-    python -m alembic upgrade head
+    python -m ah_there_it_is.storage_cli upgrade
 
 migration-check:
     rm -f /tmp/ah-there-it-is-migration-check.db
-    AH_THERE_IT_IS_DATABASE_URL=sqlite:////tmp/ah-there-it-is-migration-check.db python -m alembic upgrade head
-    AH_THERE_IT_IS_DATABASE_URL=sqlite:////tmp/ah-there-it-is-migration-check.db python -m alembic check
+    AH_THERE_IT_IS_DATABASE_URL=sqlite:////tmp/ah-there-it-is-migration-check.db python -m ah_there_it_is.storage_cli upgrade
+    AH_THERE_IT_IS_DATABASE_URL=sqlite:////tmp/ah-there-it-is-migration-check.db python -m ah_there_it_is.storage_cli migration-check
     rm -f /tmp/ah-there-it-is-migration-check.db
 
 eval-export file="evaluation-cases.json":

@@ -3,12 +3,11 @@ from __future__ import annotations
 from copy import deepcopy
 from pathlib import Path
 
-from alembic import command
-from alembic.config import Config
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
 from ah_there_it_is.db.models import ChatRequestRecord, Conversation, Event
+from ah_there_it_is.db.migrations import upgrade_database
 from ah_there_it_is.db.session import create_db_engine
 from ah_there_it_is.services.search import SearchService
 from ah_there_it_is.storage import (
@@ -27,9 +26,7 @@ FIXTURE_SOURCE_REVISION = "c4cfe3a3e921"
 
 def _migrate(database: Path) -> str:
     url = f"sqlite:///{database}"
-    config = Config("alembic.ini")
-    config.set_main_option("sqlalchemy.url", url)
-    command.upgrade(config, "head")
+    upgrade_database(url)
     return url
 
 
@@ -43,7 +40,7 @@ def _semantic_portable(document: dict) -> dict:
     return normalized
 
 
-def test_inventory_portable_v1_fixture_contract(tmp_path: Path) -> None:
+def test_inventory_portable_v1_fixture_contract(tmp_path: Path, monkeypatch) -> None:
     fixture = load_portable_inventory(FIXTURE)
     expected = fixture.model_dump(mode="json")
 
@@ -57,6 +54,10 @@ def test_inventory_portable_v1_fixture_contract(tmp_path: Path) -> None:
         "history",
         "excluded",
     }
+
+    unrelated = tmp_path / "unrelated"
+    unrelated.mkdir()
+    monkeypatch.chdir(unrelated)
 
     active = tmp_path / "active.db"
     imported = tmp_path / "imported.db"
