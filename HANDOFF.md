@@ -6,7 +6,7 @@
 - Default branch: `main`
 - Always verify current `origin/main`, PR state, and CI before starting new work.
 - This handoff supersedes the pre-Stage-12 handoff that existed at commit `198061c9c88353a950cb90f2ec8fcd6cabd51edf`.
-- **Stages 0–17 are complete. Stage 18 is next.**
+- **Stages 0–18 are complete. Stage 19 is next.**
 - `AGENTS.md` remains the authoritative architecture/development/stage plan.
 - Full SQLite backup/restore and portable inventory import are intentionally separate recovery products.
 
@@ -91,32 +91,45 @@
 - explicit migration/bootstrap/recovery lifecycle preserved;
 - complete protocol-v3 verification green: 210 tests, 42/42 scenarios, provider contract, Python 3.12/3.13 CI.
 
-## Stage 18 objective
+## Stage 18 delivered
 
-Remove the remaining current-working-directory dependency from the installed application's default local data location:
+- stdlib-only stable per-user data-home resolver for Unix/XDG, macOS, and Windows;
+- CWD-independent default `<data-home>/inventory.db` with explicit database URL precedence;
+- home-anchored relative path handling and blank-override policy;
+- side-effect-free settings/import/create-app/runtime-schema/paths resolution;
+- only explicit storage upgrade may create the missing SQLite parent/database;
+- read-only installed `paths` JSON surface without credential leakage;
+- real wheel cross-CWD upgrade/serve proof with no stray working-directory DB/WAL/SHM files;
+- complete protocol-v3 verification green: 225 tests, 42/42 scenarios, provider contract, Python 3.12/3.13 CI.
 
-1. Resolve a deterministic platform-appropriate per-user data directory with stdlib only and `AH_THERE_IT_IS_DATA_DIR` override.
-2. If `AH_THERE_IT_IS_DATABASE_URL` is absent, use `<data dir>/inventory.db`; explicit database URL configuration always has precedence.
-3. Keep all settings/import/runtime reads side-effect-free and keep Stage 17 serve rejection for a missing database.
-4. Let only the existing explicit upgrade write path create a missing SQLite parent directory/database.
-5. Add a read-only installed `paths` command exposing resolved non-secret local paths.
-6. Prove upgrade and serve use the same default database from different CWDs, including real-wheel installed coverage.
+## Stage 19 objective
+
+Exercise and harden deterministic read paths at the intended ~1000-item / ~200-location local scale:
+
+1. Add a compact deterministic 1000-item, ~200 nested-location scale fixture for structural regression tests.
+2. Replace full-inventory ORM materialization in item search with bounded SQL/FTS-first candidate discovery while preserving ranking semantics.
+3. Restrict location-suggestion evidence to same-category/shared-tag rows rather than scanning all located items.
+4. Add the narrowly required `item_tags.tag_id` reverse lookup index and migration.
+5. Page the web item catalog at 50 items by default with 100 maximum, total/page metadata, and deterministic ordering.
+6. Replace location/category N+1 direct-item counts with grouped bounded-query aggregation and test bounded work structurally rather than by timing.
 
 ## Files to read first
 
 1. `HANDOFF.md`
 2. `AGENTS.md`
 3. `README.md`
-4. `src/ah_there_it_is/config.py`
-5. `src/ah_there_it_is/runtime_cli.py`
-6. `src/ah_there_it_is/storage_cli.py`
-7. `src/ah_there_it_is/storage.py`
-8. `src/ah_there_it_is/db/migrations/__init__.py`
-9. `tests/test_runtime_cli.py`
-10. `tests/test_storage.py`
-11. `tests/test_wheel_migrations.py`
-12. `Justfile`
-13. `pyproject.toml`
+4. `src/ah_there_it_is/services/search.py`
+5. `src/ah_there_it_is/services/location_suggestions.py`
+6. `src/ah_there_it_is/services/catalog.py`
+7. `src/ah_there_it_is/web/routes.py`
+8. `src/ah_there_it_is/web/templates/items.html`
+9. `src/ah_there_it_is/db/models.py`
+10. `src/ah_there_it_is/db/migrations/versions/`
+11. `tests/test_search.py`
+12. `tests/test_location_suggestions.py`
+13. `tests/test_app.py`
+14. `tests/test_migrations.py`
+15. `Justfile`
 
 ## Orchestrated implementation workflow
 
@@ -126,7 +139,7 @@ For a normal implementation handoff, the agent fast-forwards `main`, implements 
 
 The orchestrator retains product/architecture direction, stage transitions, assignment formulation, and decisions where requirements conflict or a materially new design choice is needed. It does not repeat routine review/tests/CI already owned by the agent. The orchestrator guarantees that no concurrent repository work occurs between assignment publication and the agent's initial pull.
 
-Assignment 0001 completed under v1. Assignment 0002/v2 was superseded before execution and is recorded in `agent-tasks/reviews/0002-r0.md`. Future implementation uses `agent-tasks/common/v3.md`; active Stage 18 work is `agent-tasks/assignments/0007-stage18-stable-data-home.md`.
+Assignment 0001 completed under v1. Assignment 0002/v2 was superseded before execution and is recorded in `agent-tasks/reviews/0002-r0.md`. Future implementation uses `agent-tasks/common/v3.md`; active Stage 19 work is `agent-tasks/assignments/0008-stage19-target-scale-read-paths.md`.
 
 ## Development environment checkpoint
 
