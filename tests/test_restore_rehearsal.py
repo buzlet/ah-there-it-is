@@ -83,26 +83,31 @@ def test_invalid_and_wrong_revision_candidates_report_physical_failure(
 ) -> None:
     active, url, candidate = prepared(tmp_path)
     monkeypatch.setattr(storage.tempfile, "tempdir", str(tmp_path))
-    before = active_files(active)
-    invalid = tmp_path / "invalid.db"
-    invalid.write_bytes(b"not a SQLite database")
-    invalid_result = rehearse_restore(url, invalid)
-    assert invalid_result["ok"] is False
-    assert invalid_result["restore_mechanics"]["ok"] is False
-    assert invalid_result["physical_validation"]["ok"] is False
-    assert invalid_result["doctor"]["ok"] is None
-    assert_workspace_clean(tmp_path)
+    active_guard = sqlite3.connect(active)
+    try:
+        active_guard.execute("PRAGMA journal_mode=WAL")
+        before = active_files(active)
+        invalid = tmp_path / "invalid.db"
+        invalid.write_bytes(b"not a SQLite database")
+        invalid_result = rehearse_restore(url, invalid)
+        assert invalid_result["ok"] is False
+        assert invalid_result["restore_mechanics"]["ok"] is False
+        assert invalid_result["physical_validation"]["ok"] is False
+        assert invalid_result["doctor"]["ok"] is None
+        assert_workspace_clean(tmp_path)
 
-    with sqlite3.connect(candidate) as connection:
-        connection.execute("UPDATE alembic_version SET version_num='older-revision'")
-    wrong = rehearse_restore(url, candidate)
-    assert wrong["ok"] is False
-    assert wrong["restore_mechanics"]["ok"] is False
-    assert wrong["physical_validation"]["ok"] is False
-    assert "revision" in wrong["physical_validation"]["error"]
-    assert wrong["doctor"]["ok"] is None
-    assert active_files(active) == before
-    assert_workspace_clean(tmp_path)
+        with sqlite3.connect(candidate) as connection:
+            connection.execute("UPDATE alembic_version SET version_num='older-revision'")
+        wrong = rehearse_restore(url, candidate)
+        assert wrong["ok"] is False
+        assert wrong["restore_mechanics"]["ok"] is False
+        assert wrong["physical_validation"]["ok"] is False
+        assert "revision" in wrong["physical_validation"]["error"]
+        assert wrong["doctor"]["ok"] is None
+        assert active_files(active) == before
+        assert_workspace_clean(tmp_path)
+    finally:
+        active_guard.close()
 
 
 def test_semantically_unhealthy_candidate_fails_after_successful_restore(
@@ -113,20 +118,31 @@ def test_semantically_unhealthy_candidate_fails_after_successful_restore(
     with sqlite3.connect(candidate) as connection:
         connection.execute("UPDATE items SET normalized_name='wrong' WHERE name='Healthy meter'")
     validate_database(candidate)
-    before = active_files(active)
-    result = rehearse_restore(url, candidate)
-    assert result["ok"] is False
-    assert result["restore_mechanics"]["ok"] is True
-    assert result["physical_validation"]["ok"] is True
-    assert result["doctor"]["ok"] is False
-    assert result["doctor"]["report"]["checks"]["items_normalized_names"]["status"] == "error"
-    assert active_files(active) == before
-    assert_workspace_clean(tmp_path)
+    active_guard = sqlite3.connect(active)
+    try:
+        active_guard.execute("PRAGMA journal_mode=WAL")
+        before = active_files(active)
+        result = rehearse_restore(url, candidate)
+        assert result["ok"] is False
+        assert result["restore_mechanics"]["ok"] is True
+        assert result["physical_validation"]["ok"] is True
+        assert result["doctor"]["ok"] is False
+        assert result["doctor"]["report"]["checks"]["items_normalized_names"]["status"] == "error"
+        assert active_files(active) == before
+        assert_workspace_clean(tmp_path)
+    finally:
+        active_guard.close()
 
 
 def test_wal_candidate_uses_snapshot_instead_of_raw_file_copy(tmp_path: Path) -> None:
     active, url, candidate = prepared(tmp_path)
-    with sqlite3.connect(candidate) as writer:
+    # Keep active and candidate connections open while comparing file bytes.
+    # Closing the last WAL connection may itself checkpoint and remove sidecars.
+    active_guard = sqlite3.connect(active)
+    writer = sqlite3.connect(candidate)
+    try:
+        active_guard.execute("PRAGMA journal_mode=WAL")
+        active_guard.execute("PRAGMA wal_autocheckpoint=0")
         writer.execute("PRAGMA journal_mode=WAL")
         writer.execute("PRAGMA wal_autocheckpoint=0")
         writer.execute("PRAGMA wal_checkpoint(TRUNCATE)")
@@ -141,16 +157,24 @@ def test_wal_candidate_uses_snapshot_instead_of_raw_file_copy(tmp_path: Path) ->
         assert result["ok"] is True
         assert result["doctor"]["report"]["counts"]["items"] == 2
         assert active_files(active) == before
+    finally:
+        writer.close()
+        active_guard.close()
 
 
 def test_active_path_as_candidate_is_rejected_without_sidecars(tmp_path: Path) -> None:
     active, url, _ = prepared(tmp_path)
-    before = active_files(active)
-    result = rehearse_restore(url, active)
-    assert result["ok"] is False
-    assert result["restore_mechanics"]["ok"] is False
-    assert "must differ" in result["restore_mechanics"]["error"]
-    assert active_files(active) == before
+    active_guard = sqlite3.connect(active)
+    try:
+        active_guard.execute("PRAGMA journal_mode=WAL")
+        before = active_files(active)
+        result = rehearse_restore(url, active)
+        assert result["ok"] is False
+        assert result["restore_mechanics"]["ok"] is False
+        assert "must differ" in result["restore_mechanics"]["error"]
+        assert active_files(active) == before
+    finally:
+        active_guard.close()
 
 
 def test_storage_cli_exit_status_and_json(tmp_path: Path, monkeypatch, capsys) -> None:
