@@ -221,6 +221,31 @@ python -m ah_there_it_is.storage_cli upgrade
 
 Application startup does not run migrations automatically. Portable import uses the same packaged migration runner for its brand-new staging database and pins that migration to the explicit destination URL rather than any ambient `AH_THERE_IT_IS_DATABASE_URL`.
 
+## Installed-package runtime
+
+A built wheel is runnable without the source checkout or `Justfile`. The installed lifecycle keeps database ownership explicit:
+
+```bash
+python -m pip install ./ah_there_it_is-0.2.0-py3-none-any.whl
+export AH_THERE_IT_IS_DATABASE_URL=sqlite:////absolute/path/inventory.db
+
+# Explicit operator-owned database creation/upgrade:
+python -m ah_there_it_is.storage_cli upgrade
+
+# Optional first-time onboarding into the still-empty inventory:
+python -m ah_there_it_is.storage_cli bootstrap-preflight inventory-bootstrap.json
+python -m ah_there_it_is.storage_cli bootstrap-apply inventory-bootstrap.json
+
+# Local-only bind by default:
+ah-there-it-is serve
+# Explicit override when wanted:
+ah-there-it-is serve --host 127.0.0.1 --port 8000
+```
+
+Installed `serve` first opens the configured SQLite database read-only and requires its Alembic head set to match the migration heads packaged in the installed wheel exactly. A missing, uninitialized, behind, ahead, or otherwise incompatible database is rejected before Uvicorn starts. The check never creates, upgrades, repairs, restores, or replaces the database; migration remains the explicit `python -m ah_there_it_is.storage_cli upgrade` operation.
+
+For source-checkout development, `just serve` is deliberately separate: it runs `ah_there_it_is.app:create_app` in Uvicorn factory mode with reload enabled and an explicit loopback bind. Reload is not enabled by the installed runtime command.
+
 ## Local backup, restore, and portable export/import
 
 Stage 11/12 storage operations are application-only and require no LLM/provider access.
