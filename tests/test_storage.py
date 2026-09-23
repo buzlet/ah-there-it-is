@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import sys
 from copy import deepcopy
 from pathlib import Path
 
@@ -29,10 +30,13 @@ from ah_there_it_is.storage import (
     create_backup,
     expected_alembic_head,
     export_portable_inventory,
+    import_portable_inventory,
     parse_portable_inventory,
+    validate_portable_import_target,
     restore_backup,
     validate_database,
 )
+from ah_there_it_is.storage_cli import main as storage_cli_main
 
 
 def _migrate(database: Path) -> str:
@@ -488,3 +492,122 @@ def test_portable_parser_rejects_invalid_names_state_and_timestamps() -> None:
     timestamp["inventory"]["items"][0]["created_at"] = "2026-09-23 07:00:00"
     with pytest.raises(PortableInventoryValidationError, match="timezone offset"):
         parse_portable_inventory(timestamp)
+
+
+def _semantic_portable(document: dict) -> dict:
+    normalized = deepcopy(document)
+    normalized.pop("exported_at", None)
+    for item in normalized["inventory"]["items"]:
+        item["aliases"] = sorted(item["aliases"], key=str.casefold)
+        item["tags"] = sorted(item["tags"], key=str.casefold)
+    return normalized
+
+
+def test_portable_import_round_trip_preserves_domain_and_search(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    active = tmp_path / "active.db"
+    exported = tmp_path / "inventory.json"
+    imported = tmp_path / "imported.db"
+    reexported = tmp_path / "inventory-reexported.json"
+    url = _migrate(active)
+    ids = _seed_operational_state(url)
+    original = export_portable_inventory(url, exported)
+    before_active = validate_database(active)
+
+    # An ambient active-DB override must not hijack Alembic during portable import.
+    monkeypatch.setenv("AH_THERE_IT_IS_DATABASE_URL", url)
+    result = import_portable_inventory(url, exported, imported)
+
+    assert result.imported_path == str(imported.resolve())
+    assert result.items == len(original["inventory"]["items"])
+    assert validate_database(imported).alembic_revision == CURRENT_SCHEMA_REVISION
+    assert validate_database(active).sha256 == before_active.sha256
+
+    imported_url = f"sqlite:///{imported}"
+    engine = create_db_engine(imported_url)
+    try:
+        with Session(engine) as session:
+            search = SearchService(session)
+            assert search.search_items("SPI flash")[0].id == ids["ch341a"]
+            assert search.search_items("CH341A")[0].id == ids["ch341a"]
+            assert search.search_items("BIOS")[0].id == ids["ch341a"]
+
+            event_ids = list(session.scalars(select(Event.id).order_by(Event.id)))
+            assert event_ids == [
+                event["id"] for event in original["history"]["events"]
+            ]
+            assert session.scalar(select(func.count(Conversation.id))) == 0
+            assert session.scalar(select(func.count(ChatRequestRecord.id))) == 0
+    finally:
+        engine.dispose()
+
+    reconstructed = export_portable_inventory(imported_url, reexported)
+    assert _semantic_portable(reconstructed) == _semantic_portable(original)
+
+
+def test_portable_import_refuses_existing_active_and_invalid_targets(
+    tmp_path: Path,
+) -> None:
+    active = tmp_path / "active.db"
+    source = tmp_path / "inventory.json"
+    url = _migrate(active)
+    _seed_operational_state(url)
+    export_portable_inventory(url, source)
+
+    existing = tmp_path / "existing.db"
+    existing.write_bytes(b"do not replace")
+    with pytest.raises(StorageError, match="already exists"):
+        import_portable_inventory(url, source, existing)
+    assert existing.read_bytes() == b"do not replace"
+
+    with pytest.raises(StorageError, match="active database"):
+        validate_portable_import_target(url, active)
+
+    invalid_source = tmp_path / "invalid.json"
+    invalid = json.loads(source.read_text(encoding="utf-8"))
+    invalid["inventory"]["items"][0]["location_id"] = 999999
+    invalid_source.write_text(json.dumps(invalid), encoding="utf-8")
+    absent = tmp_path / "must-not-exist.db"
+    with pytest.raises(PortableInventoryValidationError, match="missing location"):
+        import_portable_inventory(url, invalid_source, absent)
+    assert not absent.exists()
+
+
+def test_portable_import_dry_run_cli_creates_no_database(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    source = tmp_path / "minimal.json"
+    target = tmp_path / "dry-run.db"
+    source.write_text(
+        json.dumps(_minimal_portable_document(), ensure_ascii=False),
+        encoding="utf-8",
+    )
+    monkeypatch.setenv(
+        "AH_THERE_IT_IS_DATABASE_URL",
+        f"sqlite:///{tmp_path / 'active.db'}",
+    )
+    monkeypatch.setattr(
+        sys,
+        "argv",
+        [
+            "storage_cli",
+            "import-json",
+            str(source),
+            str(target),
+            "--dry-run",
+        ],
+    )
+
+    storage_cli_main()
+
+    result = json.loads(capsys.readouterr().out)
+    assert result["dry_run"] is True
+    assert result["items"] == 1
+    assert result["events"] == 1
+    assert not target.exists()
+    assert not Path(str(target) + "-wal").exists()
+    assert not Path(str(target) + "-shm").exists()

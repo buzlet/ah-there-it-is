@@ -12,6 +12,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
+from alembic import command
 from alembic.config import Config
 from pydantic import BaseModel, ConfigDict, Field, ValidationError
 from alembic.script import ScriptDirectory
@@ -26,6 +27,7 @@ from ah_there_it_is.db.models import (
     Item,
     ItemTag,
     Location,
+    Tag,
 )
 from ah_there_it_is.db.session import create_db_engine, create_session_factory
 from ah_there_it_is.domain.names import normalize_name
@@ -139,6 +141,30 @@ class RestoreResult:
         }
 
 
+@dataclass(frozen=True)
+class PortableImportResult:
+    imported_path: str
+    format: str
+    source_alembic_revision: str
+    categories: int
+    locations: int
+    items: int
+    events: int
+    database: DatabaseValidation
+
+    def as_dict(self) -> dict[str, Any]:
+        return {
+            "imported_path": self.imported_path,
+            "format": self.format,
+            "source_alembic_revision": self.source_alembic_revision,
+            "categories": self.categories,
+            "locations": self.locations,
+            "items": self.items,
+            "events": self.events,
+            "database": self.database.as_dict(),
+        }
+
+
 def parse_portable_inventory(data: Any) -> PortableInventoryDocument:
     """Purely validate an already-decoded portable inventory document."""
     if not isinstance(data, dict):
@@ -189,6 +215,29 @@ def load_portable_inventory(path: str | Path) -> PortableInventoryDocument:
 def validate_portable_inventory(path: str | Path) -> PortableInventoryDocument:
     """Validate a portable JSON file without creating or mutating a database."""
     return load_portable_inventory(path)
+
+
+def validate_portable_import_target(
+    database_url: str,
+    destination: str | Path,
+) -> Path:
+    """Validate that portable import would target a genuinely new database path."""
+    active = sqlite_path_from_url(database_url)
+    target = Path(destination).expanduser().resolve()
+    if target == active:
+        raise StorageError(
+            "portable import destination must differ from the active database"
+        )
+    occupied = [
+        path
+        for path in (target, Path(str(target) + "-wal"), Path(str(target) + "-shm"))
+        if path.exists()
+    ]
+    if occupied:
+        raise StorageError(
+            f"portable import destination already exists or has sidecars: {occupied[0]}"
+        )
+    return target
 
 
 def _validate_portable_semantics(document: PortableInventoryDocument) -> None:
@@ -571,6 +620,239 @@ def export_portable_inventory(
     finally:
         temporary.unlink(missing_ok=True)
     return document
+
+
+def import_portable_inventory(
+    database_url: str,
+    source: str | Path,
+    destination: str | Path,
+    *,
+    alembic_ini: str | Path = "alembic.ini",
+) -> PortableImportResult:
+    """Reconstruct portable inventory/history into a brand-new migrated database."""
+    document = load_portable_inventory(source)
+    target = validate_portable_import_target(database_url, destination)
+    target.parent.mkdir(parents=True, exist_ok=True)
+
+    working = _temporary_sibling(target, "portable-work")
+    publish = _temporary_sibling(target, "portable-final")
+    try:
+        _migrate_new_database(working, alembic_ini=alembic_ini)
+        working_url = f"sqlite:///{working}"
+        engine = create_db_engine(working_url)
+        factory = create_session_factory(engine)
+        try:
+            with factory() as session:
+                try:
+                    _write_portable_inventory(session, document)
+                    session.flush()
+                    _validate_imported_search_state(session)
+                    session.commit()
+                except Exception:
+                    session.rollback()
+                    raise
+        finally:
+            engine.dispose()
+
+        validate_database(working)
+        _copy_sqlite_snapshot(working, publish)
+        staged = validate_database(publish)
+        # Re-check immediately before publication so a path created during the
+        # longer migration/import work is never silently overwritten.
+        validate_portable_import_target(database_url, target)
+        os.replace(publish, target)
+        _fsync_path(target)
+        _fsync_directory(target.parent)
+        database = DatabaseValidation(
+            path=str(target),
+            size_bytes=target.stat().st_size,
+            sha256=_sha256(target),
+            alembic_revision=staged.alembic_revision,
+            integrity_check=staged.integrity_check,
+            foreign_key_violations=staged.foreign_key_violations,
+        )
+        return PortableImportResult(
+            imported_path=str(target),
+            format=document.format,
+            source_alembic_revision=document.source.alembic_revision,
+            categories=len(document.inventory.categories),
+            locations=len(document.inventory.locations),
+            items=len(document.inventory.items),
+            events=len(document.history.events),
+            database=database,
+        )
+    finally:
+        _unlink_sqlite_files(working)
+        _unlink_sqlite_files(publish)
+
+
+def _migrate_new_database(path: Path, *, alembic_ini: str | Path) -> None:
+    if path.exists():
+        raise StorageError(f"portable import staging path already exists: {path}")
+    config = Config(str(alembic_ini))
+    database_url = f"sqlite:///{path}"
+    config.set_main_option("sqlalchemy.url", database_url)
+    # migrations/env.py normally permits AH_THERE_IT_IS_DATABASE_URL to
+    # override alembic.ini. Portable import must be immune to that ambient
+    # setting because its only legal migration target is this staging DB.
+    config.attributes["database_url_override"] = database_url
+    command.upgrade(config, "head")
+
+
+def _write_portable_inventory(
+    session: Session,
+    document: PortableInventoryDocument,
+) -> None:
+    for node in _portable_tree_order(document.inventory.categories):
+        session.add(
+            Category(
+                id=node.id,
+                parent_id=node.parent_id,
+                name=node.name,
+                normalized_name=normalize_name(node.name),
+                description=node.description,
+                created_at=_portable_datetime(node.created_at, "category.created_at"),
+                updated_at=_portable_datetime(node.updated_at, "category.updated_at"),
+            )
+        )
+        session.flush()
+
+    for node in _portable_tree_order(document.inventory.locations):
+        session.add(
+            Location(
+                id=node.id,
+                parent_id=node.parent_id,
+                name=node.name,
+                normalized_name=normalize_name(node.name),
+                description=node.description,
+                created_at=_portable_datetime(node.created_at, "location.created_at"),
+                updated_at=_portable_datetime(node.updated_at, "location.updated_at"),
+            )
+        )
+        session.flush()
+
+    items = sorted(document.inventory.items, key=lambda item: item.id)
+    for item in items:
+        session.add(
+            Item(
+                id=item.id,
+                name=item.name,
+                normalized_name=normalize_name(item.name),
+                description=item.description,
+                state=item.state,
+                category_id=item.category_id,
+                current_location_id=item.location_id,
+                quantity=item.quantity,
+                attributes=item.attributes,
+                created_at=_portable_datetime(item.created_at, "item.created_at"),
+                updated_at=_portable_datetime(item.updated_at, "item.updated_at"),
+            )
+        )
+    session.flush()
+
+    for item in items:
+        for alias in item.aliases:
+            session.add(
+                Alias(
+                    item_id=item.id,
+                    name=alias,
+                    normalized_name=normalize_name(alias),
+                )
+            )
+    session.flush()
+
+    tags: dict[str, Tag] = {}
+    for item in items:
+        for tag_name in item.tags:
+            normalized = normalize_name(tag_name)
+            tag = tags.get(normalized)
+            if tag is None:
+                tag = Tag(name=tag_name, normalized_name=normalized)
+                session.add(tag)
+                session.flush()
+                tags[normalized] = tag
+            session.add(ItemTag(item_id=item.id, tag_id=tag.id))
+    session.flush()
+
+    for event in sorted(document.history.events, key=lambda event: event.id):
+        session.add(
+            Event(
+                id=event.id,
+                event_type=event.event_type,
+                item_id=event.item_id,
+                from_location_id=event.from_location_id,
+                to_location_id=event.to_location_id,
+                payload=event.payload,
+                original_text=event.original_text,
+                created_at=_portable_datetime(event.created_at, "event.created_at"),
+            )
+        )
+    session.flush()
+
+
+def _portable_tree_order(nodes: list[PortableTreeNode]) -> list[PortableTreeNode]:
+    by_id = {node.id: node for node in nodes}
+    depths: dict[int, int] = {}
+
+    def depth(node_id: int) -> int:
+        cached = depths.get(node_id)
+        if cached is not None:
+            return cached
+        parent_id = by_id[node_id].parent_id
+        value = 0 if parent_id is None else depth(parent_id) + 1
+        depths[node_id] = value
+        return value
+
+    return sorted(nodes, key=lambda node: (depth(node.id), node.id))
+
+
+def _validate_imported_search_state(session: Session) -> None:
+    mismatches = list(
+        session.scalars(
+            text(
+                """
+                SELECT items.id
+                FROM items
+                LEFT JOIN item_search_fts ON item_search_fts.rowid = items.id
+                WHERE item_search_fts.rowid IS NULL
+                   OR item_search_fts.name != items.name
+                   OR item_search_fts.description != COALESCE(items.description, '')
+                   OR item_search_fts.aliases != COALESCE((
+                        SELECT group_concat(aliases.name, ' ')
+                        FROM aliases
+                        WHERE aliases.item_id = items.id
+                   ), '')
+                   OR item_search_fts.tags != COALESCE((
+                        SELECT group_concat(tags.name, ' ')
+                        FROM item_tags
+                        JOIN tags ON tags.id = item_tags.tag_id
+                        WHERE item_tags.item_id = items.id
+                   ), '')
+                   OR item_search_fts.attributes != COALESCE(
+                        CAST(items.attributes AS TEXT), ''
+                   )
+                ORDER BY items.id
+                """
+            )
+        )
+    )
+    extras = list(
+        session.scalars(
+            text(
+                """
+                SELECT rowid
+                FROM item_search_fts
+                WHERE rowid NOT IN (SELECT id FROM items)
+                ORDER BY rowid
+                """
+            )
+        )
+    )
+    if mismatches or extras:
+        raise StorageError(
+            "portable import produced inconsistent FTS state: "
+            f"mismatched_items={mismatches!r}, extra_rows={extras!r}"
+        )
 
 
 def _portable_document(session: Session, alembic_revision: str) -> dict[str, Any]:

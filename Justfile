@@ -81,3 +81,10 @@ db-restore candidate:
 
 portable-export destination="inventory-export.json":
     python -m ah_there_it_is.storage_cli export-json "{{destination}}"
+
+
+portable-import source destination:
+    python -m ah_there_it_is.storage_cli import-json "{{source}}" "{{destination}}"
+
+portable-import-dry-run source destination:
+    python -m ah_there_it_is.storage_cli import-json "{{source}}" "{{destination}}" --dry-run
