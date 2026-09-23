@@ -22,6 +22,8 @@ When an item has a stored current location, that location is authoritative and n
 
 Chat and an LLM are optional for inventory maintenance. The local browser provides deterministic forms at `/items/new`, `/categories`, and `/locations` to create Items, Categories, and Locations; their detail/edit pages correct names, hierarchy, descriptions, Item state/quantity, category/location, aliases, tags, and JSON-object attributes. Mutations use the domain service, preserve stable IDs and normal Item history, and refresh search through existing triggers. Deletion is deliberately unsupported.
 
+At `/items`, a nonblank search uses the same deterministic name/alias/tag/attribute/description ranking as inventory search and shows up to 100 matches; clearing it restores the paged catalog. Item category and location paths link to read-only tree detail pages. Those pages show their parent, children, and paged direct Items; descendant Items appear on their own node pages.
+
 ## Sandbox development
 
 The project remains compatible with packages exercised in the OpenAI sandbox. The OpenAI-compatible adapter uses a persistent `httpx.Client` so multi-round tool loops reuse HTTP keep-alive connections without depending on a provider SDK.
@@ -328,8 +330,8 @@ The parser rejects unknown format identifiers, unknown structural fields, malfor
 
 ## Current scope
 
-Stages 0–20 are complete. The application regression pipeline covers 42 provider-independent scenarios with persisted-state/event postconditions. Agent turns remain transactionally atomic, chat submissions are retry-safe, strict onboarding/recovery and CWD-independent installed operation are available, structural tests exercise the intended 1000-item / 200-location scale, and the installed doctor can diagnose application-level database/FTS consistency with explicit derived-index-only repair. Provider/model compatibility remains a separate contract pipeline.
+Stages 0–22 are complete. The browser can now create, correct, and discover Items, Categories, and Locations without an LLM while the domain/service layer still owns identity, tree, history, transaction, and FTS rules. The provider-independent 42-case scenario suite, explicit recovery/doctor tooling, CWD-independent installed runtime, and 1000-item / 200-location structural scale coverage remain in place.
 
-Stage 21 completes the browser as a deterministic manual maintenance fallback: Items, Categories, and Locations can be created/corrected without relying on an LLM while all identity, tree, history, transaction, and FTS rules remain owned by the domain/service layer. Deletion remains deliberately out of scope.
+Stage 22 delivered deterministic browser discovery: Item search reuses existing SearchService semantics with a 100-result cap, and Location/Category pages provide read-only tree context and paged direct contents. The existing paged Item catalog remains the blank-query fallback.
 
-Voice, Telegram, images, QR, MCP, PWA, embeddings, multi-user support, public deployment, service-manager integration, containerization, and installer packaging remain deferred and are not part of Stage 21.
+Deletion/cascade policy, voice, Telegram, images, QR, MCP, PWA, embeddings, multi-user support, public deployment, service-manager integration, containerization, and installer packaging remain deferred.

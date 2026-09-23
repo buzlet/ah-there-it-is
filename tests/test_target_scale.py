@@ -164,3 +164,37 @@ def test_target_scale_tree_catalog_counts_use_bounded_statement_count(
         categories = catalog.list_categories()
     assert len(categories) == 31
     assert category_statements() <= 3
+
+
+def test_target_scale_browser_search_and_tree_detail_stay_bounded(session: Session) -> None:
+    scale = build_target_scale_inventory(session)
+    app = create_app(
+        Settings(app_name="Scale Inventory"),
+        session_factory=lambda: _SessionContext(session),  # type: ignore[arg-type]
+    )
+    with TestClient(app) as client:
+        session.expunge_all()
+        with _count_loaded_items(session) as loaded, _count_statements(session) as statements:
+            search = client.get("/items", params={"q": "Inventory Item"})
+        assert search.status_code == 200
+        assert len(re.findall(r'href="/items/\d+"', search.text)) == 100
+        assert "Showing up to 100 ranked matches" in search.text
+        assert "Total:" not in search.text
+        assert loaded() < 500
+        assert statements() < 250
+
+        session.expunge_all()
+        with _count_loaded_items(session) as loaded, _count_statements(session) as statements:
+            location = client.get(f"/locations/{scale.duplicate_location_ids[0]}")
+        assert location.status_code == 200
+        assert "Zone 00 / Shelf 07" in location.text
+        assert loaded() == 0
+        assert statements() <= 8
+
+        session.expunge_all()
+        with _count_loaded_items(session) as loaded, _count_statements(session) as statements:
+            category = client.get("/categories/1")
+        assert category.status_code == 200
+        assert "Direct items" in category.text
+        assert loaded() == 0
+        assert statements() <= 8

@@ -10,7 +10,9 @@ from sqlalchemy import func, select
 from sqlalchemy.orm import Session, selectinload
 
 from ah_there_it_is.db.models import Category, Item, ItemTag, Location
+from ah_there_it_is.domain.exceptions import EntityNotFoundError
 from ah_there_it_is.services.inventory import InventoryService
+from ah_there_it_is.services.search import SearchService
 
 
 @dataclass(frozen=True)
@@ -26,9 +28,18 @@ class ItemPage:
     next_page: int | None
 
 
+@dataclass(frozen=True)
+class TreeDetail:
+    node: dict[str, Any]
+    parent: dict[str, Any] | None
+    children: list[dict[str, Any]]
+    item_page: ItemPage
+
+
 class CatalogService:
     DEFAULT_PAGE_SIZE = 50
     MAX_PAGE_SIZE = 100
+    SEARCH_LIMIT = 100
 
     def __init__(self, session: Session) -> None:
         self.session = session
@@ -74,6 +85,96 @@ class CatalogService:
             has_next=has_next,
             previous_page=page - 1 if has_previous else None,
             next_page=page + 1 if has_next else None,
+        )
+
+    def search_items(self, query: str) -> list[dict[str, Any]]:
+        return [
+            candidate.model_dump()
+            for candidate in SearchService(self.session).search_items(
+                query, limit=self.SEARCH_LIMIT
+            )
+        ]
+
+    def location_detail(
+        self, location_id: int, *, page: int = 1, page_size: int = DEFAULT_PAGE_SIZE
+    ) -> TreeDetail:
+        return self._tree_detail(
+            Location, Item.current_location_id, location_id,
+            page=page, page_size=page_size,
+        )
+
+    def category_detail(
+        self, category_id: int, *, page: int = 1, page_size: int = DEFAULT_PAGE_SIZE
+    ) -> TreeDetail:
+        return self._tree_detail(
+            Category, Item.category_id, category_id,
+            page=page, page_size=page_size,
+        )
+
+    def _tree_detail(
+        self,
+        model: type[Location] | type[Category],
+        item_parent_column: Any,
+        node_id: int,
+        *,
+        page: int,
+        page_size: int,
+    ) -> TreeDetail:
+        if page < 1:
+            raise ValueError("page must be >= 1")
+        if page_size < 1 or page_size > self.MAX_PAGE_SIZE:
+            raise ValueError(f"page_size must be between 1 and {self.MAX_PAGE_SIZE}")
+        node = self.session.get(model, node_id)
+        if node is None:
+            raise EntityNotFoundError(
+                f"{model.__name__.lower()} id={node_id} does not exist"
+            )
+        path = self.path(node)
+        parent = node.parent
+        children = self.session.scalars(
+            select(model)
+            .where(model.parent_id == node_id)
+            .order_by(model.normalized_name, model.id)
+        ).all()
+        total = int(
+            self.session.scalar(
+                select(func.count(Item.id)).where(item_parent_column == node_id)
+            ) or 0
+        )
+        pages = ceil(total / page_size) if total else 0
+        rows = self.session.execute(
+            select(Item.id, Item.name, Item.state, Item.quantity)
+            .where(item_parent_column == node_id)
+            .order_by(Item.normalized_name, Item.id)
+            .offset((page - 1) * page_size)
+            .limit(page_size)
+        ).all()
+        has_previous = page > 1
+        has_next = page * page_size < total
+        return TreeDetail(
+            node={
+                "id": node.id, "name": node.name, "path": path,
+                "description": node.description,
+            },
+            parent=(
+                {"id": parent.id, "path": self.path(parent)}
+                if parent is not None else None
+            ),
+            children=[
+                {"id": child.id, "path": f"{path} / {child.name}"}
+                for child in children
+            ],
+            item_page=ItemPage(
+                items=[
+                    {"id": row.id, "name": row.name, "state": row.state,
+                     "quantity": row.quantity}
+                    for row in rows
+                ],
+                total=total, page=page, page_size=page_size, pages=pages,
+                has_previous=has_previous, has_next=has_next,
+                previous_page=page - 1 if has_previous else None,
+                next_page=page + 1 if has_next else None,
+            ),
         )
 
     def list_items(self) -> list[dict[str, Any]]:

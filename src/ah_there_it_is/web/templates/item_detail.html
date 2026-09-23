@@ -12,8 +12,8 @@
     <dl>
       <dt>Aliases</dt><dd>{{ item.aliases|join(", ") or "—" }}</dd>
       <dt>Tags</dt><dd>{{ item.tags|join(", ") or "—" }}</dd>
-      <dt>Category</dt><dd>{{ item.category_path or "—" }}</dd>
-      <dt>Location</dt><dd>{{ item.location_path or "—" }}</dd>
+      <dt>Category</dt><dd>{% if item.category_id %}<a href="/categories/{{ item.category_id }}">{{ item.category_path }}</a>{% else %}—{% endif %}</dd>
+      <dt>Location</dt><dd>{% if item.location_id %}<a href="/locations/{{ item.location_id }}">{{ item.location_path }}</a>{% else %}—{% endif %}</dd>
       <dt>Attributes</dt><dd><pre>{{ item.attributes }}</pre></dd>
     </dl>
   </section>

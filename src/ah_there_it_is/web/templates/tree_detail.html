@@ -1,0 +1,37 @@
+<!-- tree_detail.html -->
+{% extends "base.html" %}
+{% block title %}{{ detail.node.path }} · {{ app_name }}{% endblock %}
+{% block content %}
+<div class="section-head">
+  <div><a href="/{{ kind }}">← {{ kind|capitalize }}</a><h1>{{ detail.node.path }}</h1></div>
+  <a href="/{{ kind }}/{{ detail.node.id }}/edit">Edit {{ label|lower }}</a>
+</div>
+<section class="card">
+  <h2>{{ label }}</h2>
+  <p>{{ detail.node.description or "No description." }}</p>
+  <p>Parent: {% if detail.parent %}<a href="/{{ kind }}/{{ detail.parent.id }}">{{ detail.parent.path }}</a>{% else %}Root{% endif %}</p>
+</section>
+<section class="card">
+  <h2>Children</h2>
+  {% if detail.children %}
+  <ul>{% for child in detail.children %}<li><a href="/{{ kind }}/{{ child.id }}">{{ child.path }}</a></li>{% endfor %}</ul>
+  {% else %}<p class="muted">No children.</p>{% endif %}
+</section>
+<section class="card">
+  <h2>Direct items</h2>
+  <p class="muted">Total: {{ detail.item_page.total }} · Page {{ detail.item_page.page }}{% if detail.item_page.pages %} of {{ detail.item_page.pages }}{% endif %}</p>
+  {% if detail.item_page.items %}
+  <div class="table-wrap"><table>
+    <thead><tr><th>Item</th><th>State</th><th>Qty</th></tr></thead>
+    <tbody>{% for item in detail.item_page.items %}<tr>
+      <td><a href="/items/{{ item.id }}">{{ item.name }}</a></td>
+      <td>{{ item.state }}</td><td>{{ item.quantity }}</td>
+    </tr>{% endfor %}</tbody>
+  </table></div>
+  {% else %}<p class="muted">No direct items on this page.</p>{% endif %}
+  <nav aria-label="Direct item pages">
+    {% if detail.item_page.has_previous %}<a href="/{{ kind }}/{{ detail.node.id }}?page={{ detail.item_page.previous_page }}">Previous</a>{% endif %}
+    {% if detail.item_page.has_next %}<a href="/{{ kind }}/{{ detail.node.id }}?page={{ detail.item_page.next_page }}">Next</a>{% endif %}
+  </nav>
+</section>
+{% endblock %}

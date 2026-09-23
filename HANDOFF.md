@@ -6,7 +6,7 @@
 - Default branch: `main`
 - Always verify current `origin/main`, PR state, and CI before starting new work.
 - This handoff supersedes the pre-Stage-12 handoff that existed at commit `198061c9c88353a950cb90f2ec8fcd6cabd51edf`.
-- **Stages 0–20 are complete. Stage 21 is next.**
+- **Stages 0–22 are complete.**
 - `AGENTS.md` remains the authoritative architecture/development/stage plan.
 - Full SQLite backup/restore and portable inventory import are intentionally separate recovery products.
 
@@ -124,34 +124,22 @@
 - WAL/read-only, corruption, 1000-item, portable-import, repair and installed-wheel coverage;
 - complete protocol-v3 verification green: 247 tests, 42/42 scenarios, provider contract, migration checks, Python 3.12/3.13 CI.
 
-## Stage 21 objective
+## Stage 21 delivered
 
-Complete the deterministic manual web fallback so normal inventory maintenance does not require the LLM:
+- safe service-layer Category/Location rename, description and reparenting with stable IDs and cycle/duplicate prevention;
+- manual browser/API creation of Items, Categories and Locations;
+- full Item correction for aliases, tags, attributes, category, location, description, state, quantity and name;
+- full-path tree parent selection with browser and service-level cycle protection;
+- atomic manual Item field/location edits with normal provenance/history/FTS behavior;
+- packaged templates/static assets and target-scale pagination non-regression;
+- complete protocol-v3 verification green: 254 tests, 42/42 scenarios, provider contract, migration checks, Python 3.12/3.13 CI.
 
-1. Add safe InventoryService Category/Location rename/description/reparent operations with full prevalidation, stable IDs, duplicate-sibling rejection, and cycle prevention.
-2. Add manual Item creation and full Item correction for aliases/tags/attributes plus all currently editable fields through strict HTTP schemas.
-3. Add Category/Location create and edit browser flows with full-path parent selectors and root handling.
-4. Route every browser mutation through InventoryService and preserve normal Item history provenance, atomicity, duplicate prevention, and trigger-maintained FTS.
-5. Verify manual creates/edits through SearchService/history plus API/UI errors and target-scale pagination non-regression.
-6. Do not add deletion/cascade policy, a frontend framework, auth/public deployment, or provider/recovery changes.
+## Stage 22 delivered
 
-## Files to read first
-
-1. `HANDOFF.md`
-2. `AGENTS.md`
-3. `README.md`
-4. `src/ah_there_it_is/services/inventory.py`
-5. `src/ah_there_it_is/services/catalog.py`
-6. `src/ah_there_it_is/web/schemas.py`
-7. `src/ah_there_it_is/web/routes.py`
-8. `src/ah_there_it_is/web/templates/items.html`
-9. `src/ah_there_it_is/web/templates/item_detail.html`
-10. `src/ah_there_it_is/web/templates/locations.html`
-11. `src/ah_there_it_is/web/templates/categories.html`
-12. `src/ah_there_it_is/web/static/item.js`
-13. `tests/test_app.py`
-14. `tests/test_inventory.py`
-15. `tests/test_search.py`
+- Bounded browser Item search through the existing deterministic SearchService, with blank-query catalog pagination preserved.
+- Read-only Location/Category detail navigation with full paths, parent/children, and paged direct Items.
+- Stable-ID links connect search results, Item pages, and tree pages.
+- Target-scale browser reads, installed-wheel assets, and 42 deterministic scenarios verified without changing schema, ranking, or mutation behavior.
 
 ## Orchestrated implementation workflow
 
