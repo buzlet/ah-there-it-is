@@ -266,6 +266,45 @@ class AgentRunLog(Base):
     )
 
 
+class ChatRequestRecord(Base):
+    """Local idempotency gate for one logical chat submission."""
+
+    __tablename__ = "chat_requests"
+    __table_args__ = (
+        CheckConstraint(
+            "status IN ('processing', 'completed', 'failed')",
+            name="ck_chat_requests_status",
+        ),
+    )
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    request_key: Mapped[str] = mapped_column(
+        String(128), nullable=False, unique=True, index=True
+    )
+    requested_conversation_id: Mapped[int | None] = mapped_column(
+        Integer, nullable=True
+    )
+    message: Mapped[str] = mapped_column(Text, nullable=False)
+    status: Mapped[str] = mapped_column(
+        String(20), nullable=False, default="processing", index=True
+    )
+    agent_run_id: Mapped[int | None] = mapped_column(
+        ForeignKey("agent_run_logs.id", ondelete="SET NULL"),
+        nullable=True,
+        unique=True,
+        index=True,
+    )
+    error: Mapped[str | None] = mapped_column(Text, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=utc_now, nullable=False
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=utc_now, onupdate=utc_now, nullable=False
+    )
+
+    run: Mapped[AgentRunLog | None] = relationship()
+
+
 class AgentFeedback(Base):
     __tablename__ = "agent_feedback"
     __table_args__ = (
