@@ -575,7 +575,6 @@ def test_portable_import_round_trip_preserves_domain_and_search(
     url = _migrate(active)
     ids = _seed_operational_state(url)
     original = export_portable_inventory(url, exported)
-    before_active = validate_database(active)
 
     # An ambient active-DB override must not hijack Alembic during portable import.
     monkeypatch.setenv("AH_THERE_IT_IS_DATABASE_URL", url)
@@ -584,7 +583,24 @@ def test_portable_import_round_trip_preserves_domain_and_search(
     assert result.imported_path == str(imported.resolve())
     assert result.items == len(original["inventory"]["items"])
     assert validate_database(imported).alembic_revision == CURRENT_SCHEMA_REVISION
-    assert validate_database(active).sha256 == before_active.sha256
+
+    # SQLite file bytes are not a logical-state invariant: opening/checkpointing
+    # a WAL database may change physical pages or headers across SQLite builds.
+    # Prove instead that the configured active database retained the same
+    # portable domain state and its operational-only records.
+    active_after = export_portable_inventory(
+        url,
+        tmp_path / "active-after-import.json",
+    )
+    assert _semantic_portable(active_after) == _semantic_portable(original)
+    active_engine = create_db_engine(url)
+    try:
+        with Session(active_engine) as session:
+            assert session.scalar(select(func.count(Conversation.id))) == 1
+            assert session.scalar(select(func.count(ChatRequestRecord.id))) == 2
+            assert SearchService(session).search_items("CH341A")[0].id == ids["ch341a"]
+    finally:
+        active_engine.dispose()
 
     imported_url = f"sqlite:///{imported}"
     engine = create_db_engine(imported_url)
