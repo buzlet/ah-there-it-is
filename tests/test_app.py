@@ -77,6 +77,10 @@ def test_chat_api_mutates_inventory_and_persists_evaluation_log() -> None:
         assert body["conversation_id"] > 0
         assert body["run_id"] > 0
         assert "Стол / правый ящик" in body["content"]
+        assert body["changes_applied"] is True
+        assert body["receipts"][0]["operation"] == "create_item"
+        assert body["receipts"][0]["changed"] is True
+        assert len(body["receipts"][0]["event_ids"]) == 1
 
         with factory() as session:
             item = next(
@@ -88,6 +92,7 @@ def test_chat_api_mutates_inventory_and_persists_evaluation_log() -> None:
             assert run.llm_provider == "offline"
             assert run.llm_model == "heuristic-v1"
             assert run.prompt_version == "inventory-v1"
+            assert run.mutation_receipts == body["receipts"]
             assert len(run.prompt_hash) == 64
             assert run.tool_trace
     finally:
@@ -133,6 +138,8 @@ def test_chat_api_replays_completed_request_without_new_llm() -> None:
         assert second.json()["replayed"] is True
         assert second.json()["run_id"] == first.json()["run_id"]
         assert second.json()["conversation_id"] == first.json()["conversation_id"]
+        assert second.json()["changes_applied"] is True
+        assert second.json()["receipts"] == first.json()["receipts"]
         assert calls == 1
 
         with factory() as session:

@@ -33,7 +33,7 @@ from ah_there_it_is.domain.states import ItemState
 
 
 PORTABLE_EXPORT_VERSION = "inventory-portable-v1"
-CURRENT_SCHEMA_REVISION = "b62f9d8a3c41"
+CURRENT_SCHEMA_REVISION = "d24a8f1c3e90"
 
 
 class StorageError(RuntimeError):

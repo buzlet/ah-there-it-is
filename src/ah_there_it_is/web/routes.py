@@ -13,6 +13,7 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from ah_there_it_is.agent.runner import AgentRunner
+from ah_there_it_is.agent.errors import AgentTurnFailedError
 from ah_there_it_is.domain.exceptions import EntityNotFoundError, InventoryError
 from ah_there_it_is.services.catalog import CatalogService
 from ah_there_it_is.services.chat_requests import (
@@ -148,6 +149,8 @@ def build_router(templates: Jinja2Templates) -> APIRouter:
             raise HTTPException(status_code=404, detail=str(exc)) from exc
         except InventoryError as exc:
             raise HTTPException(status_code=400, detail=str(exc)) from exc
+        except AgentTurnFailedError as exc:
+            raise HTTPException(status_code=409, detail=str(exc)) from exc
 
         result = execution.result
         return ChatResponse(
@@ -156,6 +159,8 @@ def build_router(templates: Jinja2Templates) -> APIRouter:
             content=result.content,
             rounds=result.rounds,
             replayed=execution.replayed,
+            changes_applied=result.changes_applied,
+            receipts=list(result.receipts),
         )
 
     def chat_request_response(
@@ -283,6 +288,8 @@ def build_router(templates: Jinja2Templates) -> APIRouter:
             IdempotencyRecoveryNotAllowedError,
         ) as exc:
             raise HTTPException(status_code=409, detail=str(exc)) from exc
+        except AgentTurnFailedError as exc:
+            raise HTTPException(status_code=409, detail=str(exc)) from exc
 
         result = execution.result
         return ChatRequestRecoveryResponse(
@@ -293,6 +300,8 @@ def build_router(templates: Jinja2Templates) -> APIRouter:
             content=result.content,
             rounds=result.rounds,
             replayed=execution.replayed,
+            changes_applied=result.changes_applied,
+            receipts=list(result.receipts),
         )
 
     @router.get("/api/conversations/{conversation_id}", response_model=ConversationResponse)

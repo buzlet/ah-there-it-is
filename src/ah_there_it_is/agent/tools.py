@@ -8,10 +8,12 @@ import json
 from typing import Any
 
 from pydantic import BaseModel, ValidationError
+from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
 from ah_there_it_is.agent.errors import ToolExecutionError, ToolPreconditionError
 from ah_there_it_is.agent.protocol import ToolDefinition
+from ah_there_it_is.agent.receipts import MutationReceipt
 from ah_there_it_is.agent.write_resolution import WriteResolver
 from ah_there_it_is.agent.schemas import (
     CreateCategoryInput,
@@ -87,6 +89,10 @@ class _ToolSpec:
 class ToolDispatcher:
     """Validate and execute the only operations an LLM can perform."""
 
+    MUTATION_TOOLS = frozenset({
+        "create_item", "create_location", "create_category", "update_item", "move_item"
+    })
+
     def __init__(
         self,
         session: Session,
@@ -107,6 +113,7 @@ class ToolDispatcher:
         self._round_evidence: dict[str, dict[int, set[str]]] | None = None
         self._round_created: dict[str, set[int]] | None = None
         self._specs = self._build_specs()
+        self.receipts: list[MutationReceipt] = []
 
 
     def begin_round(self) -> None:
@@ -195,7 +202,15 @@ class ToolDispatcher:
             return self._error("unknown_tool", f"unknown tool: {name}")
         try:
             parsed = spec.input_model.model_validate(arguments)
+            before = self._mutation_before(name, parsed) if name in self.MUTATION_TOOLS else None
             result = spec.handler(parsed)
+            if name in self.MUTATION_TOOLS:
+                receipt = self._mutation_receipt(name, parsed, result, before)
+                self.receipts.append(receipt)
+                return {
+                    "ok": True, "result": result, "changed": receipt.changed,
+                    "commit_state": "committed" if self.inventory.autocommit else "provisional",
+                }
             return {"ok": True, "result": result}
         except ValidationError as exc:
             return self._error("invalid_arguments", exc.errors(include_url=False))
@@ -203,6 +218,61 @@ class ToolDispatcher:
             return self._error(type(exc).__name__, str(exc))
         except (InventoryError, ValueError, RuntimeError) as exc:
             return self._error(type(exc).__name__, str(exc))
+
+    def _mutation_before(self, name: str, parsed: BaseModel) -> dict[str, Any]:
+        if name not in {"update_item", "move_item"}:
+            return {}
+        item_id = parsed.item_id  # type: ignore[attr-defined]
+        item = self.inventory.session.get(Item, item_id)
+        last_event_id = self.inventory.session.scalar(
+            select(func.max(Event.id)).where(Event.item_id == item_id)
+        ) or 0
+        return {
+            "last_event_id": last_event_id,
+            "location_id": item.current_location_id if item else None,
+            "category_id": item.category_id if item else None,
+        }
+
+    def _mutation_receipt(
+        self, name: str, parsed: BaseModel, result: dict[str, Any],
+        before: dict[str, Any] | None,
+    ) -> MutationReceipt:
+        entity_type = "item" if name.endswith("item") else name.removeprefix("create_")
+        entity_id = result["id"]
+        before = before or {}
+        event_ids: tuple[int, ...] = ()
+        before_ids: dict[str, int | None] = {}
+        after_ids: dict[str, int | None] = {}
+        if entity_type == "item":
+            event_ids = tuple(self.inventory.session.scalars(
+                select(Event.id).where(
+                    Event.item_id == entity_id,
+                    Event.id > before.get("last_event_id", 0),
+                ).order_by(Event.id)
+            ))
+            if name == "move_item":
+                before_ids = {"location_id": before["location_id"]}
+                after_ids = {"location_id": result["location_id"]}
+            elif name == "update_item" and "category_id" in parsed.model_fields_set:
+                before_ids = {"category_id": before["category_id"]}
+                after_ids = {"category_id": result["category_id"]}
+            elif name == "create_item":
+                after_ids = {
+                    "category_id": result["category_id"],
+                    "location_id": result["location_id"],
+                }
+        elif name in {"create_location", "create_category"}:
+            after_ids = {"parent_id": result["parent_id"]}
+        changed = bool(event_ids) if name in {"update_item", "move_item"} else True
+        return MutationReceipt(
+            operation=name,
+            entity_type=entity_type,
+            entity_id=entity_id,
+            changed=changed,
+            before_ids=before_ids,
+            after_ids=after_ids,
+            event_ids=event_ids,
+        )
 
     @staticmethod
     def as_tool_message_content(result: dict[str, Any]) -> str:

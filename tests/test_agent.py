@@ -6,7 +6,7 @@ import pytest
 from sqlalchemy.orm import Session
 
 from ah_there_it_is.agent import AgentRunner, LLMResponse, ScriptedLLMClient, ToolCall
-from ah_there_it_is.agent.errors import AgentLoopLimitError
+from ah_there_it_is.agent.errors import AgentLoopLimitError, AgentTurnFailedError
 from ah_there_it_is.agent.tools import ToolDispatcher
 from ah_there_it_is.services import InventoryService
 from ah_there_it_is.services.conversations import ConversationService
@@ -60,13 +60,11 @@ def test_guessed_mutation_id_is_rejected_without_write(session: Session) -> None
         ]
     )
 
-    AgentRunner(session, llm).run("Переложи адаптер на балкон")
+    with pytest.raises(AgentTurnFailedError):
+        AgentRunner(session, llm).run("Переложи адаптер на балкон")
 
     assert inventory.get_item(item.id).current_location_id is None
-    tool_message = llm.calls[1][0][-1]
-    payload = json.loads(tool_message.content)
-    assert payload["ok"] is False
-    assert payload["error"]["type"] == "ToolPreconditionError"
+    assert llm.remaining == 1
 
 
 def test_create_item_requires_search_then_allows_creation(session: Session) -> None:
@@ -397,22 +395,15 @@ def test_same_round_search_cannot_authorize_same_round_mutation(session: Session
                     call("3", "move_item", item_id=item.id, location_id=balcony.id),
                 )
             ),
-            LLMResponse(
-                tool_calls=(
-                    call("4", "move_item", item_id=item.id, location_id=balcony.id),
-                )
-            ),
-            LLMResponse(content="Готово."),
+            LLMResponse(content="Не должно быть следующего раунда."),
         ]
     )
 
-    AgentRunner(session, llm).run("Переложи Adapter на Балкон")
+    with pytest.raises(AgentTurnFailedError):
+        AgentRunner(session, llm).run("Переложи Adapter на Балкон")
 
-    first_round_messages = llm.calls[1][0]
-    failed_move = json.loads(first_round_messages[-1].content)
-    assert failed_move["ok"] is False
-    assert failed_move["error"]["type"] == "ToolPreconditionError"
-    assert inventory.get_item(item.id).current_location_id == balcony.id
+    assert llm.remaining == 1
+    assert inventory.get_item(item.id).current_location_id is None
 
 
 def test_location_suggestions_require_resolved_item(session: Session) -> None:

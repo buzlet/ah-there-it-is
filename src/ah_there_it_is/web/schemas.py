@@ -8,6 +8,7 @@ from typing import Annotated, Any, Literal
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
 from ah_there_it_is.domain.states import ItemState
+from ah_there_it_is.agent.receipts import MutationReceipt
 
 
 class ChatRequest(BaseModel):
@@ -27,6 +28,8 @@ class ChatResponse(BaseModel):
     content: str
     rounds: int
     replayed: bool = False
+    changes_applied: bool = False
+    receipts: list[MutationReceipt] = Field(default_factory=list)
 
 
 class ChatRequestRecordResponse(BaseModel):
@@ -62,6 +65,8 @@ class ChatRequestRecoveryResponse(BaseModel):
     content: str
     rounds: int
     replayed: bool
+    changes_applied: bool = False
+    receipts: list[MutationReceipt] = Field(default_factory=list)
 
 
 class FeedbackRequest(BaseModel):

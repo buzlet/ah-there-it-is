@@ -15,6 +15,8 @@ from urllib.error import URLError
 from urllib.request import urlopen
 import zipfile
 
+from ah_there_it_is.storage import CURRENT_SCHEMA_REVISION
+
 
 def _free_local_port() -> int:
     with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as sock:
@@ -267,7 +269,7 @@ print(json.dumps({"revision": CURRENT_SCHEMA_REVISION}))
         text=True,
     )
     payload = completed.stdout.strip().splitlines()[-1]
-    assert '"revision": "b62f9d8a3c41"' in payload
+    assert f'"revision": "{CURRENT_SCHEMA_REVISION}"' in payload
 
     missing = outside / "missing.db"
     missing_env = runtime_env.copy()

@@ -160,3 +160,39 @@ def test_item_tag_reverse_index_migration_round_trip(tmp_path: Path) -> None:
     upgrade_database(url)
     check_database_schema(url)
     assert validate_database(database).alembic_revision == CURRENT_SCHEMA_REVISION
+
+
+def test_receipt_migration_defaults_existing_runs_to_empty(tmp_path: Path) -> None:
+    database = tmp_path / "receipts.db"
+    url = f"sqlite:///{database}"
+    upgrade_database(url, "b62f9d8a3c41")
+    engine = create_db_engine(url)
+    try:
+        with engine.begin() as connection:
+            connection.execute(text("""
+                INSERT INTO conversations (id, created_at, updated_at)
+                VALUES (1, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
+            """))
+            connection.execute(text("""
+                INSERT INTO agent_run_logs (
+                    conversation_id, prompt_version, prompt_hash, system_prompt,
+                    llm_provider, llm_model, llm_config, input_messages,
+                    tool_trace, rounds, status, created_at
+                ) VALUES (
+                    1, 'v1', 'hash', 'prompt', 'test', 'model', '{}', '[]',
+                    '[]', 1, 'completed', CURRENT_TIMESTAMP
+                )
+            """))
+    finally:
+        engine.dispose()
+
+    upgrade_database(url)
+    engine = create_db_engine(url)
+    try:
+        columns = {column["name"] for column in inspect(engine).get_columns("agent_run_logs")}
+        assert "mutation_receipts" in columns
+        with engine.connect() as connection:
+            assert connection.scalar(text("SELECT mutation_receipts FROM agent_run_logs")) == "[]"
+    finally:
+        engine.dispose()
+    check_database_schema(url)
