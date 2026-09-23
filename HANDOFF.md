@@ -171,13 +171,8 @@ Internal ChatGPT sandbox baseline relevant to project/build compatibility: Pytho
 
 U24 project venv at `/home/gpt/projects/ah-there-it-is/.venv` is aligned for the same build path where practical: Python 3.12.3 (project-supported), pip 25.1.1, setuptools 82.0.1, wheel 0.46.3, no `build` package. `python -m pip wheel --no-build-isolation --no-deps .` was verified successfully there. Do not upgrade these merely because newer versions or deprecation notices exist; the active sandbox remains the primary compatibility reference.
 
-## Stage 23 current objective — write target safety
+## Stage 23 delivered — write target safety
 
-Assignment 0013 replaces the superseded Activity plan.
+Assignment 0013 is complete. Agent mutation targets now require globally unique canonical/alias Item identity or exact Location/Category full path or globally unique leaf identity. Result count, score, tags, generic attributes, substring and FTS evidence do not authorize writes. Existing-ID references are rechecked against the complete matching database set after SQLite write-lock acquisition and before service mutation in the same transaction. Omitted `move_item.location_id` is invalid; explicit null remains an intentional take. Both exported provider schema paths preserve required-nullable semantics. Search ranking is unchanged.
 
-- `move_item.location_id` must be required but nullable.
-- Search ranking remains read evidence only; result count, `limit`, score and score gap never imply write authorization.
-- Item identity resolution checks all canonical-name and alias collisions together.
-- Location/Category resolution uses exact path or globally unique exact leaf identity.
-- The evidence that authorized a stable ID must be revalidated in the same write transaction as the mutation, or by an equivalent atomic write condition.
-- This stage does not yet redesign whole-turn rollback, receipts, idempotency commit boundaries, location lifecycle semantics, or Activity/history rendering.
+Focused tests and the full protocol-v4 local verification set passed: 284 tests, 42/42 deterministic scenarios, migration, corpus, scenario structure, and provider contract. Review record: `agent-tasks/reviews/0013-r1.md`. No next stage has been selected by this assignment.
