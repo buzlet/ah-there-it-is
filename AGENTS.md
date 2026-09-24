@@ -420,3 +420,10 @@ Assignment 0012 proposed a read-only browser Activity timeline. External archite
 - Structural coverage includes 1000+ Events, tied timestamps, combined filters, unknown IDs, snapshot/legacy rendering, navigation, and installed-wheel Activity templates/route.
 - Focused Activity/target-scale checks and final canonical verification passed: 322 tests, migration-check, 42-case corpus/scenario checks, 42 completed scenarios with 98 persisted-state checks and zero failures, provider-contract (23 tests).
 - Review: `agent-tasks/reviews/0020-r1.md`.
+
+### Post-Stage-25 hardening — Assignment 0021 complete
+
+- Agent context now loads at most the newest 40 persisted messages using a descending SQL `LIMIT`, restores chronological order, and drops a leading assistant message when the retained boundary splits a turn. System and current user messages remain outside the cap.
+- Full conversation history and persisted messages are unchanged. Agent run logs preserve the exact initial system, bounded prior context, and current user messages sent to the LLM; failed turns remain excluded from later context.
+- Structural coverage seeds 1000 messages and verifies the bounded query, sent context, run log, and intact full history. No schema migration or summarization policy was added.
+- Focused and canonical verification passed: 324 tests, migration/corpus/scenario checks, 42 completed scenarios with 98 state checks and zero failures, and 23 provider-contract tests. Review: `agent-tasks/reviews/0021-r1.md`.
