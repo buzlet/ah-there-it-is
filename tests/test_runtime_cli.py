@@ -135,6 +135,8 @@ def test_runtime_gate_rejects_nonmatching_revision_without_mutation(
     try:
         connection.execute("UPDATE alembic_version SET version_num = ?", (revision,))
         connection.commit()
+        # Stabilize the main file before comparing its bytes: migration uses WAL.
+        connection.execute("PRAGMA wal_checkpoint(TRUNCATE)")
     finally:
         connection.close()
     before = database.read_bytes()
