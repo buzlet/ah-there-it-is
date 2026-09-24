@@ -59,11 +59,11 @@ The agent must not expand verification scope on its own.
 
 ## Execution
 
-Direct U24 execution is already connected to the machine and runs as OS user `rdu1`.
+Direct U24 execution is already connected to the machine and runs as OS user `rdu01`.
 
 The launcher supplies a unique patch checkout under:
 
-`/home/rdu1/Projects/<patch-name>`
+`/home/rdu01/projects/<patch-name>`
 
 All Git, edits, Python, Just and tests must run only inside that exact checkout. Do not switch users, use sudo, or operate in another repository checkout.
 
