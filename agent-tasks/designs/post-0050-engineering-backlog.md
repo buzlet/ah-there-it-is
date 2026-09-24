@@ -1,19 +1,19 @@
 # Post-0050 engineering backlog
 
-Status: orchestration audit backlog; not implementation authority.
+Status: reconciled after merged batch 0041–0050; still not implementation authority.
 
-This file records engineering follow-ups identified by the 2026-09-25 orchestration audit. The active storage/recovery batch 0041–0050 must finish unchanged first. After that batch is accepted, this backlog is reconciled against its actual implementation and only then converted into immutable issued task specs.
+Batch 0041–0050 merged as PR #68 at `ab48fa819101416b6976b6b3b4989e231273e110`. Its exact CI head `d0731f7b8069b8c7e540faeaa40306ffcddaab07` passed 450 tests, 58/58 scenarios and 86/86 retrieval cases. The audit findings below were rechecked against that merged code.
 
 ## Priority A — recovery and portable-scale closure
 
 ### Bound physical/FK validation diagnostics
 
-Current recovery validation can retain the complete result of `PRAGMA foreign_key_check` in Python. Assignment 0050 bounds doctor samples for several high-cardinality semantic/FTS diagnostics, but its immutable scope does not explicitly require the physical/FK validation path to be bounded.
+Confirmed after 0050: `validate_database()` still calls `fetchall()` for both `PRAGMA integrity_check` and `PRAGMA foreign_key_check`. Doctor semantic/FTS sampling is bounded, but the storage-level physical validation path can still retain an unbounded diagnostic result.
 
 Post-0050 action:
 
-- inspect the delivered 0050 implementation first;
-- if `validate_database()` and doctor/recovery paths can still materialize all FK violations, replace that retention with exact counts plus bounded deterministic samples;
+- bound storage-level integrity/FK diagnostic retention without weakening pass/fail correctness;
+- use exact FK violation counts where SQLite permits count/projection queries and bounded deterministic samples for reporting;
 - preserve machine-readable exact health/failure semantics;
 - add large-corruption structural coverage rather than timing thresholds.
 
@@ -21,7 +21,7 @@ This task must not weaken SQLite integrity, schema-head, or foreign-key correctn
 
 ### Memory-bounded portable import
 
-Portable export is being made projection-based, streaming, snapshot-consistent and scale-tested in 0041–0044, while import still begins from a complete decoded JSON/Pydantic document and 0045 only batches database writes.
+Confirmed after 0050: portable export is projection-based, streaming and snapshot-consistent, but import still starts with `Path.read_text()` → `json.loads()` → one complete Pydantic `PortableDocument`. Assignment 0045 bounded database write behavior but did not bound input-document retention.
 
 Post-0050 action:
 
@@ -35,18 +35,11 @@ The objective is not necessarily O(1) memory; it is to avoid retaining full heav
 
 ## Priority B — verification/process closure
 
-### Coverage regression gate
+### Coverage regression gate — resolved
 
-Coverage was deliberately report-only until several representative implementation PRs established a stable baseline. Representative exact-head CI runs from 0024 through 0040 remained at 84% rounded branch coverage while the codebase grew materially.
+The exact-head CI for 0041–0050 reported 6746 statements, 902 missed, 1662 branches and 310 partial branches, with coverage displayed as 84%. Earlier representative implementation heads also remained at 84% while the codebase grew.
 
-After 0041–0050:
-
-1. read the exact coverage result on the final storage batch head;
-2. choose a non-rounded regression floor or equivalent baseline policy from measured data;
-3. make the gate fail only on meaningful regression, not on display rounding;
-4. keep coverage tooling CI-only.
-
-Do not guess a threshold before the storage batch lands.
+The CI report now uses two-decimal display precision and a conservative `--fail-under=83.00` floor. Coverage tooling remains CI-only. This is a regression guard, not a target for reducing tests or coverage.
 
 ### Protocol v8 completion evidence
 
@@ -56,7 +49,7 @@ Future batches should keep one pre-PR review and one compact post-merge completi
 
 ### Active-context archival
 
-Completed batch material must be moved from active `assignments/`, `batches/` and `reviews/` to `archive/` after acceptance. The audit branch archives 0035–0040. After 0041–0050 is accepted, archive that completed batch as part of the final reconciliation and leave only currently issued material active.
+Completed batch material must be moved from active `assignments/`, `batches/` and `reviews/` to `archive/` after acceptance. The audit branch archives completed material through 0050. Future accepted batches must likewise leave only currently issued material active.
 
 ### Executor-boundary enforcement
 
