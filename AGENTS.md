@@ -479,3 +479,12 @@ Initial supported channels are Remote Commander on existing v6 hosts and SSH-sup
 - Temporary local Git repository tests cover preflight, seed ancestry and byte identity, monotonic/correction history, atomic writes, and stale/malformed state.
 - Focused and canonical verification passed: 384 tests, migration check, 58 corpus cases, 58/58 scenarios with all 58 postcondition sets, 86/86 retrieval cases, and 23 provider-contract tests.
 - Review: `agent-tasks/reviews/0031-r1.md`.
+
+
+### Agent execution reliability — Assignment 0032
+
+- Added a stdlib-only canonical verification supervisor that runs the seven existing Just recipes in their fixed order, with external durable state, bounded separate stdout/stderr logs, atomic JSON records, process-group timeout cleanup, duplicate-run locking, status inspection, and same-HEAD resume validation.
+- Added fake-Just lifecycle tests for ordering, output bounds, failure/timeout cleanup, duplicate refusal, same-HEAD continuation, HEAD/recipe mismatch, external state, and orphaned process groups.
+- Focused tests passed: 13 canonical-verifier tests. Full canonical verification passed on implementation commit `e68b7a9d24cb146f437b34fca62b38af43080b21`: 397 tests, migration check, 58 corpus cases, 58 scenarios with 58/58 completed checks and none unchecked, retrieval 86/86, and 23 provider-contract tests. One existing Starlette deprecation warning was reported.
+- Scope is limited to agent tooling, its tests, and documentation. No Just recipe, CI workflow, third-party dependency, or inventory behavior changed.
+- Review: `agent-tasks/reviews/0032-r1.md`.
