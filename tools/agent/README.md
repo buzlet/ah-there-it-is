@@ -152,3 +152,36 @@ continues after the previous supervisor has stopped, when the recorded Git HEAD
 and fixed recipe definitions still match and every recorded check succeeded. An
 interrupted recipe without a durable success record is run again; successful
 checks are reused only from a valid same-HEAD prefix.
+
+## Bounded GitHub CI waiter
+
+`tools/agent/ci_waiter.py` is a read-only observer for checks on one exact
+pull-request head. For v7 assignments, use it as the preferred CI waiting path
+when the helper is available. It uses the authenticated `gh` CLI through
+non-interactive `gh api` GET requests; it does not inspect credentials or write
+them to output.
+
+Before every observation cycle, and again after reading checks, it verifies
+that the PR still points to the expected head SHA. Check runs are requested for
+that exact commit, along with legacy commit status contexts. A changed PR head
+returns `head_changed`. The waiter distinguishes queued/in-progress checks,
+successful `success`/`neutral`/`skipped` conclusions, other terminal
+conclusions, checks that have not registered yet, and an overall timeout. Empty
+check results never count as green; the default registration grace period is
+120 seconds.
+
+The default overall timeout is 30 minutes. Poll intervals are bounded to
+1–300 seconds (default 15). The registration grace period is bounded to
+0–600 seconds. Every `gh api` call also has a finite request timeout. The
+helper only issues API reads; rerun, cancel, push, and merge actions remain
+outside its side-effect boundary.
+
+```bash
+python tools/agent/ci_waiter.py wait --repo buzlet/ah-there-it-is --pr 58 --head-sha <expected-pr-head-sha> --timeout-seconds 1800 --poll-interval-seconds 15 --state-dir "/home/gpt/.local/state/ah-there-it-is/ci-waits/0033-pr-58-head"
+```
+
+Use a new state directory outside the worktree for each wait. When supplied,
+`observations.jsonl` records credential-free polling snapshots and
+`summary.json` is atomically written with the final result. Without a state
+directory, the CLI still emits one concise JSON result to stdout. Exit status is
+zero only for `success`; all other final states return nonzero.
