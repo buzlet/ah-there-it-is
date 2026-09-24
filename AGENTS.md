@@ -471,3 +471,11 @@ Initial supported channels are Remote Commander on existing v6 hosts and SSH-sup
 - Fake-Codex focused tests passed: 11. Final v7 canonical verification passed: 372 tests, migration check, 58 corpus cases, 58 scenarios with all postconditions, 86 retrieval cases, and 23 provider-contract tests. No live provider/model call was used.
 - The batch task was executed with local commands as `gpt` on U24 by explicit user instruction; Remote Commander and SSH were not used. The helper itself remains U24/POSIX tooling intended for v7 SSH-Codex controllers.
 - Review: `agent-tasks/reviews/0030-r1.md`.
+
+### Agent execution reliability — Assignment 0031
+
+- Added a stdlib-only local batch preflight and seed verifier under `tools/agent/`. They inspect already-fetched Git refs and immutable control-SHA blobs without fetching or mutating Git history.
+- Added external atomic lifecycle checkpoints with a finite phase vocabulary, correction iteration history, PR/merge metadata, and stale/malformed-state reporting. No application entry point or dependency was added.
+- Temporary local Git repository tests cover preflight, seed ancestry and byte identity, monotonic/correction history, atomic writes, and stale/malformed state.
+- Focused and canonical verification passed: 384 tests, migration check, 58 corpus cases, 58/58 scenarios with all 58 postcondition sets, 86/86 retrieval cases, and 23 provider-contract tests.
+- Review: `agent-tasks/reviews/0031-r1.md`.

@@ -58,3 +58,60 @@ A missing terminal result plus a dead process group is reported as stale; a
 PID number alone is never considered proof that the process is running. The
 raw `codex exec --json --full-auto -` invocation remains a valid protocol
 fallback when a controller does not use this helper.
+
+## Lifecycle preflight and checkpoints
+
+`tools/agent/lifecycle_checkpoints.py` is a stdlib-only, read-only Git preflight,
+seed verifier, and external lifecycle journal. It does not fetch refs or mutate
+Git history. Fetch control and origin refs explicitly before asking it to check
+them.
+
+A preflight reads the manifest and task specification as Git blobs at the
+supplied immutable control SHA. Supply the expected start-main SHA and the
+manifest task order when the batch defines them. The JSON result contains every
+check and the selected task's exact branch, source, and assignment destination.
+An existing target task branch is a blocker unless the caller explicitly allows
+it for a repeated inspection.
+
+```bash
+python tools/agent/lifecycle_checkpoints.py preflight \
+  --repo /home/gpt/projects/ah-there-it-is \
+  --expected-repo-path /home/gpt/projects/ah-there-it-is \
+  --control-branch queue/example-batch \
+  --control-sha <immutable-control-sha> \
+  --manifest agent-tasks/batches/example/manifest.md \
+  --task 0031 \
+  --expected-start-main-sha <expected-origin-main-sha> \
+  --expected-task-order 0030,0031,0032
+
+python tools/agent/lifecycle_checkpoints.py verify-seed \
+  --repo /home/gpt/projects/ah-there-it-is \
+  --branch feat/example-task \
+  --base-sha <start-main-sha> \
+  --control-sha <immutable-control-sha> \
+  --assignment-source agent-tasks/batches/example/task.md \
+  --assignment-destination agent-tasks/assignments/task.md
+```
+
+Checkpoint commands emit one JSON object per invocation. Store the state outside
+the repository, for example under
+`$HOME/.local/state/ah-there-it-is/lifecycle-checkpoints`. The finite phase
+vocabulary advances in order. A regression requires the next explicit
+`--correction-iteration`; the journal keeps the highest phase and records the
+correction in both histories. Checkpoint writes use a same-directory temporary
+file, fsync, and atomic replacement. `checkpoint-status` reports `current`,
+`stale`, `missing`, or `invalid` by comparing the saved branch and HEAD with
+local Git state. It reports durable facts only; it does not decide whether work
+should be rerun or treat a stale checkpoint as proof that a process stopped.
+
+```bash
+python tools/agent/lifecycle_checkpoints.py checkpoint \
+  --repo /home/gpt/projects/ah-there-it-is \
+  --state-dir "$HOME/.local/state/ah-there-it-is" \
+  --assignment 0031 --phase seeded
+
+python tools/agent/lifecycle_checkpoints.py checkpoint-status \
+  --repo /home/gpt/projects/ah-there-it-is \
+  --state-dir "$HOME/.local/state/ah-there-it-is" \
+  --assignment 0031
+```
