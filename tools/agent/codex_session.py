@@ -313,9 +313,12 @@ def start_run(
     prompt_file: str,
     state_dir: str,
     codex_bin: str = "codex",
+    _hold_fd: int | None = None,
 ) -> dict[str, Any]:
     if os.name != "posix":
         raise SessionError("Codex session runner supports POSIX hosts only")
+    if _hold_fd is not None and _hold_fd < 0:
+        raise SessionError("inherited lock file descriptor must be non-negative")
     safe_id = _validate_run_id(run_id)
     repo, state = _resolve_repo_and_state(repo_path, state_dir)
     if not codex_bin or "\x00" in codex_bin:
@@ -361,15 +364,17 @@ def start_run(
         codex_bin,
     ]
     try:
-        worker = subprocess.Popen(
-            worker_argv,
-            cwd=repo,
-            stdin=prompt,
-            stdout=subprocess.DEVNULL,
-            stderr=subprocess.DEVNULL,
-            close_fds=True,
-            start_new_session=True,
-        )
+        popen_options: dict[str, Any] = {
+            "cwd": repo,
+            "stdin": prompt,
+            "stdout": subprocess.DEVNULL,
+            "stderr": subprocess.DEVNULL,
+            "close_fds": True,
+            "start_new_session": True,
+        }
+        if _hold_fd is not None:
+            popen_options["pass_fds"] = (_hold_fd,)
+        worker = subprocess.Popen(worker_argv, **popen_options)
     except OSError as exc:
         prompt.close()
         return _write_terminal_result(

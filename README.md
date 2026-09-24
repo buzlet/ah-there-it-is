@@ -348,3 +348,13 @@ Hard deletion and generic undo remain deferred. Voice, Telegram, images, QR, MCP
 ## Implementation host status — Assignment 0029
 
 The established U24/Bash execution path remains available as `u24-bash`. Protocol [`agent-tasks/common/v6.md`](agent-tasks/common/v6.md) adds an explicit launcher-selected `windows-git-bash` path using native Windows Python inside Git Bash, with the same seeded-history and PR/CI/merge lifecycle. Canonical `just` verification uses portable temporary paths and leaves the local checkout clean. The Windows path is prepared but awaits its first native Windows pilot; Assignment 0029 was implemented and verified on U24. Historical v4/v5 protocols remain unchanged.
+
+## Agent execution-channel status — protocol v7
+
+The U24 `ssh-codex` execution helpers are prepared and exercised with
+deterministic fake Codex/`gh` processes and temporary Git repositories. The
+execution reliability batch that added them ran through local shell commands
+under the configured local account; it did not use SSH or delegate the batch to
+a live Codex CLI process. A real U24 `ssh-codex` operational pilot remains
+unclaimed. The integrated operator flow and recovery matrix are documented in
+[`tools/agent/SSH_CODEX_OPERATIONS.md`](tools/agent/SSH_CODEX_OPERATIONS.md).
