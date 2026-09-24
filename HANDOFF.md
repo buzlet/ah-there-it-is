@@ -52,3 +52,8 @@ Current system includes nested inventory trees, deterministic search, explicit l
 Quantity / physical-instance semantics remain unresolved. Do not implement partial quantity moves/sales/disposal or Item split/merge until explicitly decided.
 
 See `agent-tasks/designs/future-decision-gates.md`.
+
+
+## Direct-shell command cadence
+
+The exact rdu01/workdir/Git-toplevel preflight is a one-time batch-start check. Later commands re-enter the issued workdir and venv only; they do not repeat identity checks before every mutation.
