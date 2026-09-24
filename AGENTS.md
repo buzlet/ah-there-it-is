@@ -59,7 +59,7 @@ The agent must not expand verification scope on its own.
 
 ## Execution
 
-Direct U24 execution is already connected to the machine. There is no SSH setup and no nested Codex process.
+Direct U24 execution is already connected to the machine and runs as local development on U24.
 
 Required U24 state:
 
@@ -89,7 +89,6 @@ Do not recursively read `agent-tasks/archive/`.
 - `tools/agent/canonical_verifier.py` — optional durable full-local verifier for manifest-declared high-risk batches;
 - `tools/agent/ci_waiter.py` — bounded exact-head CI observer.
 
-Obsolete nested-Codex supervision tooling is not part of the active process.
 
 ## Current status
 
