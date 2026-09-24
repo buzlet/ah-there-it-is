@@ -5,9 +5,10 @@ from __future__ import annotations
 
 from contextlib import closing
 from dataclasses import asdict, dataclass, field
+import heapq
 from pathlib import Path
 import sqlite3
-from typing import Any, Literal
+from typing import Any, Iterable, Literal
 
 from ah_there_it_is.db.migrations import migration_heads
 from ah_there_it_is.db.search_consistency import expected_fts_objects, search_consistency
@@ -51,14 +52,62 @@ class DoctorReport:
         }
 
 
-def _check(report: DoctorReport, name: str, samples: list[str] | tuple[str, ...] = (), *, count: int | None = None, warning: bool = False, detail: str | None = None) -> None:
+def _check(report: DoctorReport, name: str, samples: tuple[str, ...] = (), *, count: int | None = None, warning: bool = False, detail: str | None = None) -> None:
     total = len(samples) if count is None else count
     report.checks[name] = DoctorCheck(
         'warning' if warning and total else 'error' if total else 'ok',
         total,
-        tuple(samples[:_SAMPLE_LIMIT]),
+        samples[:_SAMPLE_LIMIT],
         detail,
     )
+
+
+def _bounded_rows(rows: Iterable[sqlite3.Row | tuple[Any, ...]], *, skip_ok: bool = False) -> tuple[int, tuple[str, ...]]:
+    """Count a result stream while retaining only deterministic diagnostic samples."""
+    count = 0
+    samples: list[str] = []
+    for row in rows:
+        if skip_ok and len(row) == 1 and row[0] == 'ok':
+            continue
+        count += 1
+        if len(samples) < _SAMPLE_LIMIT:
+            samples.append(str(row[0]) if len(row) == 1 else str(tuple(row)))
+    return count, tuple(samples)
+
+
+def _sql_violation_summary(
+    connection: sqlite3.Connection,
+    query: str,
+    parameters: tuple[Any, ...] = (),
+) -> tuple[int, tuple[str, ...]]:
+    """Return an exact count and bounded, ID-ordered samples for a violation query."""
+    count = int(connection.execute(f'SELECT count(*) FROM ({query})', parameters).fetchone()[0])
+    rows = connection.execute(
+        f'SELECT id FROM ({query}) ORDER BY id LIMIT ?',
+        (*parameters, _SAMPLE_LIMIT),
+    )
+    return count, tuple(str(row[0]) for row in rows)
+
+
+def _sql_check(
+    connection: sqlite3.Connection,
+    report: DoctorReport,
+    name: str,
+    query: str,
+    parameters: tuple[Any, ...] = (),
+    *,
+    warning: bool = False,
+) -> None:
+    count, samples = _sql_violation_summary(connection, query, parameters)
+    _check(report, name, samples, count=count, warning=warning)
+
+
+def _doctor_normalize_name(value: object) -> str:
+    return normalize_name(value) if isinstance(value, str) else ''
+
+
+def _register_doctor_functions(connection: sqlite3.Connection) -> None:
+    connection.create_function('doctor_normalize_name', 1, _doctor_normalize_name, deterministic=True)
 
 
 def diagnose_database(database_url: str) -> DoctorReport:
@@ -87,6 +136,7 @@ def diagnose_database(database_url: str) -> DoctorReport:
         uri = database.as_uri() + ('?mode=ro' if wal_present else '?mode=ro&immutable=1')
         with closing(sqlite3.connect(uri, uri=True)) as connection:
             connection.execute('PRAGMA query_only=ON')
+            _register_doctor_functions(connection)
             connection.execute('BEGIN')
             _inspect(connection, report)
         if not wal_present and wal.exists():
@@ -97,10 +147,10 @@ def diagnose_database(database_url: str) -> DoctorReport:
 
 
 def _inspect(connection: sqlite3.Connection, report: DoctorReport) -> None:
-    integrity = [str(row[0]) for row in connection.execute('PRAGMA integrity_check')]
-    _check(report, 'integrity', [] if integrity == ['ok'] else integrity, count=0 if integrity == ['ok'] else len(integrity))
-    foreign_keys = [str(tuple(row)) for row in connection.execute('PRAGMA foreign_key_check')]
-    _check(report, 'foreign_keys', foreign_keys)
+    integrity_count, integrity_samples = _bounded_rows(connection.execute('PRAGMA integrity_check'), skip_ok=True)
+    _check(report, 'integrity', integrity_samples, count=integrity_count)
+    foreign_key_count, foreign_key_samples = _bounded_rows(connection.execute('PRAGMA foreign_key_check'))
+    _check(report, 'foreign_keys', foreign_key_samples, count=foreign_key_count)
     try:
         report.database_heads = tuple(sorted(str(row[0]) for row in connection.execute('SELECT version_num FROM alembic_version')))
     except sqlite3.Error:
@@ -117,27 +167,29 @@ def _inspect(connection: sqlite3.Connection, report: DoctorReport) -> None:
 
 def _inspect_identity(connection: sqlite3.Connection, report: DoctorReport) -> None:
     for table, owner in (('categories', 'parent_id'), ('locations', 'parent_id'), ('items', 'category_id'), ('aliases', 'item_id'), ('tags', None)):
-        columns = 'id, name, normalized_name' + (f', {owner}' if owner else '')
-        rows = list(connection.execute(f'SELECT {columns} FROM {table} ORDER BY id'))
-        mismatches: list[str] = []
-        blanks: list[str] = []
-        duplicates: list[str] = []
-        seen: dict[tuple[Any, Any], int] = {}
-        for row in rows:
-            entity_id, name, stored = row[:3]
-            normalized = normalize_name(name) if isinstance(name, str) else ''
-            if not normalized:
-                blanks.append(str(entity_id))
-            if normalized != stored:
-                mismatches.append(str(entity_id))
-            key = (row[3] if owner else None, normalized)
-            if key in seen:
-                duplicates.append(str(entity_id))
-            else:
-                seen[key] = entity_id
-        _check(report, f'{table}_normalized_names', mismatches)
-        _check(report, f'{table}_nonblank_names', blanks)
-        _check(report, f'{table}_duplicate_identity', duplicates, warning=table == 'items')
+        normalized = 'doctor_normalize_name(name)'
+        _sql_check(
+            connection,
+            report,
+            f'{table}_normalized_names',
+            f'SELECT id FROM {table} WHERE normalized_name IS NOT {normalized}',
+        )
+        _sql_check(
+            connection,
+            report,
+            f'{table}_nonblank_names',
+            f"SELECT id FROM {table} WHERE {normalized} = ''",
+        )
+        partition = f'{owner}, {normalized}' if owner else normalized
+        _sql_check(
+            connection,
+            report,
+            f'{table}_duplicate_identity',
+            f'SELECT id FROM ('
+            f'SELECT id, row_number() OVER (PARTITION BY {partition} ORDER BY id) AS occurrence '
+            f'FROM {table}) WHERE occurrence > 1',
+            warning=table == 'items',
+        )
     for table in ('categories', 'locations'):
         parents = {int(row[0]): row[1] for row in connection.execute(f'SELECT id, parent_id FROM {table}')}
         cycles: set[int] = set()
@@ -152,45 +204,48 @@ def _inspect_identity(connection: sqlite3.Connection, report: DoctorReport) -> N
                 trail[node] = len(trail)
                 node = parents[node]
             done.update(trail)
-        _check(report, f'{table}_cycles', [str(value) for value in sorted(cycles)])
+        samples = tuple(str(value) for value in heapq.nsmallest(_SAMPLE_LIMIT, cycles))
+        _check(report, f'{table}_cycles', samples, count=len(cycles))
 
 
 def _inspect_scalars(connection: sqlite3.Connection, report: DoctorReport) -> None:
-    allowed = {state.value for state in ItemState}
-    allowed_locations = {status.value for status in LocationStatus}
-    terminal_states = {ItemState.DISCARDED.value, ItemState.SOLD.value}
-    invalid_states: list[str] = []
-    invalid_quantities: list[str] = []
-    invalid_locations: list[str] = []
-    for item_id, state, quantity, location_id, location_status in connection.execute(
-        'SELECT id, state, quantity, current_location_id, location_status '
-        'FROM items ORDER BY id'
-    ):
-        if state not in allowed:
-            invalid_states.append(str(item_id))
-        if not isinstance(quantity, int) or quantity < 1:
-            invalid_quantities.append(str(item_id))
-        if (
-            location_status not in allowed_locations
-            or (location_status == LocationStatus.KNOWN.value) != (location_id is not None)
-            or (state in terminal_states)
-            != (location_status == LocationStatus.NOT_APPLICABLE.value)
-        ):
-            invalid_locations.append(str(item_id))
-    _check(report, 'item_states', invalid_states)
-    _check(report, 'item_quantities', invalid_quantities)
-    _check(report, 'item_location_truth', invalid_locations)
+    allowed = tuple(state.value for state in ItemState)
+    allowed_locations = tuple(status.value for status in LocationStatus)
+    terminal_states = (ItemState.DISCARDED.value, ItemState.SOLD.value)
+    _sql_check(
+        connection,
+        report,
+        'item_states',
+        f"SELECT id FROM items WHERE state IS NULL OR state NOT IN ({','.join('?' for _ in allowed)})",
+        allowed,
+    )
+    _sql_check(
+        connection,
+        report,
+        'item_quantities',
+        "SELECT id FROM items WHERE typeof(quantity) != 'integer' OR quantity < 1",
+    )
+    _sql_check(
+        connection,
+        report,
+        'item_location_truth',
+        f"SELECT id FROM items WHERE location_status IS NULL OR location_status NOT IN ({','.join('?' for _ in allowed_locations)}) "
+        "OR (location_status = ?) != (current_location_id IS NOT NULL) "
+        f"OR (state IN ({','.join('?' for _ in terminal_states)})) != (location_status = ?)",
+        (*allowed_locations, LocationStatus.KNOWN.value, *terminal_states, LocationStatus.NOT_APPLICABLE.value),
+    )
 
 
 def _inspect_fts(connection: sqlite3.Connection, report: DoctorReport) -> None:
     missing = expected_fts_objects(connection)
-    _check(report, 'fts_schema', list(missing))
+    _check(report, 'fts_schema', missing)
     if missing:
         return
     try:
         result = search_consistency(connection)
         for name in ('missing', 'mismatched', 'extra'):
-            _check(report, f'fts_{name}_rows', [str(i) for i in getattr(result, f'{name}_ids')], count=getattr(result, f'{name}_count'))
+            samples = tuple(str(i) for i in getattr(result, f'{name}_ids'))
+            _check(report, f'fts_{name}_rows', samples, count=getattr(result, f'{name}_count'))
     except sqlite3.Error as exc:
         _check(report, 'fts_content', ('unreadable',), detail=str(exc))
 
@@ -205,6 +260,7 @@ def repair_search_index(database_url: str) -> DoctorReport:
     try:
         with closing(sqlite3.connect(database.as_uri() + '?mode=rw', uri=True)) as connection, connection:
             connection.execute('PRAGMA foreign_keys=ON')
+            _register_doctor_functions(connection)
             connection.execute('BEGIN IMMEDIATE')
             locked = DoctorReport(database_path=before.database_path, packaged_heads=before.packaged_heads)
             _inspect(connection, locked)

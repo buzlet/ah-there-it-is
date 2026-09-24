@@ -13,7 +13,7 @@ from ah_there_it_is.config import get_settings
 from ah_there_it_is.db.migrations import check_database_schema, upgrade_database
 from ah_there_it_is.storage import (
     create_backup,
-    export_portable_inventory,
+    stream_portable_inventory,
     import_portable_inventory,
     validate_portable_import_target,
     validate_portable_inventory,
@@ -93,15 +93,15 @@ def main() -> int:
     elif args.command == "bootstrap-apply":
         result = apply_bootstrap_import(database_url, args.source).as_dict()
     elif args.command == "export-json":
-        document = export_portable_inventory(database_url, args.destination)
+        export = stream_portable_inventory(database_url, args.destination)
         result = {
             "destination": args.destination,
-            "format": document["format"],
-            "alembic_revision": document["source"]["alembic_revision"],
-            "categories": len(document["inventory"]["categories"]),
-            "locations": len(document["inventory"]["locations"]),
-            "items": len(document["inventory"]["items"]),
-            "events": len(document["history"]["events"]),
+            "format": export.format,
+            "alembic_revision": export.source_alembic_revision,
+            "categories": export.categories,
+            "locations": export.locations,
+            "items": export.items,
+            "events": export.events,
         }
     elif args.dry_run:
         document = validate_portable_inventory(args.source)
