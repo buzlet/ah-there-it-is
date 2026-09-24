@@ -1003,7 +1003,7 @@ def import_portable_inventory(
         # Re-check immediately before publication so a path created during the
         # longer migration/import work is never silently overwritten.
         validate_portable_import_target(database_url, target)
-        _publish_new_file(publish, target)
+        _publish_new_database(publish, target)
         _fsync_path(target)
         _fsync_directory(target.parent)
         database = DatabaseValidation(
@@ -1386,8 +1386,24 @@ def _unlink_sqlite_files(path: Path) -> None:
     _unlink_sidecars(path)
 
 
-def _publish_new_file(source: Path, target: Path) -> None:
-    """Atomically publish a same-filesystem file without overwrite semantics."""
+def _publish_new_database(source: Path, target: Path) -> None:
+    """Publish a new local SQLite database without replacing any path.
+
+    POSIX has no atomic operation spanning the main file and both SQLite
+    sidecars. We check sidecars before and after atomically reserving the main
+    path with ``link``. This relies on the supported local-filesystem rule that
+    SQLite sidecars are created by opening an existing main database, not as
+    unrelated orphan files after another process loses the main-file race.
+    """
+    occupied_sidecar = next(
+        (path for path in _sqlite_sidecars(target) if path.exists()),
+        None,
+    )
+    if occupied_sidecar is not None:
+        raise StorageError(
+            f"portable import destination sidecar appeared during import: "
+            f"{occupied_sidecar}"
+        )
     try:
         os.link(source, target)
     except FileExistsError as exc:
@@ -1398,7 +1414,28 @@ def _publish_new_file(source: Path, target: Path) -> None:
         raise StorageError(
             f"cannot atomically publish portable import to {target}: {exc}"
         ) from exc
+    occupied_sidecar = next(
+        (path for path in _sqlite_sidecars(target) if path.exists()),
+        None,
+    )
+    if occupied_sidecar is not None:
+        try:
+            target.unlink()
+            _fsync_directory(target.parent)
+        except OSError as cleanup_error:
+            raise StorageError(
+                f"portable import sidecar race at {occupied_sidecar}; "
+                f"failed to remove reserved destination {target}: {cleanup_error}"
+            ) from cleanup_error
+        raise StorageError(
+            f"portable import destination sidecar appeared during publication: "
+            f"{occupied_sidecar}"
+        )
     source.unlink()
+
+
+def _sqlite_sidecars(path: Path) -> tuple[Path, Path]:
+    return Path(str(path) + "-wal"), Path(str(path) + "-shm")
 
 
 def _fsync_path(path: Path) -> None:

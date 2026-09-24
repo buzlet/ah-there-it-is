@@ -1137,6 +1137,68 @@ def test_portable_import_batches_target_scale_and_rolls_back_before_publication(
     assert not Path(str(failed_destination) + "-shm").exists()
 
 
+@pytest.mark.parametrize("race_path", ["main", "wal", "shm"])
+def test_portable_import_publication_race_preserves_concurrent_paths(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    race_path: str,
+) -> None:
+    import ah_there_it_is.storage as storage
+
+    active = tmp_path / "active.db"
+    source = tmp_path / "source.json"
+    destination = tmp_path / "race.db"
+    url = _migrate(active)
+    _seed_operational_state(url)
+    export_portable_inventory(url, source)
+    active_before = validate_database(active).sha256
+    source_before = source.read_bytes()
+    original_publish = storage._publish_new_database
+    raced = (
+        destination if race_path == "main"
+        else Path(str(destination) + f"-{race_path}")
+    )
+
+    def inject_race(publish: Path, target: Path) -> None:
+        raced.write_bytes(f"concurrent-{race_path}".encode())
+        original_publish(publish, target)
+
+    monkeypatch.setattr(storage, "_publish_new_database", inject_race)
+    with pytest.raises(StorageError, match="appeared"):
+        import_portable_inventory(url, source, destination)
+
+    assert raced.read_bytes() == f"concurrent-{race_path}".encode()
+    if race_path != "main":
+        assert not destination.exists()
+    assert source.read_bytes() == source_before
+    assert validate_database(active).sha256 == active_before
+    assert not list(tmp_path.glob(".race.db.portable-*.tmp"))
+
+
+def test_portable_import_publish_primitive_failure_cleans_staging(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    import ah_there_it_is.storage as storage
+
+    active = tmp_path / "active.db"
+    source = tmp_path / "source.json"
+    destination = tmp_path / "publish-failure.db"
+    url = _migrate(active)
+    _seed_operational_state(url)
+    export_portable_inventory(url, source)
+    monkeypatch.setattr(
+        storage.os,
+        "link",
+        lambda _source, _target: (_ for _ in ()).throw(OSError("link failed")),
+    )
+
+    with pytest.raises(StorageError, match="cannot atomically publish"):
+        import_portable_inventory(url, source, destination)
+    assert not destination.exists()
+    assert not list(tmp_path.glob(".publish-failure.db.portable-*.tmp"))
+
+
 def test_portable_import_dry_run_cli_creates_no_database(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
