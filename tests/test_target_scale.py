@@ -15,6 +15,7 @@ from ah_there_it_is.services.activity import ActivityService
 from ah_there_it_is.services.catalog import CatalogService
 from ah_there_it_is.services.location_suggestions import LocationSuggestionService
 from ah_there_it_is.services.search import SearchService
+from ah_there_it_is.services.inventory import InventoryService
 from tests.scale_fixture import build_target_scale_inventory
 
 
@@ -154,6 +155,68 @@ def test_target_scale_catalog_pagination_and_web_page_slice(
     assert too_large.status_code == 400
 
 
+def test_target_scale_lifecycle_and_location_filters_preserve_pages(
+    session: Session,
+) -> None:
+    scale = build_target_scale_inventory(session)
+    InventoryService(session).mark_item_sold(scale.exact_name_id)
+
+    catalog = CatalogService(session)
+    active = catalog.item_page(lifecycle="active")
+    terminal = catalog.item_page(lifecycle="terminal")
+    unknown_first = catalog.item_page(
+        lifecycle="active",
+        location_status="unknown",
+        page=1,
+        page_size=2,
+    )
+    unknown_second = catalog.item_page(
+        lifecycle="active",
+        location_status="unknown",
+        page=2,
+        page_size=2,
+    )
+    assert active.total == 999
+    assert terminal.total == 1
+    assert terminal.items[0]["state"] == "sold"
+    assert unknown_first.total == 4
+    assert unknown_first.next_page == 2
+    assert len(unknown_first.items) == 2
+    assert len(unknown_second.items) == 2
+    assert all(row["location_status"] == "unknown" for row in unknown_first.items + unknown_second.items)
+
+    app = create_app(
+        Settings(app_name="Scale Inventory"),
+        session_factory=lambda: _SessionContext(session),  # type: ignore[arg-type]
+    )
+    with TestClient(app) as client:
+        default_catalog = client.get("/items?page_size=2")
+        unknown_page = client.get("/items", params={
+            "lifecycle": "active",
+            "location_status": "unknown",
+            "page": 1,
+            "page_size": 2,
+        })
+        unknown_page_two = client.get("/items?lifecycle=active&location_status=unknown&page=2&page_size=2")
+        terminal_catalog = client.get("/items", params={"lifecycle": "terminal"})
+        terminal_search = client.get("/items", params={"q": "Scale Exact Name Target"})
+        active_search = client.get("/items", params={
+            "q": "Scale Exact Name Target",
+            "lifecycle": "active",
+        })
+
+    assert "Total: 999" in default_catalog.text
+    assert "Scale Exact Name Target" not in default_catalog.text
+    assert "Total: 4" in unknown_page.text
+    assert "Location unknown" in unknown_page.text
+    assert 'href="/items?lifecycle=active&amp;location_status=unknown&amp;page=2&amp;page_size=2"' in unknown_page.text
+    assert "Page 2" in unknown_page_two.text
+    assert "Scale Exact Name Target" in terminal_catalog.text
+    assert "Scale Exact Name Target" in terminal_search.text
+    assert "sold" in terminal_search.text and "Not applicable" in terminal_search.text
+    assert f'href="/items/{scale.exact_name_id}"' not in active_search.text
+
+
 class _SessionContext:
     def __init__(self, session: Session) -> None:
         self.session = session
@@ -196,7 +259,7 @@ def test_target_scale_browser_search_and_tree_detail_stay_bounded(session: Sessi
             search = client.get("/items", params={"q": "Inventory Item"})
         assert search.status_code == 200
         assert len(re.findall(r'href="/items/\d+"', search.text)) == 100
-        assert "Showing up to 100 ranked matches" in search.text
+        assert "Up to 100 ranked matches after filters" in search.text
         assert "Total:" not in search.text
         assert loaded() < 500
         assert statements() < 250

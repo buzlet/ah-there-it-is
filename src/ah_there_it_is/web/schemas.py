@@ -120,7 +120,6 @@ class ItemEditRequest(BaseModel):
     state: ItemState | None = None
     quantity: int | None = Field(default=None, ge=1)
     category_id: int | None = Field(default=None, gt=0)
-    location_id: int | None = Field(default=None, gt=0)
     attributes: dict[str, Any] | None = None
     aliases: list[AliasName] | None = None
     tags: list[TagName] | None = None
@@ -136,6 +135,26 @@ class ItemEditRequest(BaseModel):
             if values is not None and any(not value.strip() for value in values):
                 raise ValueError("aliases and tags must not contain blank entries")
         return self
+
+
+class ItemMoveRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    location_id: int = Field(gt=0)
+
+
+class ItemReactivateRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    state: ItemState
+    location_id: int | None = Field(gt=0)
+
+    @field_validator("state")
+    @classmethod
+    def require_nonterminal_state(cls, value: ItemState) -> ItemState:
+        if value in {ItemState.DISCARDED, ItemState.SOLD}:
+            raise ValueError("reactivation requires a non-terminal state")
+        return value
 
 
 class TreeCreateRequest(BaseModel):

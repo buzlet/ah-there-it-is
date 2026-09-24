@@ -445,3 +445,7 @@ Assignment 0012 proposed a read-only browser Activity timeline. External archite
 - Focused and canonical verification passed: 39 focused SearchService/evaluation tests, 342 total tests, migration-check, corpus/scenario checks, 42/42 scenarios with 98/98 state checks, retrieval 86/86, and provider-contract (23 tests).
 - PR #47 passed its single `verify` check on implementation head `da110105b138f45e8e86b965235da74a1abfa7b5`; CI correction iterations: 0.
 - Review: `agent-tasks/reviews/0023-r1.md`.
+
+### Stage 26 complete — Assignments 0024–0028
+
+The Stage 26 location-truth design is delivered across domain/storage, portable-v2, agent tools and deterministic scenarios, suggestions, and browser UX. Item condition/state and Location status are independent. The browser displays known Location links, location unknown, taken/in-use, and terminal not-applicable states explicitly; condition unknown has its own label. Manual move, take, mark-unknown, discard, sold, and reactivation forms use InventoryService transitions. A blank Items catalog defaults to active Items and supports lifecycle and location-unknown filters; search includes terminal Items by default. Suggestions appear only for unknown Location and are labeled as inferred evidence. Activity preserves event-time path snapshots and renders new transitions. Assignment 0028 focused tests and the full verification suite passed: 360 tests, 58/58 scenarios, 86/86 retrieval cases, 23 provider-contract tests, migration and corpus checks. Review: `agent-tasks/reviews/0028-r1.md`.

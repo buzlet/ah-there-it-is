@@ -20,7 +20,7 @@
   <ol class="history">
     {% for event in activity_page.items %}
     <li>
-      <strong><a href="/activity/{{ event.id }}">{{ event.event_type }}</a></strong>
+      <strong><a href="/activity/{{ event.id }}">{{ event.event_label or event.event_type }}</a></strong> · {{ event.event_type }}
       · {{ event.created_at }} · Event #{{ event.id }}<br>
       <span class="muted">Item:
         {% if event.item_id is not none and event.item_name %}

@@ -429,9 +429,9 @@ def test_inventory_views_and_manual_correction_use_service_layer() -> None:
                     "description": "исправленное описание",
                     "state": "working",
                     "quantity": 2,
-                    "location_id": None,
                 },
             )
+            taken = client.post(f"/api/items/{item_id}/take")
 
         assert all(
             response.status_code == 200
@@ -443,7 +443,10 @@ def test_inventory_views_and_manual_correction_use_service_layer() -> None:
         assert edited.json()["description"] == "исправленное описание"
         assert edited.json()["state"] == "working"
         assert edited.json()["quantity"] == 2
-        assert edited.json()["location_id"] is None
+        assert edited.json()["location_id"] == shelf.id
+        assert taken.status_code == 200
+        assert taken.json()["location_id"] is None
+        assert taken.json()["location_status"] == "in_use"
 
         with factory() as session:
             history = InventoryService(session).get_item_history(item_id)
@@ -451,7 +454,7 @@ def test_inventory_views_and_manual_correction_use_service_layer() -> None:
                 "item_updated",
                 "item_taken",
             ]
-            assert history[-1].original_text == "[manual web edit]"
+            assert history[-1].original_text == "[manual web take]"
     finally:
         engine.dispose()
 

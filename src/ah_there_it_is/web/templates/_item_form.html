@@ -1,15 +1,22 @@
 <!-- _item_form.html -->
+{% set terminal = item and item.state in ["discarded", "sold"] %}
 <form id="item-form" data-item-id="{{ item.id if item else '' }}">
   <label>Name<input name="name" value="{{ item.name if item else '' }}" required maxlength="300"></label>
   <label>Description<textarea name="description" rows="4" maxlength="20000">{{ item.description or '' if item else '' }}</textarea></label>
-  <label>State<select name="state">
-    {% for state in ["unknown","new","working","used","broken","needs_test","for_parts","for_sale","discarded"] %}
-      <option value="{{ state }}" {% if item and item.state == state %}selected{% endif %}>{{ state }}</option>
+  {% if not terminal %}
+  <label>Condition / state<select name="state">
+    {% for state in ["unknown","new","working","used","broken","needs_test","for_parts","for_sale"] %}
+      <option value="{{ state }}" {% if item and item.state == state %}selected{% endif %}>{% if state == "unknown" %}Condition/state unknown{% else %}{{ state|replace("_", " ") }}{% endif %}</option>
     {% endfor %}
   </select></label>
+  {% else %}
+  <p>Condition / state: {{ item.state }}. Use Reactivate to set a new active state.</p>
+  {% endif %}
   <label>Quantity<input name="quantity" type="number" min="1" value="{{ item.quantity if item else 1 }}" required></label>
   <label>Category<select name="category_id"><option value="">— none —</option>{% for category in categories %}<option value="{{ category.id }}" {% if item and item.category_id == category.id %}selected{% endif %}>{{ category.path }}</option>{% endfor %}</select></label>
-  <label>Location<select name="location_id"><option value="">— unknown / taken —</option>{% for location in locations %}<option value="{{ location.id }}" {% if item and item.location_id == location.id %}selected{% endif %}>{{ location.path }}</option>{% endfor %}</select></label>
+  {% if not item %}
+  <label>Initial Location<select name="location_id"><option value="">Location unknown</option>{% for location in locations %}<option value="{{ location.id }}">{{ location.path }}</option>{% endfor %}</select></label>
+  {% endif %}
   <label>Aliases (one per line)<textarea name="aliases" rows="4">{{ item.aliases|join('\n') if item else '' }}</textarea></label>
   <label>Tags (one per line)<textarea name="tags" rows="4">{{ item.tags|join('\n') if item else '' }}</textarea></label>
   <label>Attributes (JSON object)<textarea name="attributes" rows="6">{{ item.attributes|tojson(indent=2) if item else '{}' }}</textarea></label>

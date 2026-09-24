@@ -91,6 +91,15 @@ def test_wheel_contains_and_runs_packaged_migrations_and_runtime(
         activity_detail_template = archive.read(
             "ah_there_it_is/web/templates/activity_detail.html"
         ).decode("utf-8")
+        item_template = archive.read(
+            "ah_there_it_is/web/templates/items.html"
+        ).decode("utf-8")
+        item_form_template = archive.read(
+            "ah_there_it_is/web/templates/_item_form.html"
+        ).decode("utf-8")
+        item_script = archive.read(
+            "ah_there_it_is/web/static/item.js"
+        ).decode("utf-8")
 
     assert migration_prefix + "env.py" in names
     assert migration_prefix + "script.py.mako" in names
@@ -109,6 +118,15 @@ def test_wheel_contains_and_runs_packaged_migrations_and_runtime(
     assert "ah_there_it_is/web/templates/tree_detail.html" in names
     assert "ah_there_it_is/web/templates/_item_form.html" in names
     assert "ah_there_it_is/web/static/tree.js" in names
+    assert "ah_there_it_is/web/static/item.js" in names
+    assert "Condition/state unknown" in item_form_template
+    assert "Condition / state" in item_template
+    assert "Location status" in item_template
+    assert "Location unknown" in item_template
+    assert 'data-transition-kind="reactivate"' in item_detail_template
+    assert "location_mode" in item_detail_template
+    assert 'data-transition-kind="location-unknown"' in item_detail_template
+    assert "reactivate" in item_script
     assert "[console_scripts]" in entry_points
     assert "ah-there-it-is = ah_there_it_is.runtime_cli:main" in entry_points
 
@@ -479,7 +497,7 @@ print(json.dumps({"revision": CURRENT_SCHEMA_REVISION}))
         items_status, items_body = _http_text(f"http://127.0.0.1:{port}/items?q=absent")
         assert items_status == 200
         assert "Search items" in items_body
-        assert "No matching items." in items_body
+        assert "No matching Items for these filters." in items_body
         activity_status, activity_body = _http_text(
             f"http://127.0.0.1:{port}/activity"
         )

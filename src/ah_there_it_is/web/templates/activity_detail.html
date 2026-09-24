@@ -9,7 +9,7 @@
   <h2>Event details</h2>
   <dl>
     <dt>Event ID</dt><dd>{{ event.id }}</dd>
-    <dt>Event type</dt><dd>{{ event.event_type }}</dd>
+    <dt>Event type</dt><dd>{{ event.event_label or event.event_type }} · {{ event.event_type }}</dd>
     <dt>Time</dt><dd>{{ event.created_at }}</dd>
     <dt>Item</dt>
     <dd>

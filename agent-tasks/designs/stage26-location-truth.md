@@ -1,6 +1,6 @@
 # Stage 26 design: location truth semantics
 
-Status: **approved; Assignment 0025 delivered the storage/format slice. Broader Stage 26 behavior remains in progress.**
+Status: **approved; Stage 26 delivered through Assignments 0024–0028.**
 
 This document defines the product/domain semantics for the deferred Stage 26. It intentionally does not cover duplicate-instance/quantity policy.
 
