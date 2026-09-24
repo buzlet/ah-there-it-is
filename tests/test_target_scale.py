@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from contextlib import contextmanager
+from datetime import datetime, timezone
 import re
 
 from fastapi.testclient import TestClient
@@ -9,7 +10,8 @@ from sqlalchemy.orm import Session
 
 from ah_there_it_is.app import create_app
 from ah_there_it_is.config import Settings
-from ah_there_it_is.db.models import Item
+from ah_there_it_is.db.models import Event, Item
+from ah_there_it_is.services.activity import ActivityService
 from ah_there_it_is.services.catalog import CatalogService
 from ah_there_it_is.services.location_suggestions import LocationSuggestionService
 from ah_there_it_is.services.search import SearchService
@@ -23,6 +25,22 @@ def _count_loaded_items(session: Session):
     def loaded(_session, instance) -> None:
         nonlocal count
         if isinstance(instance, Item):
+            count += 1
+
+    event.listen(session, "loaded_as_persistent", loaded)
+    try:
+        yield lambda: count
+    finally:
+        event.remove(session, "loaded_as_persistent", loaded)
+
+
+@contextmanager
+def _count_loaded_events(session: Session):
+    count = 0
+
+    def loaded(_session, instance) -> None:
+        nonlocal count
+        if isinstance(instance, Event):
             count += 1
 
     event.listen(session, "loaded_as_persistent", loaded)
@@ -198,3 +216,98 @@ def test_target_scale_browser_search_and_tree_detail_stay_bounded(session: Sessi
         assert "Direct items" in category.text
         assert loaded() == 0
         assert statements() <= 8
+
+@contextmanager
+def _capture_sql(session: Session):
+    statements: list[str] = []
+
+    def capture(_connection, _cursor, statement, *_args) -> None:
+        statements.append(statement)
+
+    engine = session.get_bind()
+    event.listen(engine, "before_cursor_execute", capture)
+    try:
+        yield lambda: statements
+    finally:
+        event.remove(engine, "before_cursor_execute", capture)
+
+
+def test_target_scale_activity_page_filters_and_bounded_reads(
+    session: Session,
+) -> None:
+    scale = build_target_scale_inventory(session)
+    instant = datetime(2024, 1, 1, tzinfo=timezone.utc)
+    session.execute(Event.__table__.insert(), [
+        {
+            "event_type": "scale-tie",
+            "item_id": scale.exact_name_id,
+            "created_at": instant,
+            "payload": {"tie": index},
+        }
+        for index in range(3)
+    ])
+    session.commit()
+    tie_ids = list(session.scalars(
+        select(Event.id)
+        .where(Event.event_type == "scale-tie")
+        .order_by(Event.id)
+    ))
+    session.expunge_all()
+    with (
+        _count_loaded_events(session) as loaded,
+        _count_statements(session) as statements,
+        _capture_sql(session) as sql,
+    ):
+        page = ActivityService(session).page(page_size=50)
+    assert page.total == 1003
+    assert page.pages == 21 and len(page.items) == 50
+    assert loaded() <= 50
+    assert statements() <= 3
+    assert any(
+        "FROM EVENTS" in statement.upper() and "LIMIT" in statement.upper()
+        for statement in sql()
+    )
+
+    tied = ActivityService(session).page(
+        event_type="scale-tie",
+        item_id=scale.exact_name_id,
+        page_size=2,
+    )
+
+    assert tied.total == 3 and tied.next_page == 2
+    assert [row["id"] for row in tied.items] == tie_ids[::-1][:2]
+    filtered_page = ActivityService(session).page(
+        event_type="scale-tie",
+        item_id=scale.exact_name_id,
+        page=2,
+        page_size=2,
+    )
+    assert [row["id"] for row in filtered_page.items] == tie_ids[:1]
+    assert ActivityService(session).page(item_id=999999).total == 0
+
+    app = create_app(
+        Settings(app_name="Scale Inventory"),
+        session_factory=lambda: _SessionContext(session),  # type: ignore[arg-type]
+    )
+    with TestClient(app) as client:
+        session.expunge_all()
+        with _count_loaded_events(session) as loaded, _count_statements(session) as statements:
+            overview = client.get("/activity")
+        filtered = client.get("/activity", params={
+            "event_type": "scale-tie",
+            "item_id": scale.exact_name_id,
+            "page_size": 2,
+        })
+        empty = client.get("/activity", params={"item_id": 999999})
+        too_large = client.get("/activity?page_size=101")
+
+    assert overview.status_code == 200 and "Total: 1003" in overview.text
+    assert 'href="/activity">Activity</a>' in overview.text
+    assert len(re.findall(r'href="/activity/\d+"', overview.text)) == 50
+    assert loaded() <= 50
+    assert statements() <= 3
+    assert filtered.status_code == 200
+    assert f'href="/activity?page=2&amp;page_size=2&amp;event_type=scale-tie&amp;item_id={scale.exact_name_id}"' in filtered.text
+    assert f"Event #{tie_ids[-1]}" in filtered.text
+    assert "Total: 0" in empty.text
+    assert too_large.status_code == 400

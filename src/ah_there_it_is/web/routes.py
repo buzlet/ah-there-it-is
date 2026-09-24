@@ -5,6 +5,7 @@ from __future__ import annotations
 import json
 from collections.abc import Callable
 from typing import TypeVar
+from urllib.parse import urlencode
 
 from fastapi import APIRouter, Depends, HTTPException, Request
 from fastapi.responses import HTMLResponse
@@ -15,6 +16,7 @@ from sqlalchemy.orm import Session
 from ah_there_it_is.agent.runner import AgentRunner
 from ah_there_it_is.agent.errors import AgentTurnFailedError
 from ah_there_it_is.domain.exceptions import EntityNotFoundError, InventoryError
+from ah_there_it_is.services.activity import ActivityService
 from ah_there_it_is.services.catalog import CatalogService
 from ah_there_it_is.services.chat_requests import (
     ChatRequestNotFoundError,
@@ -357,6 +359,74 @@ def build_router(templates: Jinja2Templates) -> APIRouter:
             run_id=run_id,
             rating=result.rating,
             comment=result.comment,
+        )
+
+    @router.get("/activity", response_class=HTMLResponse)
+    def activity(
+        request: Request,
+        event_type: str | None = None,
+        item_id: int | None = None,
+        page: int = 1,
+        page_size: int = ActivityService.DEFAULT_PAGE_SIZE,
+        session: Session = Depends(get_session),
+    ) -> HTMLResponse:
+        selected_type = event_type if event_type != "" else None
+        service = ActivityService(session)
+        try:
+            activity_page = service.page(
+                page=page,
+                page_size=page_size,
+                event_type=selected_type,
+                item_id=item_id,
+            )
+        except ValueError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+        def page_url(target_page: int) -> str:
+            params = {"page": target_page, "page_size": activity_page.page_size}
+            if selected_type is not None:
+                params["event_type"] = selected_type
+            if item_id is not None:
+                params["item_id"] = item_id
+            return "/activity?" + urlencode(params)
+
+        return templates.TemplateResponse(
+            request=request,
+            name="activity.html",
+            context={
+                "app_name": request.app.state.settings.app_name,
+                "activity_page": activity_page,
+                "event_type": selected_type or "",
+                "item_id": item_id,
+                "has_filters": selected_type is not None or item_id is not None,
+                "previous_url": (
+                    page_url(activity_page.previous_page)
+                    if activity_page.previous_page is not None else None
+                ),
+                "next_url": (
+                    page_url(activity_page.next_page)
+                    if activity_page.next_page is not None else None
+                ),
+            },
+        )
+
+    @router.get("/activity/{event_id}", response_class=HTMLResponse)
+    def activity_detail(
+        event_id: int,
+        request: Request,
+        session: Session = Depends(get_session),
+    ) -> HTMLResponse:
+        try:
+            detail = ActivityService(session).detail(event_id)
+        except EntityNotFoundError as exc:
+            raise HTTPException(status_code=404, detail=str(exc)) from exc
+        return templates.TemplateResponse(
+            request=request,
+            name="activity_detail.html",
+            context={
+                "app_name": request.app.state.settings.app_name,
+                "event": detail,
+            },
         )
 
     @router.get("/items", response_class=HTMLResponse)

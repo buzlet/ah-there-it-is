@@ -11,6 +11,7 @@ from sqlalchemy.orm import Session, selectinload
 
 from ah_there_it_is.db.models import Category, Item, ItemTag, Location
 from ah_there_it_is.domain.exceptions import EntityNotFoundError
+from ah_there_it_is.services.activity import ActivityService
 from ah_there_it_is.services.inventory import InventoryService
 from ah_there_it_is.services.search import SearchService
 
@@ -245,18 +246,9 @@ class CatalogService:
             item_id, page=page, page_size=page_size,
         )
         result["history_page"] = history_page
-        result["history"] = [
-            {
-                "id": event.id,
-                "event_type": event.event_type,
-                "from_location": self.path(event.from_location),
-                "to_location": self.path(event.to_location),
-                "payload": event.payload,
-                "original_text": event.original_text,
-                "created_at": event.created_at,
-            }
-            for event in history_page.items
-        ]
+        result["history"] = ActivityService(self.session).item_history(
+            history_page.items
+        )
         return result
 
     def item_dict(self, item: Item) -> dict[str, Any]:

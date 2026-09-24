@@ -410,3 +410,13 @@ Assignment 0012 proposed a read-only browser Activity timeline. External archite
 - Tree rename/reparent leaves prior snapshots unchanged; legacy Events without snapshots remain readable. Bootstrap Events use the same service behavior, and portable-v1 preserves the snapshot payload exactly.
 - No schema migration or backfill was added. Focused and canonical verification passed: 319 tests, 42/42 scenarios with 98 persisted-state checks, and 23 provider-contract tests.
 - Review: `agent-tasks/reviews/0019-r1.md`.
+
+### Post-Stage-25 hardening — Assignment 0020 complete
+
+- Added read-only `/activity` and `/activity/{event_id}` pages with exact Event-type/Item-ID filters, deterministic newest-first paging, filter-preserving navigation, detail links, payload and original text.
+- `ActivityService` owns bounded Event queries and projections; each Activity page selects at most 100 Event rows and joins surviving Item names without hydrating an unbounded history.
+- Event-time Location/Category snapshot paths are rendered as historical evidence. Legacy Location paths are labeled current with historical path unavailable; null/deleted Item links are handled without replacement identity.
+- Item-detail history links to Activity detail and retains its existing bounded ordering and pagination.
+- Structural coverage includes 1000+ Events, tied timestamps, combined filters, unknown IDs, snapshot/legacy rendering, navigation, and installed-wheel Activity templates/route.
+- Focused Activity/target-scale checks and final canonical verification passed: 322 tests, migration-check, 42-case corpus/scenario checks, 42 completed scenarios with 98 persisted-state checks and zero failures, provider-contract (23 tests).
+- Review: `agent-tasks/reviews/0020-r1.md`.

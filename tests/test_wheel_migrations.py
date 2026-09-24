@@ -85,6 +85,12 @@ def test_wheel_contains_and_runs_packaged_migrations_and_runtime(
         item_detail_template = archive.read(
             "ah_there_it_is/web/templates/item_detail.html"
         ).decode("utf-8")
+        activity_template = archive.read(
+            "ah_there_it_is/web/templates/activity.html"
+        ).decode("utf-8")
+        activity_detail_template = archive.read(
+            "ah_there_it_is/web/templates/activity_detail.html"
+        ).decode("utf-8")
 
     assert migration_prefix + "env.py" in names
     assert migration_prefix + "script.py.mako" in names
@@ -93,6 +99,11 @@ def test_wheel_contains_and_runs_packaged_migrations_and_runtime(
     } <= names
     assert "ah_there_it_is/web/templates/item_new.html" in names
     assert "ah_there_it_is/web/templates/item_detail.html" in names
+    assert "ah_there_it_is/web/templates/activity.html" in names
+    assert "ah_there_it_is/web/templates/activity_detail.html" in names
+    assert "/activity" in activity_template
+    assert "event.from_path.label" in activity_detail_template
+    assert "Historical Category paths" in activity_detail_template
     assert "Next history page" in item_detail_template
     assert "ah_there_it_is/web/templates/tree_edit.html" in names
     assert "ah_there_it_is/web/templates/tree_detail.html" in names
@@ -420,6 +431,12 @@ print(json.dumps({"revision": CURRENT_SCHEMA_REVISION}))
         assert items_status == 200
         assert "Search items" in items_body
         assert "No matching items." in items_body
+        activity_status, activity_body = _http_text(
+            f"http://127.0.0.1:{port}/activity"
+        )
+        assert activity_status == 200
+        assert "Activity" in activity_body
+        assert "Total: 0" in activity_body
         tree_asset_status, tree_asset_body = _http_text(f"http://127.0.0.1:{port}/static/tree.js")
         assert tree_asset_status == 200
         assert "data-tree-form" in tree_asset_body
