@@ -325,7 +325,9 @@ def _evaluate_diagnostic(spec: DiagnosticFixture) -> dict[str, Any]:
         target_id = label_to_id[target.label]
         search = SearchService(session)
         candidate_limit = max(spec.result_limit * 4, 20)
-        expanded_fts = search._fts_item_ids(spec.query, limit=len(items) + 1)
+        fts_candidate_limit = search._fts_scan_limit(candidate_limit)
+        rank_probe_limit = min(len(items) + 1, search.FTS_MAX_SCAN_ROWS)
+        expanded_fts = search._fts_item_ids(spec.query, limit=rank_probe_limit)
         target_fts_rank = next(
             (
                 index
@@ -341,21 +343,23 @@ def _evaluate_diagnostic(spec: DiagnosticFixture) -> dict[str, Any]:
         target_returned = any(
             result["label"] == target.label for result in results
         )
+        target_inside_bounded_fts_pool = (
+            target_fts_rank is not None and target_fts_rank <= fts_candidate_limit
+        )
         return {
             "id": spec.id,
             "query": spec.query,
-            "gating": False,
+            "gating": True,
             "fixture_item_count": len(items),
             "distractor_count": spec.distractor_count,
             "result_limit": spec.result_limit,
-            "fts_candidate_limit": candidate_limit,
+            "fts_candidate_limit": fts_candidate_limit,
             "target_label": target.label,
             "target_id": target_id,
             "target_fts_rank": target_fts_rank,
-            "target_inside_bounded_fts_pool": (
-                target_fts_rank is not None and target_fts_rank <= candidate_limit
-            ),
+            "target_inside_bounded_fts_pool": target_inside_bounded_fts_pool,
             "target_returned": target_returned,
+            "passed": target_inside_bounded_fts_pool and target_returned,
             "results": results,
         }
     finally:
@@ -400,6 +404,7 @@ def run_retrieval_evaluation(corpus: RetrievalCorpus) -> dict[str, Any]:
         session.close()
         engine.dispose()
 
+    diagnostic = _evaluate_diagnostic(corpus.diagnostic)
     return {
         "report_version": "retrieval-evaluation-report-v1",
         "corpus_version": corpus.version,
@@ -407,7 +412,7 @@ def run_retrieval_evaluation(corpus: RetrievalCorpus) -> dict[str, Any]:
         "summary": summary,
         "per_language": language_summary,
         "cases": case_results,
-        "candidate_starvation_diagnostic": _evaluate_diagnostic(corpus.diagnostic),
+        "candidate_starvation_diagnostic": diagnostic,
         "observations": observations,
     }
 
@@ -426,9 +431,12 @@ def main(argv: Sequence[str] | None = None) -> int:
         json.dumps(report, ensure_ascii=False, indent=2, sort_keys=True) + "\n",
         encoding="utf-8",
     )
+    diagnostic_passed = report["candidate_starvation_diagnostic"]["passed"]
+    diagnostic_status = "passed" if diagnostic_passed else "failed"
     print(json.dumps(report["summary"], sort_keys=True))
+    print(f"candidate-starvation-diagnostic: {diagnostic_status}")
     print(f"report: {output}")
-    return 0 if report["summary"]["failed"] == 0 else 1
+    return 0 if report["summary"]["failed"] == 0 and diagnostic_passed else 1
 
 
 if __name__ == "__main__":

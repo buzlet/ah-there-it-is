@@ -8,6 +8,8 @@ Date: 2026-09-24
 - Existing intended ranking/normalization remains accepted.
 - Measured defect: bounded candidate starvation with target FTS rank 36 outside the current pool of 20.
 - Decision: fix candidate acquisition only; do not add fuzzy/transliteration/morphology/embeddings.
+- Assignment 0024 delivered bounded FTS overscan (100–500 rows); the `blue box` rank-36 candidate is now a gating top-five success.
+  Scoring, ordering and candidate sources remain unchanged.
 
 ## CI coverage
 
