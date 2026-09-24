@@ -5,6 +5,8 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
+import tempfile
 from pathlib import Path
 from typing import Any, Literal, Sequence
 
@@ -420,12 +422,17 @@ def run_retrieval_evaluation(corpus: RetrievalCorpus) -> dict[str, Any]:
 def main(argv: Sequence[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--corpus", required=True)
-    parser.add_argument("--output", default="/tmp/ah-there-it-is-retrieval-eval.json")
+    parser.add_argument("--output")
     args = parser.parse_args(argv)
 
     corpus = load_retrieval_corpus(args.corpus)
     report = run_retrieval_evaluation(corpus)
-    output = Path(args.output)
+    if args.output:
+        output = Path(args.output)
+    else:
+        fd, name = tempfile.mkstemp(prefix="ah-there-it-is-retrieval-", suffix=".json")
+        os.close(fd)
+        output = Path(name)
     output.parent.mkdir(parents=True, exist_ok=True)
     output.write_text(
         json.dumps(report, ensure_ascii=False, indent=2, sort_keys=True) + "\n",

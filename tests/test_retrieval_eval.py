@@ -114,3 +114,27 @@ def test_cli_fails_when_gating_candidate_starvation_diagnostic_fails(
     )
 
     assert exit_code == 1
+
+
+def test_cli_default_report_uses_os_temp_directory(
+    tmp_path: Path, monkeypatch, capsys,
+) -> None:
+    import tempfile
+
+    monkeypatch.setattr(tempfile, "tempdir", str(tmp_path))
+    monkeypatch.setattr(retrieval_eval, "load_retrieval_corpus", lambda _path: object())
+    monkeypatch.setattr(
+        retrieval_eval, "run_retrieval_evaluation",
+        lambda _corpus: {
+            "summary": {"total": 1, "passed": 1, "failed": 0},
+            "candidate_starvation_diagnostic": {"passed": True},
+        },
+    )
+
+    assert retrieval_eval.main(["--corpus", str(CORPUS)]) == 0
+    output_line = next(
+        line for line in capsys.readouterr().out.splitlines() if line.startswith("report: ")
+    )
+    report = Path(output_line.removeprefix("report: "))
+    assert report.parent == tmp_path
+    assert json.loads(report.read_text(encoding="utf-8"))["summary"]["passed"] == 1
