@@ -572,6 +572,12 @@ def test_portable_import_round_trip_preserves_domain_and_search(
     url = _migrate(active)
     ids = _seed_operational_state(url)
     original = export_portable_inventory(url, exported)
+    exported_evidence = {
+        event["id"]: event["payload"]["_history_evidence"]
+        for event in original["history"]["events"]
+        if "_history_evidence" in event["payload"]
+    }
+    assert exported_evidence
 
     # An ambient active-DB override must not hijack Alembic during portable import.
     monkeypatch.setenv("AH_THERE_IT_IS_DATABASE_URL", url)
@@ -608,10 +614,17 @@ def test_portable_import_round_trip_preserves_domain_and_search(
             assert search.search_items("CH341A")[0].id == ids["ch341a"]
             assert search.search_items("BIOS")[0].id == ids["ch341a"]
 
-            event_ids = list(session.scalars(select(Event.id).order_by(Event.id)))
+            imported_events = list(session.scalars(select(Event).order_by(Event.id)))
+            event_ids = [event.id for event in imported_events]
             assert event_ids == [
                 event["id"] for event in original["history"]["events"]
             ]
+            imported_evidence = {
+                event.id: event.payload["_history_evidence"]
+                for event in imported_events
+                if "_history_evidence" in event.payload
+            }
+            assert imported_evidence == exported_evidence
             assert session.scalar(select(func.count(Conversation.id))) == 0
             assert session.scalar(select(func.count(ChatRequestRecord.id))) == 0
     finally:
@@ -619,6 +632,12 @@ def test_portable_import_round_trip_preserves_domain_and_search(
 
     reconstructed = export_portable_inventory(imported_url, reexported)
     assert _semantic_portable(reconstructed) == _semantic_portable(original)
+    reexported_evidence = {
+        event["id"]: event["payload"]["_history_evidence"]
+        for event in reconstructed["history"]["events"]
+        if "_history_evidence" in event["payload"]
+    }
+    assert reexported_evidence == exported_evidence
 
 
 def test_portable_import_refuses_existing_active_and_invalid_targets(

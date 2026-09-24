@@ -403,3 +403,10 @@ Assignment 0012 proposed a read-only browser Activity timeline. External archite
 - Machine-readable mechanics, physical integrity/FK/schema and application doctor outcomes distinguish invalid, wrong-revision and semantically unhealthy candidates. Exit status is successful only when all three pass; temporary replacement, sidecar and safety files are removed on all paths.
 - Healthy, corrupt, wrong-revision, doctor-unhealthy, WAL candidate, active-byte-preservation, cleanup and installed-wheel CLI tests passed.
 - Focused and canonical verification passed: 317 tests, 42/42 deterministic scenarios, migration/corpus/scenario/provider checks. Review: `agent-tasks/reviews/0018-r1.md`.
+
+### Post-Stage-25 hardening — Assignment 0019 complete
+
+- Newly-created Item Events store versioned `_history_evidence` snapshots for relevant Location and Category paths at the mutation boundary, while retaining stable foreign keys and existing payload fields.
+- Tree rename/reparent leaves prior snapshots unchanged; legacy Events without snapshots remain readable. Bootstrap Events use the same service behavior, and portable-v1 preserves the snapshot payload exactly.
+- No schema migration or backfill was added. Focused and canonical verification passed: 319 tests, 42/42 scenarios with 98 persisted-state checks, and 23 provider-contract tests.
+- Review: `agent-tasks/reviews/0019-r1.md`.
