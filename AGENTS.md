@@ -71,6 +71,10 @@ Remote Commander on U24 remains supported when explicitly selected.
 
 Windows Git Bash through Remote Commander is prepared but pending native validation.
 
+### Python verification policy
+
+Python 3.12 is the project CI/test compatibility target. Do not add Python 3.13 or later-version CI matrices, smoke jobs, or compatibility pilots unless an explicit future project decision changes this policy. The package metadata may remain forward-compatible; lack of a newer-version CI lane is intentional and is not a missing verification requirement.
+
 ## Default reading
 
 Read only:
@@ -91,7 +95,7 @@ Do not recursively read `agent-tasks/archive/`.
 
 ## Current status
 
-Product work through Stage 26 and assignments through 0034 are complete.
+Product work through Stage 26 and assignments through 0050 are complete.
 
 ## Next product gate
 
