@@ -50,11 +50,13 @@ def test_offline_report_gates_cases_but_reports_diagnostic_and_observations() ->
         "uk": {"total": 31, "passed": 31, "failed": 0},
     }
     diagnostic = report["candidate_starvation_diagnostic"]
-    assert diagnostic["gating"] is False
+    assert diagnostic["gating"] is True
     assert diagnostic["fixture_item_count"] == 36
-    assert diagnostic["fts_candidate_limit"] == 20
-    assert isinstance(diagnostic["target_fts_rank"], int)
-    assert isinstance(diagnostic["target_returned"], bool)
+    assert diagnostic["fts_candidate_limit"] == 100
+    assert diagnostic["target_fts_rank"] == 36
+    assert diagnostic["target_inside_bounded_fts_pool"] is True
+    assert diagnostic["target_returned"] is True
+    assert diagnostic["passed"] is True
     assert report["summary"]["failed"] == sum(
         not case["passed"] for case in report["cases"]
     )
@@ -74,6 +76,7 @@ def test_cli_writes_machine_readable_report_and_returns_gate_status(
     fake_report = {
         "report_version": "retrieval-evaluation-report-v1",
         "summary": {"total": 1, "passed": 1, "failed": 0},
+        "candidate_starvation_diagnostic": {"passed": True},
     }
     monkeypatch.setattr(retrieval_eval, "load_retrieval_corpus", lambda _path: object())
     monkeypatch.setattr(
@@ -89,3 +92,25 @@ def test_cli_writes_machine_readable_report_and_returns_gate_status(
     assert exit_code == 0
     assert json.loads(output.read_text(encoding="utf-8")) == fake_report
     assert '"failed": 0' in capsys.readouterr().out
+
+
+def test_cli_fails_when_gating_candidate_starvation_diagnostic_fails(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    fake_report = {
+        "summary": {"total": 86, "passed": 86, "failed": 0},
+        "candidate_starvation_diagnostic": {"passed": False},
+    }
+    monkeypatch.setattr(retrieval_eval, "load_retrieval_corpus", lambda _path: object())
+    monkeypatch.setattr(
+        retrieval_eval,
+        "run_retrieval_evaluation",
+        lambda _corpus: fake_report,
+    )
+
+    exit_code = retrieval_eval.main(
+        ["--corpus", str(CORPUS), "--output", str(tmp_path / "report.json")]
+    )
+
+    assert exit_code == 1

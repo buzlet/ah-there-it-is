@@ -88,6 +88,26 @@ def test_item_search_uses_attributes_description_tags_and_updates_fts(session: S
     assert search.search_items("nvidia") == []
 
 
+def test_fts_scan_overscans_small_limits_preserves_budget_and_caps(
+    session: Session, monkeypatch
+) -> None:
+    search = SearchService(session)
+    scanned_limits: list[int] = []
+    original = search._fts_item_ids
+
+    def record_limit(query: str, *, limit: int) -> list[tuple[int, float]]:
+        scanned_limits.append(limit)
+        return original(query, limit=limit)
+
+    monkeypatch.setattr(search, "_fts_item_ids", record_limit)
+
+    search.search_items("ordinary query", limit=5)
+    search.search_items("ordinary query", limit=100)
+    search.search_items("ordinary query", limit=126)
+
+    assert scanned_limits == [100, 400, 500]
+
+
 def test_two_token_fts_query_rejects_single_token_noise(session: Session) -> None:
     inventory = InventoryService(session)
     search = SearchService(session)

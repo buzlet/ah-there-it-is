@@ -32,6 +32,8 @@ class SearchService:
     EXACT_TAG = 825
     CONTAINS = 700
     FTS = 600
+    FTS_MIN_SCAN_ROWS = 100
+    FTS_MAX_SCAN_ROWS = 500
 
     def __init__(self, session: Session) -> None:
         self.session = session
@@ -44,8 +46,9 @@ class SearchService:
         identity = normalize_name(query)
         search_key = normalize_search_text(query)
         candidate_limit = max(limit * 4, 20)
+        fts_scan_limit = self._fts_scan_limit(candidate_limit)
 
-        fts_rows = self._fts_item_ids(query, limit=candidate_limit)
+        fts_rows = self._fts_item_ids(query, limit=fts_scan_limit)
         fts_by_id = dict(fts_rows)
         candidate_ids = {item_id for item_id, _ in fts_rows}
         candidate_ids.update(
@@ -269,6 +272,11 @@ class SearchService:
             {"identity": identity, "limit": limit},
         )
         return [int(row.item_id) for row in rows]
+
+    @classmethod
+    def _fts_scan_limit(cls, candidate_limit: int) -> int:
+        """Overscan FTS without exceeding the per-request row bound."""
+        return min(max(candidate_limit, cls.FTS_MIN_SCAN_ROWS), cls.FTS_MAX_SCAN_ROWS)
 
     def _fts_item_ids(self, query: str, *, limit: int) -> list[tuple[int, float]]:
         expression = self._fts_expression(query)
