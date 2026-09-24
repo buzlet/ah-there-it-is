@@ -845,15 +845,31 @@ def build_router(templates: Jinja2Templates) -> APIRouter:
         )
 
     @router.get("/evaluations", response_class=HTMLResponse)
-    def evaluations(request: Request, session: Session = Depends(get_session)) -> HTMLResponse:
+    def evaluations(
+        request: Request,
+        page: int = 1,
+        page_size: int = EvaluationService.DEFAULT_PAGE_SIZE,
+        session: Session = Depends(get_session),
+    ) -> HTMLResponse:
         service = EvaluationService(session)
+        try:
+            run_page = service.run_page(page=page, page_size=page_size)
+        except ValueError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+        def page_url(target_page: int) -> str:
+            return f"/evaluations?{urlencode({'page': target_page, 'page_size': run_page.page_size})}"
+
         return templates.TemplateResponse(
             request=request,
             name="evaluations.html",
             context={
                 "app_name": request.app.state.settings.app_name,
                 "summaries": service.summaries(),
-                "runs": service.recent_runs(limit=100),
+                "runs": run_page.runs,
+                "run_page": run_page,
+                "previous_url": page_url(run_page.page - 1),
+                "next_url": page_url(run_page.page + 1),
             },
         )
 

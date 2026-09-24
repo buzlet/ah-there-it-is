@@ -7,7 +7,7 @@ from ah_there_it_is.agent.experiments import ExperimentRunner
 from ah_there_it_is.app import create_app
 from ah_there_it_is.agent.runner import AgentRunner
 from ah_there_it_is.config import Settings
-from ah_there_it_is.db.models import Base
+from ah_there_it_is.db.models import AgentRunLog, Base
 from ah_there_it_is.db.search_schema import install_fts_schema
 from ah_there_it_is.db.session import create_db_engine, create_session_factory
 from ah_there_it_is.services.catalog import CatalogService
@@ -524,6 +524,43 @@ def test_evaluation_pages_show_variant_summary_and_trace() -> None:
         assert detail.status_code == 200
         assert "Tool trace" in detail.text
         assert "search_items" in detail.text
+        assert "Page 1" in summary.text
+    finally:
+        engine.dispose()
+
+
+def test_evaluation_page_navigation_and_validation() -> None:
+    app, factory, engine = build_test_app()
+    try:
+        with factory() as session:
+            conversation_id = ConversationService(session).create().id
+            session.add_all(
+                AgentRunLog(
+                    conversation_id=conversation_id,
+                    prompt_version="page-v1",
+                    prompt_hash="b" * 64,
+                    system_prompt="page",
+                    llm_provider="test",
+                    llm_model="page",
+                    llm_config={},
+                    input_messages=[],
+                    tool_trace=[],
+                    mutation_receipts=[],
+                    final_content=f"response-{index}",
+                    rounds=1,
+                    status="completed",
+                )
+                for index in range(55)
+            )
+            session.commit()
+        with TestClient(app) as client:
+            first = client.get("/evaluations?page=1&page_size=50")
+            second = client.get("/evaluations?page=2&page_size=50")
+            invalid = client.get("/evaluations?page_size=101")
+        assert first.status_code == 200 and "Next" in first.text
+        assert second.status_code == 200 and "Previous" in second.text
+        assert "response-0" in second.text
+        assert invalid.status_code == 400
     finally:
         engine.dispose()
 

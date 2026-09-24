@@ -13,4 +13,9 @@
 <thead><tr><th>Run</th><th>Status</th><th>Prompt</th><th>Model</th><th>Rounds</th><th>Rating</th><th>Response</th></tr></thead>
 <tbody>{% for run in runs %}<tr><td><a href="/evaluations/{{ run.id }}">#{{ run.id }}</a></td><td>{{ run.status }}</td><td>{{ run.prompt_version }} <code>{{ run.prompt_hash[:8] }}</code></td><td>{{ run.llm_provider }}/{{ run.llm_model }}</td><td>{{ run.rounds }}</td><td>{{ run.feedback.rating if run.feedback else "—" }}</td><td class="truncate">{{ run.final_content or run.error or "—" }}</td></tr>{% endfor %}</tbody>
 </table></div>{% endif %}
+<nav class="pagination" aria-label="Evaluation run pages">
+{% if run_page.has_previous %}<a href="{{ previous_url }}">Previous</a>{% endif %}
+<span>Page {{ run_page.page }} · {{ run_page.total }} runs</span>
+{% if run_page.has_next %}<a href="{{ next_url }}">Next</a>{% endif %}
+</nav>
 {% endblock %}

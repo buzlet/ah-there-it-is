@@ -3,10 +3,13 @@ from __future__ import annotations
 import hashlib
 
 import pytest
+from sqlalchemy import event
 from sqlalchemy.orm import Session
 
 from ah_there_it_is.agent import AgentRunner, LLMResponse, ScriptedLLMClient, ToolCall
 from ah_there_it_is.agent.errors import AgentLoopLimitError
+from ah_there_it_is.db.models import AgentFeedback, AgentRunLog
+from ah_there_it_is.services.conversations import ConversationService
 from ah_there_it_is.services.evaluation import EvaluationService
 
 
@@ -58,6 +61,69 @@ def test_feedback_is_upserted_and_summarized_by_exact_variant(session: Session) 
     assert summaries[0].runs == 1
     assert summaries[0].rated_runs == 1
     assert summaries[0].average_rating == 5.0
+
+
+def test_evaluation_run_pages_and_sql_summaries_are_bounded(session: Session) -> None:
+    conversation_id = ConversationService(session).create().id
+    runs = [
+        AgentRunLog(
+            conversation_id=conversation_id,
+            prompt_version="bulk-v1",
+            prompt_hash="a" * 64,
+            system_prompt="bulk",
+            llm_provider="test",
+            llm_model="bulk",
+            llm_config=(
+                {"temperature": 0, "nested": {"x": 1}}
+                if index % 2
+                else {"nested": {"x": 1}, "temperature": 0}
+            ),
+            input_messages=[{"heavy": "x" * 100}],
+            tool_trace=[{"heavy": "y" * 100}],
+            mutation_receipts=[],
+            final_content="done",
+            rounds=1,
+            status="completed",
+        )
+        for index in range(125)
+    ]
+    session.add_all(runs)
+    session.flush()
+    session.add_all(
+        AgentFeedback(run=run, rating=(index % 5) + 1)
+        for index, run in enumerate(runs[:100])
+    )
+    session.commit()
+    session.expunge_all()
+
+    service = EvaluationService(session)
+    first = service.run_page(page=1)
+    third = service.run_page(page=3)
+    assert len(first.runs) == 50 and first.total == 125
+    assert first.has_previous is False and first.has_next is True
+    assert len(third.runs) == 25 and third.has_previous is True
+    assert third.has_next is False
+    assert first.runs[0].id > first.runs[-1].id > third.runs[-1].id
+
+    session.expunge_all()
+    loaded_runs: list[AgentRunLog] = []
+    event.listen(
+        session,
+        "loaded_as_persistent",
+        lambda _session, instance: loaded_runs.append(instance)
+        if isinstance(instance, AgentRunLog)
+        else None,
+    )
+    summaries = service.summaries()
+    assert loaded_runs == []
+    assert len(summaries) == 1
+    assert summaries[0].runs == 125
+    assert summaries[0].rated_runs == 100
+    assert summaries[0].average_rating == 3.0
+
+    for page, page_size in ((0, 50), (1, 0), (1, 101)):
+        with pytest.raises(ValueError):
+            service.run_page(page=page, page_size=page_size)
 
 
 def test_evaluation_summary_separates_provider_configs(session: Session) -> None:
@@ -305,7 +371,7 @@ def test_failed_agent_turn_keeps_diagnostics_but_no_conversation_message(
         AgentRunner(session, llm, max_rounds=1).run("Найди nothing")
 
     run = EvaluationService(session).recent_runs()[0]
-    messages = ConversationService(session).list_messages(run.conversation_id)
+    messages = ConversationService(session).message_window(run.conversation_id).messages
     assert messages == []
     assert run.user_message_id is None
     assert run.assistant_message_id is None
