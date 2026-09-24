@@ -42,6 +42,34 @@ def test_serve_parser_accepts_explicit_host_and_port() -> None:
     assert args.port == 8123
 
 
+def test_serve_parser_accepts_nonlocal_opt_in() -> None:
+    args = build_parser().parse_args(["serve", "--allow-nonlocal"])
+
+    assert args.allow_nonlocal is True
+
+
+@pytest.mark.parametrize(
+    ("host", "expected"),
+    [
+        ("127.0.0.1", True),
+        ("127.255.12.34", True),
+        ("::1", True),
+        ("localhost", True),
+        ("LOCALHOST", True),
+        ("0.0.0.0", False),
+        ("::", False),
+        ("192.168.1.50", False),
+        ("8.8.8.8", False),
+        ("2001:4860:4860::8888", False),
+        ("inventory.local", False),
+    ],
+)
+def test_serve_loopback_host_classification(host: str, expected: bool) -> None:
+    from ah_there_it_is.runtime_cli import _is_loopback_host
+
+    assert _is_loopback_host(host) is expected
+
+
 @pytest.mark.parametrize(
     "argv",
     [
@@ -146,6 +174,103 @@ def test_serve_runs_uvicorn_factory_only_after_schema_gate(
             },
         )
     ]
+
+
+def test_serve_rejects_nonlocal_before_schema_gate_and_uvicorn(
+    monkeypatch,
+    capsys,
+) -> None:
+    from ah_there_it_is import runtime_cli
+
+    monkeypatch.setattr(
+        runtime_cli,
+        "get_settings",
+        lambda: Settings(database_url="sqlite:///unused.db"),
+    )
+    monkeypatch.setattr(
+        runtime_cli,
+        "runtime_schema_gate",
+        lambda _url: pytest.fail("schema gate must follow the nonlocal guard"),
+    )
+    calls: list[tuple[tuple[object, ...], dict[str, object]]] = []
+    monkeypatch.setattr(
+        runtime_cli.uvicorn,
+        "run",
+        lambda *args, **kwargs: calls.append((args, kwargs)),
+    )
+
+    assert main(["serve", "--host", "0.0.0.0"]) == 2
+    error = capsys.readouterr().err
+    assert "non-loopback" in error
+    assert "--allow-nonlocal" in error
+    assert "no authentication" in error
+    assert calls == []
+
+
+def test_serve_nonlocal_opt_in_warns_and_passes_requested_host(
+    tmp_path: Path,
+    monkeypatch,
+    capsys,
+) -> None:
+    from ah_there_it_is import runtime_cli
+
+    database = tmp_path / "serve.db"
+    url = _migrate(database)
+    calls: list[tuple[tuple[object, ...], dict[str, object]]] = []
+    monkeypatch.setattr(runtime_cli, "get_settings", lambda: Settings(database_url=url))
+    monkeypatch.setattr(
+        runtime_cli.uvicorn,
+        "run",
+        lambda *args, **kwargs: calls.append((args, kwargs)),
+    )
+
+    assert main(
+        [
+            "serve",
+            "--host",
+            "192.168.1.50",
+            "--port",
+            "8124",
+            "--allow-nonlocal",
+        ]
+    ) == 0
+    warning = capsys.readouterr().err
+    assert "warning:" in warning
+    assert "no authentication" in warning
+    assert "exposed beyond loopback" in warning
+    assert calls == [
+        (
+            ("ah_there_it_is.app:create_app",),
+            {
+                "factory": True,
+                "host": "192.168.1.50",
+                "port": 8124,
+                "reload": False,
+            },
+        )
+    ]
+
+
+def test_serve_nonlocal_opt_in_is_harmless_for_loopback(
+    tmp_path: Path,
+    monkeypatch,
+    capsys,
+) -> None:
+    from ah_there_it_is import runtime_cli
+
+    database = tmp_path / "serve.db"
+    url = _migrate(database)
+    calls: list[tuple[tuple[object, ...], dict[str, object]]] = []
+    monkeypatch.setattr(runtime_cli, "get_settings", lambda: Settings(database_url=url))
+    monkeypatch.setattr(
+        runtime_cli.uvicorn,
+        "run",
+        lambda *args, **kwargs: calls.append((args, kwargs)),
+    )
+
+    assert main(["serve", "--host", "LOCALHOST", "--allow-nonlocal"]) == 0
+    assert capsys.readouterr().err == ""
+    assert calls[0][1]["host"] == "LOCALHOST"
 
 
 def test_serve_missing_database_returns_error_before_uvicorn(
