@@ -1874,7 +1874,7 @@
           ]
         },
         {
-          "final": "Текущее место CH341A теперь неизвестно."
+          "final": "Предмет отмечен как взятый из хранения и сейчас используется."
         },
         {
           "expect_tools": [
@@ -1910,19 +1910,11 @@
           "expect_results": [
             {
               "tool_name": "suggest_item_locations",
-              "path": "result.suggestions.0.location_path",
-              "equals": "Квартира / Кабинет / Стол / Правый ящик"
-            },
-            {
-              "tool_name": "suggest_item_locations",
-              "path": "result.suggestions.0.evidence.reasons",
-              "equals": [
-                "last_known",
-                "same_category"
-              ]
+              "path": "result.suggestions",
+              "equals": []
             }
           ],
-          "final": "Текущее место неизвестно. Правый ящик — только предположение по истории и связанному предмету."
+          "final": "Предположения о месте хранения не показываю, пока предмет отмечен как используемый."
         }
       ]
     },
@@ -1961,7 +1953,7 @@
           ]
         },
         {
-          "final": "Текущее место DT-830B теперь неизвестно."
+          "final": "Предмет отмечен как взятый из хранения и сейчас используется."
         },
         {
           "expect_tools": [
@@ -1997,31 +1989,11 @@
           "expect_results": [
             {
               "tool_name": "suggest_item_locations",
-              "path": "result.suggestions.0.location_path",
-              "equals": "Квартира / Балкон / Шкаф"
-            },
-            {
-              "tool_name": "suggest_item_locations",
-              "path": "result.suggestions.0.evidence.reasons",
-              "equals": [
-                "last_known"
-              ]
-            },
-            {
-              "tool_name": "suggest_item_locations",
-              "path": "result.suggestions.1.location_path",
-              "equals": "Квартира / Кабинет / Шкаф"
-            },
-            {
-              "tool_name": "suggest_item_locations",
-              "path": "result.suggestions.1.evidence.reasons",
-              "equals": [
-                "same_category",
-                "shared_tag"
-              ]
+              "path": "result.suggestions",
+              "equals": []
             }
           ],
-          "final": "Текущее место неизвестно. Сначала показано последнее известное место, затем предположение по связанному мультиметру."
+          "final": "Предположения о месте хранения не показываю, пока предмет отмечен как используемый."
         }
       ]
     }

@@ -530,7 +530,12 @@ def build_router(templates: Jinja2Templates) -> APIRouter:
             if patch:
                 inventory.update_item(item_id, **patch, original_text="[manual web edit]")
             if location_provided:
-                inventory.move_item(item_id, location_id, original_text="[manual web edit]")
+                if location_id is None:
+                    current = inventory.get_item(item_id)
+                    if current.current_location_id is not None:
+                        inventory.take_item(item_id, original_text="[manual web edit]")
+                else:
+                    inventory.move_item(item_id, location_id, original_text="[manual web edit]")
             return inventory.get_item(item_id)
 
         item = _manual_mutation(session, action)

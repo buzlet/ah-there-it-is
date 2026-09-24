@@ -813,10 +813,10 @@
       "id": "suggest-01",
       "group": "suggestion",
       "turns": [
-        "Взял CH341A из ящика, сейчас точное место неизвестно.",
+        "Взял CH341A из ящика и сейчас использую.",
         "Где он, возможно, лежит?"
       ],
-      "focus": "Unknown current location remains unknown while last-known and related-item evidence are returned only as suggestions.",
+      "focus": "An item explicitly taken from storage is in use; ordinary current-storage suggestions are suppressed.",
       "checks": [
         {
           "kind": "item_location_none",
@@ -838,10 +838,10 @@
       "id": "suggest-02",
       "group": "suggestion",
       "turns": [
-        "Взял DT-830B из шкафа, точное место теперь неизвестно.",
+        "Взял DT-830B из шкафа для проверки.",
         "Где он может быть? Покажи только предположения."
       ],
-      "focus": "Last-known evidence ranks before related-item evidence; category and shared-tag support stay explicit.",
+      "focus": "An item explicitly taken from storage is in use; ordinary current-storage suggestions are suppressed.",
       "checks": [
         {
           "kind": "item_location_none",

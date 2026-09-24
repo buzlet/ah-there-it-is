@@ -89,7 +89,7 @@ def test_shared_oracle_checks_taken_location_and_category_none(session) -> None:
     inventory = InventoryService(session)
     before = event_count(session)
 
-    inventory.move_item(ids.items["dt830b"], None, original_text="take")
+    inventory.take_item(ids.items["dt830b"], original_text="take")
     loose = inventory.create_item("Loose adapter", original_text="create")
 
     taken = evaluate_expected_check(

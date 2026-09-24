@@ -12,7 +12,9 @@ class MutationReceipt(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True)
 
     operation: Literal[
-        "create_item", "create_location", "create_category", "update_item", "move_item"
+        "create_item", "create_location", "create_category", "update_item", "move_item",
+        "take_item", "mark_item_location_unknown", "discard_item", "mark_item_sold",
+        "reactivate_item",
     ]
     entity_type: Literal["item", "location", "category"]
     entity_id: int = Field(gt=0)

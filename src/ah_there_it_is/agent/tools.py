@@ -89,9 +89,15 @@ class _ToolSpec:
 class ToolDispatcher:
     """Validate and execute the only operations an LLM can perform."""
 
-    MUTATION_TOOLS = frozenset({
-        "create_item", "create_location", "create_category", "update_item", "move_item"
+    ITEM_MUTATION_TOOLS = frozenset({
+        "create_item", "update_item", "move_item", "take_item",
+        "mark_item_location_unknown", "discard_item", "mark_item_sold", "reactivate_item",
     })
+    LOCATION_MUTATION_TOOLS = frozenset({
+        "move_item", "take_item", "mark_item_location_unknown", "discard_item",
+        "mark_item_sold", "reactivate_item",
+    })
+    MUTATION_TOOLS = ITEM_MUTATION_TOOLS | frozenset({"create_location", "create_category"})
 
     def __init__(
         self,
@@ -176,9 +182,8 @@ class ToolDispatcher:
 
         if self.state.resolved["item"]:
             names.update({"suggest_item_locations", "update_item"})
-            # A move to a named location is useful only after the location is
-            # resolved. With no location search yet, keep move_item available
-            # so location_id=null can still represent "take/remove from storage".
+            # Preserve the v1 nullable argument adapter until the explicit
+            # take_item tool is introduced; null only takes a located item.
             if not self.state.searches["location"] or self.state.resolved["location"]:
                 names.add("move_item")
         return names
@@ -220,7 +225,7 @@ class ToolDispatcher:
             return self._error(type(exc).__name__, str(exc))
 
     def _mutation_before(self, name: str, parsed: BaseModel) -> dict[str, Any]:
-        if name not in {"update_item", "move_item"}:
+        if name not in self.ITEM_MUTATION_TOOLS or name == "create_item":
             return {}
         item_id = parsed.item_id  # type: ignore[attr-defined]
         item = self.inventory.session.get(Item, item_id)
@@ -237,7 +242,7 @@ class ToolDispatcher:
         self, name: str, parsed: BaseModel, result: dict[str, Any],
         before: dict[str, Any] | None,
     ) -> MutationReceipt:
-        entity_type = "item" if name.endswith("item") else name.removeprefix("create_")
+        entity_type = "item" if name in self.ITEM_MUTATION_TOOLS else name.removeprefix("create_")
         entity_id = result["id"]
         before = before or {}
         event_ids: tuple[int, ...] = ()
@@ -250,7 +255,7 @@ class ToolDispatcher:
                     Event.id > before.get("last_event_id", 0),
                 ).order_by(Event.id)
             ))
-            if name == "move_item":
+            if name in self.LOCATION_MUTATION_TOOLS:
                 before_ids = {"location_id": before["location_id"]}
                 after_ids = {"location_id": result["location_id"]}
             elif name == "update_item" and "category_id" in parsed.model_fields_set:
@@ -263,7 +268,7 @@ class ToolDispatcher:
                 }
         elif name in {"create_location", "create_category"}:
             after_ids = {"parent_id": result["parent_id"]}
-        changed = bool(event_ids) if name in {"update_item", "move_item"} else True
+        changed = bool(event_ids) if name in self.ITEM_MUTATION_TOOLS - {"create_item"} else True
         return MutationReceipt(
             operation=name,
             entity_type=entity_type,
@@ -514,12 +519,19 @@ class ToolDispatcher:
         references = [("item", args.item_id)]
         if args.location_id is not None:
             references.append(("location", args.location_id))
-        item = self._validated_write(
-            references,
-            lambda: self.inventory.move_item(
+        def apply_legacy_move() -> Item:
+            if args.location_id is None:
+                current = self.inventory.get_item(args.item_id)
+                if current.current_location_id is None:
+                    return current
+                return self.inventory.take_item(
+                    args.item_id, original_text=self.original_text
+                )
+            return self.inventory.move_item(
                 args.item_id, args.location_id, original_text=self.original_text
-            ),
-        )
+            )
+
+        item = self._validated_write(references, apply_legacy_move)
         return self._item_dict(item)
 
     def _require_seen(self, entity_type: str, entity_id: int) -> None:

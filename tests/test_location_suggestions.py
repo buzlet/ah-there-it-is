@@ -22,22 +22,16 @@ def test_known_current_location_returns_no_suggestions(session: Session) -> None
 
     assert LocationSuggestionService(session).suggest_item_locations(item.id) == []
 
-def test_last_known_uses_item_taken_from_location(session: Session) -> None:
+def test_in_use_item_suppresses_last_known_suggestions(session: Session) -> None:
     inventory = InventoryService(session)
     room = inventory.create_location("Комната")
     drawer = inventory.create_location("Ящик", parent_id=room.id)
     item = inventory.create_item("Meter", location_id=drawer.id)
-    inventory.move_item(item.id, None)
+    inventory.take_item(item.id)
 
     suggestions = LocationSuggestionService(session).suggest_item_locations(item.id)
 
-    assert len(suggestions) == 1
-    suggestion = suggestions[0]
-    assert suggestion.location_id == drawer.id
-    assert suggestion.location_path == "Комната / Ящик"
-    assert suggestion.evidence.reasons == ("last_known",)
-    assert suggestion.evidence.last_known_event_type == "item_taken"
-    assert suggestion.evidence.last_known_event_id is not None
+    assert suggestions == []
 
 def test_related_same_category_evidence(session: Session) -> None:
     inventory = InventoryService(session)
@@ -92,7 +86,7 @@ def test_combines_last_known_category_and_tag_at_same_location(session: Session)
         location_id=location.id,
         tags=["measurement"],
     )
-    inventory.move_item(target.id, None)
+    inventory.mark_item_location_unknown(target.id)
 
     suggestions = LocationSuggestionService(session).suggest_item_locations(target.id)
 
@@ -176,7 +170,7 @@ def test_last_known_always_ranks_before_more_related_support(session: Session) -
             category_id=category.id,
             location_id=related_location.id,
         )
-    inventory.move_item(target.id, None)
+    inventory.mark_item_location_unknown(target.id)
 
     suggestions = LocationSuggestionService(session).suggest_item_locations(target.id)
 
@@ -213,3 +207,34 @@ def test_last_known_skips_unusable_events_and_prefers_to_location(
     assert suggestion.evidence.reasons == ("last_known",)
     assert suggestion.evidence.last_known_event_id == movement.id
     assert suggestion.evidence.last_known_event_type == "item_moved"
+
+
+def test_suggestions_are_eligible_only_for_unknown_location_truth(session: Session) -> None:
+    inventory = InventoryService(session)
+    location = inventory.create_location("Bench")
+    related = inventory.create_item("Related meter", location_id=location.id)
+    in_use = inventory.create_item("In use meter", location_id=location.id)
+    terminal = inventory.create_item("Discarded meter", state="discarded")
+
+    inventory.take_item(in_use.id)
+    inventory.discard_item(terminal.id)
+    suggestions = LocationSuggestionService(session)
+
+    assert suggestions.suggest_item_locations(related.id) == []
+    assert suggestions.suggest_item_locations(in_use.id) == []
+    assert suggestions.suggest_item_locations(terminal.id) == []
+
+
+def test_unknown_status_suggestions_can_use_unknown_transition_history(
+    session: Session,
+) -> None:
+    inventory = InventoryService(session)
+    location = inventory.create_location("Drawer")
+    item = inventory.create_item("Moved meter", location_id=location.id)
+    inventory.mark_item_location_unknown(item.id)
+
+    result = LocationSuggestionService(session).suggest_item_locations(item.id)
+
+    assert len(result) == 1
+    assert result[0].location_id == location.id
+    assert result[0].evidence.last_known_event_type == "item_location_unknown"

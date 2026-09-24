@@ -274,9 +274,11 @@ class InventoryService:
         target_state = self._coerce_state(state) if state is not None else item.state
         terminal_states = {ItemState.DISCARDED.value, ItemState.SOLD.value}
         if item.state in terminal_states and target_state != item.state:
-            raise ValueError("terminal state changes are not supported yet")
+            raise ValueError("terminal state changes require explicit reactivation")
         if target_state == ItemState.SOLD.value and target_state != item.state:
-            raise ValueError("sold transitions are not supported yet")
+            raise ValueError("sold transitions must use mark_item_sold")
+        if target_state == ItemState.DISCARDED.value and target_state != item.state:
+            raise ValueError("discard transitions must use discard_item")
         if quantity is not None and quantity < 1:
             raise ValueError("quantity must be >= 1")
         if not allow_duplicate and (
@@ -362,40 +364,198 @@ class InventoryService:
     def move_item(
         self,
         item_id: int,
-        location_id: int | None,
+        location_id: int,
         *,
         original_text: str | None = None,
     ) -> Item:
+        if location_id is None:
+            raise ValueError("move_item requires a Location; use take_item to mark in-use")
         item = self.get_item(item_id)
-        destination = self._get_optional(Location, location_id, "location")
-        if item.current_location_id == location_id:
-            return item
         if item.state in {ItemState.DISCARDED.value, ItemState.SOLD.value}:
             raise ValueError("terminal items cannot be moved")
+        destination = self._get_optional(Location, location_id, "location")
+        if item.current_location_id == destination.id:
+            return item
 
         old_location = item.current_location
-        history_evidence = self._history_evidence(
-            from_location_path=self._history_path(old_location, "location_id"),
-            to_location_path=self._history_path(destination, "location_id"),
+        old_status = item.location_status
+        item.current_location = destination
+        item.location_status = LocationStatus.KNOWN.value
+        self._record_location_transition(
+            item,
+            event_type="item_moved",
+            from_location=old_location,
+            to_location=destination,
+            from_status=old_status,
+            to_status=LocationStatus.KNOWN.value,
+            original_text=original_text,
         )
+        self._commit(item)
+        return item
+
+    def take_item(self, item_id: int, *, original_text: str | None = None) -> Item:
+        item = self.get_item(item_id)
+        self._ensure_nonterminal(item, "take")
+        if item.location_status == LocationStatus.IN_USE.value:
+            return item
+
+        old_location = item.current_location
+        old_status = item.location_status
+        item.current_location = None
+        item.location_status = LocationStatus.IN_USE.value
+        self._record_location_transition(
+            item,
+            event_type="item_taken",
+            from_location=old_location,
+            to_location=None,
+            from_status=old_status,
+            to_status=LocationStatus.IN_USE.value,
+            original_text=original_text,
+        )
+        self._commit(item)
+        return item
+
+    def mark_item_location_unknown(
+        self, item_id: int, *, original_text: str | None = None
+    ) -> Item:
+        item = self.get_item(item_id)
+        self._ensure_nonterminal(item, "change location")
+        if item.location_status == LocationStatus.UNKNOWN.value:
+            return item
+
+        old_location = item.current_location
+        old_status = item.location_status
+        item.current_location = None
+        item.location_status = LocationStatus.UNKNOWN.value
+        self._record_location_transition(
+            item,
+            event_type="item_location_unknown",
+            from_location=old_location,
+            to_location=None,
+            from_status=old_status,
+            to_status=LocationStatus.UNKNOWN.value,
+            original_text=original_text,
+        )
+        self._commit(item)
+        return item
+
+    def discard_item(self, item_id: int, *, original_text: str | None = None) -> Item:
+        return self._mark_terminal(
+            item_id, ItemState.DISCARDED, "item_discarded", original_text=original_text
+        )
+
+    def mark_item_sold(self, item_id: int, *, original_text: str | None = None) -> Item:
+        return self._mark_terminal(
+            item_id, ItemState.SOLD, "item_sold", original_text=original_text
+        )
+
+    def _mark_terminal(
+        self,
+        item_id: int,
+        target_state: ItemState,
+        event_type: str,
+        *,
+        original_text: str | None,
+    ) -> Item:
+        item = self.get_item(item_id)
+        terminal_states = {ItemState.DISCARDED.value, ItemState.SOLD.value}
+        if item.state in terminal_states:
+            if item.state == target_state.value:
+                return item
+            raise ValueError("terminal items must be reactivated before another terminal transition")
+
+        old_location = item.current_location
+        old_state = item.state
+        old_status = item.location_status
+        item.state = target_state.value
+        item.current_location = None
+        item.location_status = LocationStatus.NOT_APPLICABLE.value
+        self._record_location_transition(
+            item,
+            event_type=event_type,
+            from_location=old_location,
+            to_location=None,
+            from_status=old_status,
+            to_status=LocationStatus.NOT_APPLICABLE.value,
+            state_change={"from": old_state, "to": target_state.value},
+            original_text=original_text,
+        )
+        self._commit(item)
+        return item
+
+    def reactivate_item(
+        self,
+        item_id: int,
+        *,
+        state: ItemState | str,
+        location_id: int | None,
+        original_text: str | None = None,
+    ) -> Item:
+        item = self.get_item(item_id)
+        if item.state not in {ItemState.DISCARDED.value, ItemState.SOLD.value}:
+            raise ValueError("only sold or discarded items can be reactivated")
+        target_state = self._coerce_state(state)
+        if target_state in {ItemState.DISCARDED.value, ItemState.SOLD.value}:
+            raise ValueError("reactivation requires a non-terminal target state")
+        destination = self._get_optional(Location, location_id, "location")
+
+        old_state = item.state
+        old_status = item.location_status
+        item.state = target_state
         item.current_location = destination
         item.location_status = (
             LocationStatus.KNOWN.value
             if destination is not None
-            else LocationStatus.IN_USE.value
+            else LocationStatus.UNKNOWN.value
         )
-        self.session.add(
-            Event(
-                event_type="item_moved" if destination is not None else "item_taken",
-                item=item,
-                from_location=old_location,
-                to_location=destination,
-                payload={"_history_evidence": history_evidence},
-                original_text=original_text,
-            )
+        self._record_location_transition(
+            item,
+            event_type="item_reactivated",
+            from_location=None,
+            to_location=destination,
+            from_status=old_status,
+            to_status=item.location_status,
+            state_change={"from": old_state, "to": target_state},
+            original_text=original_text,
         )
         self._commit(item)
         return item
+
+    def _ensure_nonterminal(self, item: Item, operation: str) -> None:
+        if item.state in {ItemState.DISCARDED.value, ItemState.SOLD.value}:
+            raise ValueError(f"terminal items cannot {operation}; reactivate first")
+
+    def _record_location_transition(
+        self,
+        item: Item,
+        *,
+        event_type: str,
+        from_location: Location | None,
+        to_location: Location | None,
+        from_status: str,
+        to_status: str,
+        original_text: str | None,
+        state_change: dict[str, str] | None = None,
+    ) -> None:
+        payload: dict[str, Any] = {
+            "_history_evidence": self._history_evidence(
+                from_location_path=self._history_path(from_location, "location_id"),
+                to_location_path=self._history_path(to_location, "location_id"),
+            ),
+        }
+        if state_change is not None:
+            payload["state"] = state_change
+            payload["location_status"] = {"from": from_status, "to": to_status}
+        self.session.add(
+            Event(
+                event_type=event_type,
+                item=item,
+                from_location=from_location,
+                to_location=to_location,
+                payload=payload,
+                original_text=original_text,
+            )
+        )
 
     @staticmethod
     def _history_path(

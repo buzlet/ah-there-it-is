@@ -44,3 +44,15 @@ The approved location-truth storage and format slice is implemented:
 - Database doctor checks location truth.
 
 Assignment 0025 did not change the closed Stage 26 product decisions and did not add take/unknown/sold/reactivation operations, agent tools, browser behavior, or suggestion policy.
+
+## Assignment 0026 delivery status
+
+The domain-transition and suggestion-eligibility slice is implemented:
+
+- `move_item` now requires a known Location; `take_item` and `mark_item_location_unknown` set distinct location truth and Events.
+- Explicit discard, sold, and reactivation operations update Item state, current Location, and `location_status` atomically, with one Event and path snapshots where applicable.
+- Generic `update_item` cannot enter or leave terminal states; truthful no-op transitions create no Event and remain unchanged in mutation receipts.
+- Location suggestions are available only for `unknown`; `known`, `in_use`, and `not_applicable` follow their approved eligibility rules.
+- The delivered slice adds domain and receipt support without adding agent tool schemas or browser UX.
+
+The broader Stage 26 remains in progress.

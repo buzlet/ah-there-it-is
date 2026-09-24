@@ -3,12 +3,15 @@
 
 from __future__ import annotations
 
+from types import SimpleNamespace
+
 import pytest
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
 from ah_there_it_is.agent import AgentRunner, LLMResponse, ScriptedLLMClient, ToolCall
 from ah_there_it_is.agent.errors import AgentTurnFailedError
+from ah_there_it_is.agent.tools import ToolDispatcher
 from ah_there_it_is.db.models import Event
 from ah_there_it_is.services.chat_requests import ChatRequestService
 from ah_there_it_is.services.conversations import ConversationService
@@ -116,6 +119,99 @@ def test_noop_update_and_move_have_false_receipts_without_events(session: Sessio
     assert result.receipts[1].after_ids == {"location_id": desk.id}
     assert events(session) == before
     assert EvaluationService(session).get_run(result.run_id).mutation_receipts[0]["changed"] is False
+
+
+
+def test_explicit_take_transition_receipts_track_event_and_noop(session: Session) -> None:
+    inventory = InventoryService(session)
+    desk = inventory.create_location("Desk")
+    item = inventory.create_item("Meter", location_id=desk.id)
+    dispatcher = ToolDispatcher(session, autocommit=False)
+    args = SimpleNamespace(item_id=item.id)
+
+    before = dispatcher._mutation_before("take_item", args)
+    taken = dispatcher.inventory.take_item(item.id)
+    receipt = dispatcher._mutation_receipt(
+        "take_item", args, dispatcher._item_dict(taken), before
+    )
+    assert receipt.operation == "take_item"
+    assert receipt.changed is True
+    assert receipt.before_ids == {"location_id": desk.id}
+    assert receipt.after_ids == {"location_id": None}
+    assert len(receipt.event_ids) == 1
+
+    before_noop = dispatcher._mutation_before("take_item", args)
+    already_taken = dispatcher.inventory.take_item(item.id)
+    noop_receipt = dispatcher._mutation_receipt(
+        "take_item", args, dispatcher._item_dict(already_taken), before_noop
+    )
+    assert noop_receipt.changed is False
+    assert noop_receipt.event_ids == ()
+    assert noop_receipt.before_ids == {"location_id": None}
+    assert noop_receipt.after_ids == {"location_id": None}
+
+
+
+def test_all_explicit_transition_operations_have_location_receipts(session: Session) -> None:
+    inventory = InventoryService(session)
+    desk = inventory.create_location("Desk")
+    item = inventory.create_item("Meter", location_id=desk.id)
+    dispatcher = ToolDispatcher(session, autocommit=False)
+    args = SimpleNamespace(item_id=item.id)
+
+    def apply(operation: str, mutate):
+        before = dispatcher._mutation_before(operation, args)
+        changed_item = mutate()
+        return dispatcher._mutation_receipt(
+            operation, args, dispatcher._item_dict(changed_item), before
+        )
+
+    taken = apply("take_item", lambda: dispatcher.inventory.take_item(item.id))
+    assert taken.changed is True and taken.event_ids
+    assert taken.before_ids == {"location_id": desk.id}
+    assert taken.after_ids == {"location_id": None}
+
+    unknown = apply(
+        "mark_item_location_unknown",
+        lambda: dispatcher.inventory.mark_item_location_unknown(item.id),
+    )
+    assert unknown.changed is True and unknown.event_ids
+    assert unknown.before_ids == {"location_id": None}
+    assert unknown.after_ids == {"location_id": None}
+
+    discarded = apply("discard_item", lambda: dispatcher.inventory.discard_item(item.id))
+    assert discarded.changed is True and discarded.event_ids
+    assert discarded.before_ids == {"location_id": None}
+    assert discarded.after_ids == {"location_id": None}
+    discard_noop = apply("discard_item", lambda: dispatcher.inventory.discard_item(item.id))
+    assert discard_noop.changed is False and discard_noop.event_ids == ()
+
+    reactivated_unknown = apply(
+        "reactivate_item",
+        lambda: dispatcher.inventory.reactivate_item(
+            item.id, state="used", location_id=None
+        ),
+    )
+    assert reactivated_unknown.changed is True and reactivated_unknown.event_ids
+    assert reactivated_unknown.before_ids == {"location_id": None}
+    assert reactivated_unknown.after_ids == {"location_id": None}
+
+    sold = apply("mark_item_sold", lambda: dispatcher.inventory.mark_item_sold(item.id))
+    assert sold.changed is True and sold.event_ids
+    assert sold.before_ids == {"location_id": None}
+    assert sold.after_ids == {"location_id": None}
+    sold_noop = apply("mark_item_sold", lambda: dispatcher.inventory.mark_item_sold(item.id))
+    assert sold_noop.changed is False and sold_noop.event_ids == ()
+
+    reactivated_known = apply(
+        "reactivate_item",
+        lambda: dispatcher.inventory.reactivate_item(
+            item.id, state="working", location_id=desk.id
+        ),
+    )
+    assert reactivated_known.changed is True and reactivated_known.event_ids
+    assert reactivated_known.before_ids == {"location_id": None}
+    assert reactivated_known.after_ids == {"location_id": desk.id}
 
 
 def test_failed_turn_is_absent_from_later_conversation_context(session: Session) -> None:
