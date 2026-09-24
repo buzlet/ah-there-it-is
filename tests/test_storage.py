@@ -6,14 +6,18 @@ from copy import deepcopy
 from pathlib import Path
 
 import pytest
-from sqlalchemy import func, select
+from sqlalchemy import event as sqlalchemy_event, func, select
 from sqlalchemy.orm import Session
 
 from ah_there_it_is.db.models import (
+    Alias,
     ChatRequestRecord,
     Conversation,
     Event,
+    Item,
+    ItemTag,
     Message,
+    Tag,
 )
 from ah_there_it_is.db.migrations import upgrade_database
 from ah_there_it_is.db.session import create_db_engine
@@ -34,6 +38,7 @@ from ah_there_it_is.storage import (
     validate_portable_import_target,
     restore_backup,
     validate_database,
+    _portable_document,
 )
 from ah_there_it_is.storage_cli import main as storage_cli_main
 
@@ -299,6 +304,69 @@ def test_portable_export_contains_core_inventory_not_provider_traces(
     assert "experiment_runs" in loaded["excluded"]
     assert "llm_provider" not in serialized
     assert "tool_trace" not in serialized
+
+
+def test_portable_export_projection_is_bounded_and_ordered(tmp_path: Path) -> None:
+    active = tmp_path / "projection.db"
+    url = _migrate(active)
+    engine = create_db_engine(url)
+    stamp = __import__("datetime").datetime(2020, 1, 1)
+    try:
+        with Session(engine) as session:
+            session.execute(
+                Item.__table__.insert(),
+                [
+                    {
+                        "id": index,
+                        "name": f"Item {index}",
+                        "normalized_name": f"item {index}",
+                        "description": None,
+                        "state": "unknown",
+                        "category_id": None,
+                        "current_location_id": None,
+                        "location_status": "unknown",
+                        "quantity": 1,
+                        "attributes": {"index": index},
+                        "created_at": stamp,
+                        "updated_at": stamp,
+                    }
+                    for index in range(1, 1001)
+                ],
+            )
+            session.execute(
+                Alias.__table__.insert(),
+                [
+                    {"id": 2, "item_id": 1, "name": "second", "normalized_name": "second"},
+                    {"id": 1, "item_id": 1, "name": "first", "normalized_name": "first"},
+                ],
+            )
+            session.execute(
+                Tag.__table__.insert(),
+                [
+                    {"id": 2, "name": "tag-two", "normalized_name": "tag-two"},
+                    {"id": 1, "name": "tag-one", "normalized_name": "tag-one"},
+                ],
+            )
+            session.execute(
+                ItemTag.__table__.insert(),
+                [{"item_id": 1, "tag_id": 2}, {"item_id": 1, "tag_id": 1}],
+            )
+            session.commit()
+            session.expunge_all()
+
+            statements: list[str] = []
+            listener = lambda *_args: statements.append(str(_args[2]))
+            sqlalchemy_event.listen(engine, "before_cursor_execute", listener)
+            document = _portable_document(session, CURRENT_SCHEMA_REVISION)
+            sqlalchemy_event.remove(engine, "before_cursor_execute", listener)
+
+            assert len(document["inventory"]["items"]) == 1000
+            assert document["inventory"]["items"][0]["aliases"] == ["first", "second"]
+            assert document["inventory"]["items"][0]["tags"] == ["tag-one", "tag-two"]
+            assert len(statements) == 6
+            assert not any(isinstance(row, Item) for row in session.identity_map.values())
+    finally:
+        engine.dispose()
 
 
 def test_validation_rejects_wrong_alembic_revision(tmp_path: Path) -> None:

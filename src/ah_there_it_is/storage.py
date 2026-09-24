@@ -15,7 +15,7 @@ from typing import Any
 from pydantic import BaseModel, ConfigDict, Field, ValidationError
 from sqlalchemy import select
 from sqlalchemy.engine import make_url
-from sqlalchemy.orm import Session, selectinload
+from sqlalchemy.orm import Session
 
 from ah_there_it_is.db.migrations import migration_heads, upgrade_database
 from ah_there_it_is.db.models import (
@@ -185,6 +185,43 @@ class PortableImportResult:
             "events": self.events,
             "database": self.database.as_dict(),
         }
+
+
+@dataclass(frozen=True)
+class _PortableTreeProjection:
+    id: int
+    parent_id: int | None
+    name: str
+    description: str | None
+    created_at: datetime
+    updated_at: datetime
+
+
+@dataclass(frozen=True)
+class _PortableItemProjection:
+    id: int
+    name: str
+    description: str | None
+    state: str
+    category_id: int | None
+    location_id: int | None
+    location_status: str
+    quantity: int
+    attributes: dict[str, Any]
+    created_at: datetime
+    updated_at: datetime
+
+
+@dataclass(frozen=True)
+class _PortableEventProjection:
+    id: int
+    event_type: str
+    item_id: int | None
+    from_location_id: int | None
+    to_location_id: int | None
+    payload: dict[str, Any]
+    original_text: str | None
+    created_at: datetime
 
 
 def parse_portable_inventory(data: Any) -> PortableDocument:
@@ -981,19 +1018,56 @@ def _validate_imported_search_state(session: Session) -> None:
 
 
 def _portable_document(session: Session, alembic_revision: str) -> dict[str, Any]:
-    categories = list(session.scalars(select(Category).order_by(Category.id)))
-    locations = list(session.scalars(select(Location).order_by(Location.id)))
-    items = list(
-        session.scalars(
-            select(Item)
-            .options(
-                selectinload(Item.aliases),
-                selectinload(Item.tag_links).selectinload(ItemTag.tag),
-            )
-            .order_by(Item.id)
+    categories = [
+        _PortableTreeProjection(*row)
+        for row in session.execute(
+            select(
+                Category.id, Category.parent_id, Category.name,
+                Category.description, Category.created_at, Category.updated_at,
+            ).order_by(Category.id)
         )
-    )
-    events = list(session.scalars(select(Event).order_by(Event.id)))
+    ]
+    locations = [
+        _PortableTreeProjection(*row)
+        for row in session.execute(
+            select(
+                Location.id, Location.parent_id, Location.name,
+                Location.description, Location.created_at, Location.updated_at,
+            ).order_by(Location.id)
+        )
+    ]
+    items = [
+        _PortableItemProjection(*row)
+        for row in session.execute(
+            select(
+                Item.id, Item.name, Item.description, Item.state,
+                Item.category_id, Item.current_location_id, Item.location_status,
+                Item.quantity, Item.attributes, Item.created_at, Item.updated_at,
+            ).order_by(Item.id)
+        )
+    ]
+    aliases: dict[int, list[str]] = {}
+    for item_id, name in session.execute(
+        select(Alias.item_id, Alias.name).order_by(Alias.item_id, Alias.id)
+    ):
+        aliases.setdefault(item_id, []).append(name)
+    tags: dict[int, list[str]] = {}
+    for item_id, name in session.execute(
+        select(ItemTag.item_id, Tag.name)
+        .join(Tag, Tag.id == ItemTag.tag_id)
+        .order_by(ItemTag.item_id, ItemTag.tag_id)
+    ):
+        tags.setdefault(item_id, []).append(name)
+    events = [
+        _PortableEventProjection(*row)
+        for row in session.execute(
+            select(
+                Event.id, Event.event_type, Event.item_id,
+                Event.from_location_id, Event.to_location_id, Event.payload,
+                Event.original_text, Event.created_at,
+            ).order_by(Event.id)
+        )
+    ]
 
     return {
         "format": PORTABLE_EXPORT_VERSION,
@@ -1031,15 +1105,12 @@ def _portable_document(session: Session, alembic_revision: str) -> dict[str, Any
                     "description": item.description,
                     "state": item.state,
                     "category_id": item.category_id,
-                    "location_id": item.current_location_id,
+                    "location_id": item.location_id,
                     "location_status": item.location_status,
                     "quantity": item.quantity,
                     "attributes": item.attributes,
-                    "aliases": [alias.name for alias in sorted(item.aliases, key=lambda a: a.id)],
-                    "tags": [
-                        link.tag.name
-                        for link in sorted(item.tag_links, key=lambda link: link.tag_id)
-                    ],
+                    "aliases": aliases.get(item.id, []),
+                    "tags": tags.get(item.id, []),
                     "created_at": _iso(item.created_at),
                     "updated_at": _iso(item.updated_at),
                 }
