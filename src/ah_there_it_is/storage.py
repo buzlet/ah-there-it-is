@@ -10,7 +10,8 @@ import tempfile
 from dataclasses import asdict, dataclass
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any
+from collections.abc import Iterable, Iterator
+from typing import Any, TextIO
 
 from pydantic import BaseModel, ConfigDict, Field, ValidationError
 from sqlalchemy import select
@@ -185,6 +186,20 @@ class PortableImportResult:
             "events": self.events,
             "database": self.database.as_dict(),
         }
+
+
+@dataclass(frozen=True)
+class PortableExportResult:
+    destination: str
+    format: str
+    source_alembic_revision: str
+    categories: int
+    locations: int
+    items: int
+    events: int
+
+    def as_dict(self) -> dict[str, Any]:
+        return asdict(self)
 
 
 @dataclass(frozen=True)
@@ -796,30 +811,156 @@ def export_portable_inventory(
     database_url: str,
     destination: str | Path,
 ) -> dict[str, Any]:
+    """Compatibility helper returning the fully materialized document."""
+    stream_portable_inventory(database_url, destination)
+    target = Path(destination).expanduser().resolve()
+    return json.loads(target.read_text(encoding="utf-8"))
+
+
+def stream_portable_inventory(
+    database_url: str,
+    destination: str | Path,
+) -> PortableExportResult:
     database = sqlite_path_from_url(database_url)
     validation = validate_database(database)
     engine = create_db_engine(database_url)
-    factory = create_session_factory(engine)
-    try:
-        with factory() as session:
-            document = _portable_document(session, validation.alembic_revision)
-    finally:
-        engine.dispose()
-
     target = Path(destination).expanduser().resolve()
     target.parent.mkdir(parents=True, exist_ok=True)
     temporary = _temporary_sibling(target, "json")
     try:
-        temporary.write_text(
-            json.dumps(document, ensure_ascii=False, indent=2, sort_keys=True) + "\n",
-            encoding="utf-8",
-        )
+        factory = create_session_factory(engine)
+        with factory() as session, temporary.open("w", encoding="utf-8") as handle:
+            counts = _write_portable_stream(
+                handle, session, validation.alembic_revision
+            )
+            handle.flush()
+            os.fsync(handle.fileno())
         os.replace(temporary, target)
         _fsync_path(target)
         _fsync_directory(target.parent)
+        return PortableExportResult(
+            destination=str(target),
+            format=PORTABLE_EXPORT_VERSION,
+            source_alembic_revision=validation.alembic_revision,
+            categories=counts[0],
+            locations=counts[1],
+            items=counts[2],
+            events=counts[3],
+        )
     finally:
+        engine.dispose()
         temporary.unlink(missing_ok=True)
-    return document
+
+
+def _write_portable_stream(
+    handle: TextIO,
+    session: Session,
+    alembic_revision: str,
+) -> tuple[int, int, int, int]:
+    encode = lambda value: json.dumps(
+        value, ensure_ascii=False, sort_keys=True, separators=(",", ":")
+    )
+    handle.write("{")
+    handle.write(f'"format":{encode(PORTABLE_EXPORT_VERSION)},')
+    handle.write(f'"exported_at":{encode(datetime.now(timezone.utc).isoformat())},')
+    handle.write(f'"source":{{"alembic_revision":{encode(alembic_revision)}}},')
+    handle.write('"inventory":{"categories":')
+    categories = _write_json_array(
+        handle, (_tree_projection_dict(row) for row in _stream_trees(session, Category))
+    )
+    handle.write(',"locations":')
+    locations = _write_json_array(
+        handle, (_tree_projection_dict(row) for row in _stream_trees(session, Location))
+    )
+    handle.write(',"items":')
+    items = _write_json_array(handle, _stream_item_dicts(session))
+    handle.write('},"history":{"events":')
+    events = _write_json_array(
+        handle, (_event_projection_dict(row) for row in _stream_events(session))
+    )
+    handle.write('},"excluded":')
+    handle.write(encode(_portable_excluded()))
+    handle.write("}\n")
+    return categories, locations, items, events
+
+
+def _write_json_array(handle: TextIO, rows: Iterable[dict[str, Any]]) -> int:
+    handle.write("[")
+    count = 0
+    for row in rows:
+        if count:
+            handle.write(",")
+        handle.write(json.dumps(
+            row, ensure_ascii=False, sort_keys=True, separators=(",", ":")
+        ))
+        count += 1
+    handle.write("]")
+    return count
+
+
+def _stream_trees(
+    session: Session,
+    model: type[Category] | type[Location],
+) -> Iterator[_PortableTreeProjection]:
+    statement = select(
+        model.id, model.parent_id, model.name, model.description,
+        model.created_at, model.updated_at,
+    ).order_by(model.id).execution_options(yield_per=250)
+    for row in session.execute(statement):
+        yield _PortableTreeProjection(*row)
+
+
+def _stream_item_dicts(session: Session) -> Iterator[dict[str, Any]]:
+    after_id = 0
+    while True:
+        rows = [
+            _PortableItemProjection(*row)
+            for row in session.execute(
+                select(
+                    Item.id, Item.name, Item.description, Item.state,
+                    Item.category_id, Item.current_location_id,
+                    Item.location_status, Item.quantity, Item.attributes,
+                    Item.created_at, Item.updated_at,
+                )
+                .where(Item.id > after_id)
+                .order_by(Item.id)
+                .limit(250)
+            )
+        ]
+        if not rows:
+            return
+        item_ids = [row.id for row in rows]
+        aliases: dict[int, list[str]] = {}
+        for item_id, name in session.execute(
+            select(Alias.item_id, Alias.name)
+            .where(Alias.item_id.in_(item_ids))
+            .order_by(Alias.item_id, Alias.id)
+        ):
+            aliases.setdefault(item_id, []).append(name)
+        tags: dict[int, list[str]] = {}
+        for item_id, name in session.execute(
+            select(ItemTag.item_id, Tag.name)
+            .join(Tag, Tag.id == ItemTag.tag_id)
+            .where(ItemTag.item_id.in_(item_ids))
+            .order_by(ItemTag.item_id, ItemTag.tag_id)
+        ):
+            tags.setdefault(item_id, []).append(name)
+        for row in rows:
+            yield _item_projection_dict(
+                row,
+                aliases=aliases.get(row.id, []),
+                tags=tags.get(row.id, []),
+            )
+        after_id = rows[-1].id
+
+
+def _stream_events(session: Session) -> Iterator[_PortableEventProjection]:
+    statement = select(
+        Event.id, Event.event_type, Event.item_id, Event.from_location_id,
+        Event.to_location_id, Event.payload, Event.original_text, Event.created_at,
+    ).order_by(Event.id).execution_options(yield_per=250)
+    for row in session.execute(statement):
+        yield _PortableEventProjection(*row)
 
 
 def import_portable_inventory(
@@ -1077,69 +1218,70 @@ def _portable_document(session: Session, alembic_revision: str) -> dict[str, Any
         },
         "inventory": {
             "categories": [
-                {
-                    "id": node.id,
-                    "parent_id": node.parent_id,
-                    "name": node.name,
-                    "description": node.description,
-                    "created_at": _iso(node.created_at),
-                    "updated_at": _iso(node.updated_at),
-                }
+                _tree_projection_dict(node)
                 for node in categories
             ],
             "locations": [
-                {
-                    "id": node.id,
-                    "parent_id": node.parent_id,
-                    "name": node.name,
-                    "description": node.description,
-                    "created_at": _iso(node.created_at),
-                    "updated_at": _iso(node.updated_at),
-                }
+                _tree_projection_dict(node)
                 for node in locations
             ],
             "items": [
-                {
-                    "id": item.id,
-                    "name": item.name,
-                    "description": item.description,
-                    "state": item.state,
-                    "category_id": item.category_id,
-                    "location_id": item.location_id,
-                    "location_status": item.location_status,
-                    "quantity": item.quantity,
-                    "attributes": item.attributes,
-                    "aliases": aliases.get(item.id, []),
-                    "tags": tags.get(item.id, []),
-                    "created_at": _iso(item.created_at),
-                    "updated_at": _iso(item.updated_at),
-                }
+                _item_projection_dict(
+                    item,
+                    aliases=aliases.get(item.id, []),
+                    tags=tags.get(item.id, []),
+                )
                 for item in items
             ],
         },
         "history": {
             "events": [
-                {
-                    "id": event.id,
-                    "event_type": event.event_type,
-                    "item_id": event.item_id,
-                    "from_location_id": event.from_location_id,
-                    "to_location_id": event.to_location_id,
-                    "payload": event.payload,
-                    "original_text": event.original_text,
-                    "created_at": _iso(event.created_at),
-                }
+                _event_projection_dict(event)
                 for event in events
             ]
         },
-        "excluded": [
-            "agent_run_logs",
-            "agent_feedback",
-            "experiment_runs",
-            "experiment_reviews",
-            "provider_metadata",
-        ],
+        "excluded": _portable_excluded(),
     }
+
+
+def _tree_projection_dict(node: _PortableTreeProjection) -> dict[str, Any]:
+    return {
+        "id": node.id, "parent_id": node.parent_id, "name": node.name,
+        "description": node.description, "created_at": _iso(node.created_at),
+        "updated_at": _iso(node.updated_at),
+    }
+
+
+def _item_projection_dict(
+    item: _PortableItemProjection,
+    *,
+    aliases: list[str],
+    tags: list[str],
+) -> dict[str, Any]:
+    return {
+        "id": item.id, "name": item.name, "description": item.description,
+        "state": item.state, "category_id": item.category_id,
+        "location_id": item.location_id, "location_status": item.location_status,
+        "quantity": item.quantity, "attributes": item.attributes,
+        "aliases": aliases, "tags": tags, "created_at": _iso(item.created_at),
+        "updated_at": _iso(item.updated_at),
+    }
+
+
+def _event_projection_dict(event: _PortableEventProjection) -> dict[str, Any]:
+    return {
+        "id": event.id, "event_type": event.event_type,
+        "item_id": event.item_id, "from_location_id": event.from_location_id,
+        "to_location_id": event.to_location_id, "payload": event.payload,
+        "original_text": event.original_text, "created_at": _iso(event.created_at),
+    }
+
+
+def _portable_excluded() -> list[str]:
+    return [
+        "agent_run_logs", "agent_feedback", "experiment_runs",
+        "experiment_reviews", "provider_metadata",
+    ]
 
 
 def _copy_sqlite_snapshot(source: Path, destination: Path) -> None:

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import io
 import sys
 from copy import deepcopy
 from pathlib import Path
@@ -39,6 +40,8 @@ from ah_there_it_is.storage import (
     restore_backup,
     validate_database,
     _portable_document,
+    _write_json_array,
+    stream_portable_inventory,
 )
 from ah_there_it_is.storage_cli import main as storage_cli_main
 
@@ -367,6 +370,83 @@ def test_portable_export_projection_is_bounded_and_ordered(tmp_path: Path) -> No
             assert not any(isinstance(row, Item) for row in session.identity_map.values())
     finally:
         engine.dispose()
+
+
+def test_portable_export_stream_is_lazy_and_preserves_destination_on_failure(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    handle = io.StringIO()
+
+    def rows():
+        assert handle.getvalue() == "["
+        yield {"name": "один"}
+        assert handle.getvalue().startswith('[{"name":"один"}')
+        yield {"name": "два"}
+
+    assert _write_json_array(handle, rows()) == 2
+    assert json.loads(handle.getvalue()) == [{"name": "один"}, {"name": "два"}]
+
+    active = tmp_path / "stream.db"
+    destination = tmp_path / "inventory.json"
+    url = _migrate(active)
+    _seed_operational_state(url)
+    destination.write_bytes(b"keep-existing")
+
+    import ah_there_it_is.storage as storage
+
+    def fail_events(_session):
+        raise RuntimeError("injected stream failure")
+        yield
+
+    monkeypatch.setattr(storage, "_stream_events", fail_events)
+    with pytest.raises(RuntimeError, match="injected stream failure"):
+        stream_portable_inventory(url, destination)
+    assert destination.read_bytes() == b"keep-existing"
+    assert list(tmp_path.glob(".inventory.json.json.*.tmp")) == []
+
+
+def test_portable_export_stream_result_and_target_scale_are_complete(
+    tmp_path: Path,
+) -> None:
+    active = tmp_path / "stream-scale.db"
+    destination = tmp_path / "inventory.json"
+    url = _migrate(active)
+    engine = create_db_engine(url)
+    stamp = __import__("datetime").datetime(2020, 1, 1)
+    try:
+        with Session(engine) as session:
+            session.execute(
+                Item.__table__.insert(),
+                [
+                    {
+                        "id": index,
+                        "name": f"Вещь {index}",
+                        "normalized_name": f"вещь {index}",
+                        "description": None,
+                        "state": "unknown",
+                        "category_id": None,
+                        "current_location_id": None,
+                        "location_status": "unknown",
+                        "quantity": 1,
+                        "attributes": {},
+                        "created_at": stamp,
+                        "updated_at": stamp,
+                    }
+                    for index in range(1, 1001)
+                ],
+            )
+            session.commit()
+    finally:
+        engine.dispose()
+
+    result = stream_portable_inventory(url, destination)
+    loaded = json.loads(destination.read_text(encoding="utf-8"))
+    assert result.items == 1000
+    assert result.categories == result.locations == result.events == 0
+    assert len(loaded["inventory"]["items"]) == 1000
+    assert loaded["inventory"]["items"][0]["name"] == "Вещь 1"
+    assert loaded["inventory"]["items"][-1]["id"] == 1000
 
 
 def test_validation_rejects_wrong_alembic_revision(tmp_path: Path) -> None:
