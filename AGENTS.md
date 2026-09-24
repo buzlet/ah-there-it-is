@@ -453,3 +453,14 @@ The Stage 26 location-truth design is delivered across domain/storage, portable-
 ### Implementation-host enablement — Assignment 0029
 
 Protocol v6 selects `u24-bash` or `windows-git-bash` only from explicit launcher fields. The U24 profile is established; the Windows Git Bash profile is prepared pending its first native pilot. Both retain immutable seed history, v5 just-in-time batch rules, focused and canonical checks, bounded CI, one implementation PR, merge commit, and clean-main synchronization. The canonical local set now includes retrieval evaluation and uses default Just recipes. This enablement was verified on U24 and does not assert native Windows validation. Review: `agent-tasks/reviews/0029-r1.md`.
+
+
+### Protocol v7 — host/channel separation
+
+New assignments may explicitly use `agent-tasks/common/v7.md`.
+
+v7 preserves v6 lifecycle semantics and separates:
+- host profile;
+- execution channel.
+
+Initial supported channels are Remote Commander on existing v6 hosts and SSH-supervised Codex CLI on U24. The launcher selects the pair explicitly; implementation agents cannot switch channels or hosts on their own.
