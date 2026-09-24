@@ -3,14 +3,14 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from statistics import mean
 from typing import Any
 
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.orm import Session, selectinload
 
 from ah_there_it_is.db.models import (
     AgentRunLog,
+    AgentFeedback,
     ExperimentReview,
     ExperimentRun,
     utc_now,
@@ -48,7 +48,20 @@ class ExperimentSummary:
     mutation_error_rate: float
 
 
+@dataclass(frozen=True)
+class ExperimentRunPage:
+    runs: list[ExperimentRun]
+    page: int
+    page_size: int
+    total: int
+    has_previous: bool
+    has_next: bool
+
+
 class ExperimentService:
+    DEFAULT_PAGE_SIZE = 50
+    MAX_PAGE_SIZE = 100
+
     def __init__(self, session: Session) -> None:
         self.session = session
 
@@ -119,6 +132,42 @@ class ExperimentService:
         )
         return list(self.session.scalars(stmt))
 
+    def run_page(
+        self,
+        *,
+        page: int = 1,
+        page_size: int = DEFAULT_PAGE_SIZE,
+    ) -> ExperimentRunPage:
+        if page < 1:
+            raise ValueError("page must be at least 1")
+        if page_size < 1 or page_size > self.MAX_PAGE_SIZE:
+            raise ValueError(
+                f"page_size must be between 1 and {self.MAX_PAGE_SIZE}"
+            )
+        total = int(self.session.scalar(select(func.count(ExperimentRun.id))) or 0)
+        runs = list(
+            self.session.scalars(
+                select(ExperimentRun)
+                .options(
+                    selectinload(ExperimentRun.review),
+                    selectinload(ExperimentRun.source_run).selectinload(
+                        AgentRunLog.feedback
+                    ),
+                )
+                .order_by(ExperimentRun.id.desc())
+                .offset((page - 1) * page_size)
+                .limit(page_size)
+            )
+        )
+        return ExperimentRunPage(
+            runs=runs,
+            page=page,
+            page_size=page_size,
+            total=total,
+            has_previous=page > 1,
+            has_next=page * page_size < total,
+        )
+
     def set_review(
         self,
         run_id: int,
@@ -150,41 +199,95 @@ class ExperimentService:
         return review
 
     def summaries(self) -> list[ExperimentSummary]:
-        runs = self.recent_runs(limit=10_000)
+        stmt = (
+            select(
+                ExperimentRun.experiment_name,
+                ExperimentRun.prompt_version,
+                ExperimentRun.prompt_hash,
+                ExperimentRun.llm_provider,
+                ExperimentRun.llm_model,
+                ExperimentRun.llm_config,
+                ExperimentRun.status,
+                ExperimentRun.rounds,
+                ExperimentRun.final_content,
+                ExperimentRun.tool_trace,
+                AgentFeedback.rating.label("source_rating"),
+                ExperimentReview.choice,
+                ExperimentReview.variant_rating,
+            )
+            .join(AgentRunLog, AgentRunLog.id == ExperimentRun.source_run_id)
+            .outerjoin(AgentFeedback, AgentFeedback.agent_run_id == AgentRunLog.id)
+            .outerjoin(
+                ExperimentReview,
+                ExperimentReview.experiment_run_id == ExperimentRun.id,
+            )
+            .order_by(ExperimentRun.id.asc())
+            .execution_options(yield_per=500)
+        )
         groups: dict[
             tuple[str, str, str, str, str, str],
-            list[ExperimentRun],
+            dict[str, Any],
         ] = {}
         config_hashes: dict[
             tuple[str, str, str, str, str, str],
             str,
         ] = {}
-        for run in runs:
-            canonical, config_hash = canonical_llm_config(run.llm_config)
+        for row in self.session.execute(stmt):
+            config = dict(row.llm_config)
+            canonical, config_hash = canonical_llm_config(config)
             key = (
-                run.experiment_name,
-                run.prompt_version,
-                run.prompt_hash,
-                run.llm_provider,
-                run.llm_model,
+                row.experiment_name,
+                row.prompt_version,
+                row.prompt_hash,
+                row.llm_provider,
+                row.llm_model,
                 canonical,
             )
-            groups.setdefault(key, []).append(run)
+            group = groups.setdefault(
+                key,
+                {
+                    "config": config,
+                    "cases": 0,
+                    "completed": 0,
+                    "diverged": 0,
+                    "failed": 0,
+                    "rounds": 0,
+                    "source_rating_sum": 0,
+                    "source_rated": 0,
+                    "reviewed": 0,
+                    "variant_rating_sum": 0,
+                    "variant_rated": 0,
+                    "baseline": 0,
+                    "variant": 0,
+                    "tie": 0,
+                    "both_bad": 0,
+                    "clarifications": 0,
+                    "tool_errors": 0,
+                    "mutation_errors": 0,
+                },
+            )
+            group["cases"] += 1
+            group[row.status] += 1
+            group["rounds"] += row.rounds
+            if row.source_rating is not None:
+                group["source_rating_sum"] += row.source_rating
+                group["source_rated"] += 1
+            if row.choice is not None:
+                group["reviewed"] += 1
+                group[row.choice] += 1
+            if row.variant_rating is not None:
+                group["variant_rating_sum"] += row.variant_rating
+                group["variant_rated"] += 1
+            group["clarifications"] += self._is_clarification(row)
+            group["tool_errors"] += self._has_tool_error(row)
+            group["mutation_errors"] += self._has_mutation_error(row)
             config_hashes[key] = config_hash
 
         summaries: list[ExperimentSummary] = []
         for key, group in groups.items():
-            source_ratings = [
-                run.source_run.feedback.rating
-                for run in group
-                if run.source_run.feedback is not None
-            ]
-            variant_ratings = [
-                run.review.variant_rating
-                for run in group
-                if run.review is not None and run.review.variant_rating is not None
-            ]
-            choices = [run.review.choice for run in group if run.review is not None]
+            cases = int(group["cases"])
+            source_rated = int(group["source_rated"])
+            variant_rated = int(group["variant_rated"])
             summaries.append(
                 ExperimentSummary(
                     experiment_name=key[0],
@@ -193,25 +296,41 @@ class ExperimentService:
                     llm_provider=key[3],
                     llm_model=key[4],
                     llm_config_hash=config_hashes[key],
-                    llm_config=dict(group[0].llm_config),
-                    cases=len(group),
-                    completed=sum(run.status == "completed" for run in group),
-                    diverged=sum(run.status == "diverged" for run in group),
-                    failed=sum(run.status == "failed" for run in group),
-                    average_rounds=mean(run.rounds for run in group),
-                    source_average_rating=(mean(source_ratings) if source_ratings else None),
-                    reviewed=len(choices),
-                    variant_average_rating=(mean(variant_ratings) if variant_ratings else None),
-                    baseline_wins=choices.count("baseline"),
-                    variant_wins=choices.count("variant"),
-                    ties=choices.count("tie"),
-                    both_bad=choices.count("both_bad"),
-                    clarification_rate=self._rate(group, self._is_clarification),
-                    tool_error_rate=self._rate(group, self._has_tool_error),
-                    mutation_error_rate=self._rate(group, self._has_mutation_error),
+                    llm_config=dict(group["config"]),
+                    cases=cases,
+                    completed=int(group["completed"]),
+                    diverged=int(group["diverged"]),
+                    failed=int(group["failed"]),
+                    average_rounds=int(group["rounds"]) / cases,
+                    source_average_rating=(
+                        int(group["source_rating_sum"]) / source_rated
+                        if source_rated else None
+                    ),
+                    reviewed=int(group["reviewed"]),
+                    variant_average_rating=(
+                        int(group["variant_rating_sum"]) / variant_rated
+                        if variant_rated else None
+                    ),
+                    baseline_wins=int(group["baseline"]),
+                    variant_wins=int(group["variant"]),
+                    ties=int(group["tie"]),
+                    both_bad=int(group["both_bad"]),
+                    clarification_rate=int(group["clarifications"]) / cases,
+                    tool_error_rate=int(group["tool_errors"]) / cases,
+                    mutation_error_rate=int(group["mutation_errors"]) / cases,
                 )
             )
-        return sorted(summaries, key=lambda summary: summary.experiment_name)
+        return sorted(
+            summaries,
+            key=lambda summary: (
+                summary.experiment_name,
+                summary.prompt_version,
+                summary.prompt_hash,
+                summary.llm_provider,
+                summary.llm_model,
+                summary.llm_config_hash,
+            ),
+        )
 
     def _require_source(self, source_run_id: int) -> AgentRunLog:
         source = self.session.get(AgentRunLog, source_run_id)
@@ -220,7 +339,7 @@ class ExperimentService:
         return source
 
     @staticmethod
-    def _is_clarification(run: ExperimentRun) -> bool:
+    def _is_clarification(run: Any) -> bool:
         content = (run.final_content or "").strip().casefold()
         return run.status == "completed" and (
             content.endswith("?")
@@ -230,7 +349,7 @@ class ExperimentService:
         )
 
     @staticmethod
-    def _has_tool_error(run: ExperimentRun) -> bool:
+    def _has_tool_error(run: Any) -> bool:
         return any(
             isinstance(entry.get("result"), dict) and not entry["result"].get("ok", False)
             for round_trace in run.tool_trace
@@ -238,7 +357,7 @@ class ExperimentService:
         )
 
     @staticmethod
-    def _has_mutation_error(run: ExperimentRun) -> bool:
+    def _has_mutation_error(run: Any) -> bool:
         return any(
             entry.get("tool_name") in _MUTATION_TOOLS
             and isinstance(entry.get("result"), dict)
@@ -246,10 +365,6 @@ class ExperimentService:
             for round_trace in run.tool_trace
             for entry in round_trace.get("tool_results", [])
         )
-
-    @staticmethod
-    def _rate(group: list[ExperimentRun], predicate) -> float:
-        return sum(bool(predicate(run)) for run in group) / len(group) if group else 0.0
 
     @staticmethod
     def _clean_comment(comment: str | None) -> str | None:

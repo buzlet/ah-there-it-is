@@ -255,6 +255,7 @@ def test_chat_request_admin_api_and_page_show_recovery_audit() -> None:
             new_detail = client.get("/api/chat-requests/admin-recovery-0001")
 
         assert listing.status_code == 200
+        assert "Page 1" in listing.text
         assert listing.json()[0]["request_key"] == "admin-source-0001"
         assert detail.status_code == 200
         assert detail.json()["status"] == "failed"
