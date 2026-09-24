@@ -4,6 +4,7 @@ import pytest
 from sqlalchemy import text
 from sqlalchemy.orm import Session
 
+from ah_there_it_is.db.models import Event
 from ah_there_it_is.domain.exceptions import DuplicateEntityError, EntityNotFoundError
 from ah_there_it_is.domain.names import normalize_name
 from ah_there_it_is.domain.states import ItemState
@@ -167,3 +168,158 @@ def test_duplicate_name_is_allowed_under_different_tree_parents(session: Session
     cabinet_drawer = service.create_location("Ящик", parent_id=cabinet.id)
 
     assert desk_drawer.id != cabinet_drawer.id
+
+
+def test_event_history_evidence_is_immutable_across_tree_changes(session: Session) -> None:
+    service = InventoryService(session)
+    home = service.create_location("Home")
+    room = service.create_location("Room", parent_id=home.id)
+    shelf = service.create_location("Shelf", parent_id=room.id)
+    office = service.create_location("Office")
+    desk = service.create_location("Desk", parent_id=office.id)
+    drawer = service.create_location("Drawer", parent_id=desk.id)
+
+    tools = service.create_category("Tools")
+    adapters = service.create_category("Adapters", parent_id=tools.id)
+    electronics = service.create_category("Electronics")
+    components = service.create_category("Components", parent_id=electronics.id)
+
+    item = service.create_item(
+        "USB adapter", location_id=shelf.id, category_id=adapters.id
+    )
+    (created,) = service.get_item_history(item.id)
+    original_home_path = [
+        {"location_id": home.id, "name": "Home"},
+        {"location_id": room.id, "name": "Room"},
+        {"location_id": shelf.id, "name": "Shelf"},
+    ]
+    original_adapter_path = [
+        {"category_id": tools.id, "name": "Tools"},
+        {"category_id": adapters.id, "name": "Adapters"},
+    ]
+    assert created.payload == {
+        "name": "USB adapter",
+        "quantity": 1,
+        "_history_evidence": {
+            "version": 1,
+            "to_location_path": original_home_path,
+            "to_category_path": original_adapter_path,
+        },
+    }
+
+    service.move_item(item.id, drawer.id)
+    service.update_item(item.id, category_id=components.id)
+    created, moved, updated = service.get_item_history(item.id)
+    original_office_path = [
+        {"location_id": office.id, "name": "Office"},
+        {"location_id": desk.id, "name": "Desk"},
+        {"location_id": drawer.id, "name": "Drawer"},
+    ]
+    original_component_path = [
+        {"category_id": electronics.id, "name": "Electronics"},
+        {"category_id": components.id, "name": "Components"},
+    ]
+    assert moved.payload == {
+        "_history_evidence": {
+            "version": 1,
+            "from_location_path": original_home_path,
+            "to_location_path": original_office_path,
+        }
+    }
+    assert updated.payload["category_id"] == {
+        "from": adapters.id,
+        "to": components.id,
+    }
+    assert updated.payload["_history_evidence"] == {
+        "version": 1,
+        "from_category_path": original_adapter_path,
+        "to_category_path": original_component_path,
+    }
+    evidence_before_tree_changes = {
+        event.id: event.payload["_history_evidence"] for event in (created, moved, updated)
+    }
+
+    archive = service.create_location("Archive")
+    service.update_location(home.id, name="Old home", parent_id=archive.id)
+    service.update_location(office.id, name="Old office", parent_id=archive.id)
+    other = service.create_category("Other")
+    service.update_category(tools.id, name="Old tools", parent_id=other.id)
+    service.update_category(electronics.id, name="Old electronics", parent_id=other.id)
+
+    history_after_tree_changes = service.get_item_history(item.id)
+    assert len(history_after_tree_changes) == 3
+    assert {
+        event.id: event.payload["_history_evidence"]
+        for event in history_after_tree_changes
+    } == evidence_before_tree_changes
+
+
+def test_event_history_evidence_omits_null_paths_and_keeps_legacy_events(
+    session: Session,
+) -> None:
+    service = InventoryService(session)
+    item = service.create_item("Unlocated item")
+    (created,) = service.get_item_history(item.id)
+    assert created.payload["_history_evidence"] == {"version": 1}
+
+    room = service.create_location("Room")
+    shelf = service.create_location("Shelf", parent_id=room.id)
+    service.move_item(item.id, shelf.id)
+    _, moved = service.get_item_history(item.id)
+    assert moved.payload["_history_evidence"] == {
+        "version": 1,
+        "to_location_path": [
+            {"location_id": room.id, "name": "Room"},
+            {"location_id": shelf.id, "name": "Shelf"},
+        ],
+    }
+
+    service.move_item(item.id, None)
+    _, _, taken = service.get_item_history(item.id)
+    assert taken.event_type == "item_taken"
+    assert taken.payload["_history_evidence"] == {
+        "version": 1,
+        "from_location_path": [
+            {"location_id": room.id, "name": "Room"},
+            {"location_id": shelf.id, "name": "Shelf"},
+        ],
+    }
+
+    tools = service.create_category("Tools")
+    adapters = service.create_category("Adapters", parent_id=tools.id)
+    service.update_item(item.id, category_id=adapters.id)
+    category_added = service.get_item_history(item.id)[-1]
+    assert category_added.payload["_history_evidence"] == {
+        "version": 1,
+        "to_category_path": [
+            {"category_id": tools.id, "name": "Tools"},
+            {"category_id": adapters.id, "name": "Adapters"},
+        ],
+    }
+
+    service.update_item(item.id, category_id=None)
+    category_cleared = service.get_item_history(item.id)[-1]
+    assert category_cleared.payload["_history_evidence"] == {
+        "version": 1,
+        "from_category_path": [
+            {"category_id": tools.id, "name": "Tools"},
+            {"category_id": adapters.id, "name": "Adapters"},
+        ],
+    }
+
+    service.update_item(item.id, quantity=2)
+    ordinary_update = service.get_item_history(item.id)[-1]
+    assert "_history_evidence" not in ordinary_update.payload
+
+    legacy_payload = {"quantity": {"from": 2, "to": 3}}
+    legacy = Event(
+        event_type="item_updated",
+        item_id=item.id,
+        payload=legacy_payload,
+    )
+    session.add(legacy)
+    session.commit()
+    legacy_event = next(
+        event for event in service.get_item_history(item.id) if event.id == legacy.id
+    )
+    assert legacy_event.payload == legacy_payload
