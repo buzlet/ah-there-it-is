@@ -435,7 +435,7 @@ Assignment 0012 proposed a read-only browser Activity timeline. External archite
 - Runtime and installed-wheel coverage exercises loopback classification, wildcard/LAN/public hosts, refusal ordering, warning and opt-in behavior. Focused and canonical verification passed: 339 tests, migration-check, 42-case corpus and scenarios, 42/42 scenario completion with 98 checks and zero failures, and 23 provider-contract tests.
 - Review: `agent-tasks/reviews/0022-r1.md`.
 
-### Post-Stage-25 hardening — Assignment 0023
+### Post-Stage-25 hardening — Assignment 0023 complete
 
 - Added an offline retrieval evaluator and versioned semantic-label corpus with 86 cases: 28 English, 27 Russian, and 31 Ukrainian. The cases cover names, aliases, separators and apostrophes, mixed tokens, tags, attributes, duplicate names, and no-match queries.
 - Current SearchService passes all 86 gating cases. The JSON report records per-language totals and each case's result IDs, match types, scores, and failure reasons.
@@ -443,4 +443,5 @@ Assignment 0012 proposed a read-only browser Activity timeline. External archite
 - Non-gating observations record an English typo, Russian transliteration, Ukrainian inflection, and a Ukrainian U+02BC apostrophe variant. The first three targets are not returned; the U+02BC target is surfaced through FTS on this fixture.
 - Added the `retrieval-eval` Just recipe and invoked it in the existing application CI job. No search policy, database schema, or dependency changes.
 - Focused and canonical verification passed: 39 focused SearchService/evaluation tests, 342 total tests, migration-check, corpus/scenario checks, 42/42 scenarios with 98/98 state checks, retrieval 86/86, and provider-contract (23 tests).
+- PR #47 passed its single `verify` check on implementation head `da110105b138f45e8e86b965235da74a1abfa7b5`; CI correction iterations: 0.
 - Review: `agent-tasks/reviews/0023-r1.md`.
