@@ -32,8 +32,13 @@ jobs:
       - run: just migration-check
       - run: just corpus-check
       - run: just scenario-check
-      - run: just scenario-eval eval/corpus-v1.json eval/scenarios-v1.json scenario-eval.json
-      - run: just retrieval-eval eval/retrieval-robustness-v1.json retrieval-eval.json
+      - run: just scenario-eval > scenario-eval.json
+      - name: Retrieval evaluation
+        run: |
+          just retrieval-eval | tee retrieval-eval.log
+          report_path="$(sed -n 's/^report: //p' retrieval-eval.log | tail -n 1)"
+          test -n "$report_path"
+          cp "$report_path" retrieval-eval.json
       - uses: actions/upload-artifact@v4
         if: always()
         with:

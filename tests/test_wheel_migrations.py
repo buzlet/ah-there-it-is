@@ -1,3 +1,4 @@
+# test_wheel_migrations.py
 from __future__ import annotations
 
 import importlib.util
@@ -5,6 +6,8 @@ import json
 import os
 import signal
 from pathlib import Path
+import sysconfig
+import venv
 import shutil
 import socket
 import sqlite3
@@ -34,7 +37,7 @@ def test_wheel_contains_and_runs_packaged_migrations_and_runtime(
 ) -> None:
     repo = Path(__file__).resolve().parents[1]
     wheelhouse = tmp_path / "wheelhouse"
-    prefix_install = tmp_path / "runtime-prefix"
+    runtime_venv = tmp_path / "runtime-venv"
     outside = tmp_path / "outside"
     fixture = tmp_path / "inventory-portable-v1.json"
     wheelhouse.mkdir()
@@ -130,43 +133,46 @@ def test_wheel_contains_and_runs_packaged_migrations_and_runtime(
     assert "[console_scripts]" in entry_points
     assert "ah-there-it-is = ah_there_it_is.runtime_cli:main" in entry_points
 
+    venv.EnvBuilder(with_pip=True).create(runtime_venv)
+    scripts = runtime_venv / ("Scripts" if os.name == "nt" else "bin")
+    runtime_python = scripts / ("python.exe" if os.name == "nt" else "python")
+    console_script = scripts / ("ah-there-it-is.exe" if os.name == "nt" else "ah-there-it-is")
+    assert runtime_python.is_file()
+    install_env = os.environ.copy()
+    install_env.pop("PYTHONPATH", None)
     subprocess.run(
-        [
-            sys.executable,
-            "-m",
-            "pip",
-            "install",
-            "--no-deps",
-            "--ignore-installed",
-            "--prefix",
-            str(prefix_install),
-            str(wheel),
-        ],
+        [str(runtime_python), "-m", "pip", "install", "--no-index", "--no-deps", str(wheel)],
+        env=install_env,
         check=True,
         capture_output=True,
         text=True,
     )
-
-    installed_init = next(
-        prefix_install.glob(
-            "lib/python*/site-packages/ah_there_it_is/__init__.py"
-        )
+    site_packages = Path(subprocess.run(
+        [str(runtime_python), "-c", "import sysconfig; print(sysconfig.get_paths()['purelib'])"],
+        check=True, capture_output=True, text=True,
+    ).stdout.strip())
+    # Reuse already installed test dependencies without fetching from a network.
+    (site_packages / "parent-dependencies.pth").write_text(
+        str(Path(sysconfig.get_paths()["purelib"]).resolve()) + "\n", encoding="utf-8"
     )
-    site_packages = installed_init.parents[1]
-    console_script = prefix_install / "bin" / "ah-there-it-is"
     assert console_script.is_file()
 
     runtime_env = os.environ.copy()
-    runtime_env["PYTHONPATH"] = str(site_packages)
+    runtime_env.pop("PYTHONPATH", None)
+    runtime_env["PYTHONNOUSERSITE"] = "1"
+    runtime_env["PATH"] = str(scripts) + os.pathsep + runtime_env.get("PATH", "")
     runtime_env["AH_THERE_IT_IS_LLM_PROVIDER"] = "heuristic"
     runtime_env.pop("AH_THERE_IT_IS_DATABASE_URL", None)
     runtime_env.pop("AH_THERE_IT_IS_DATA_DIR", None)
+    (outside / "home").mkdir()
     runtime_env["HOME"] = str(outside / "home")
+    runtime_env["USERPROFILE"] = str(outside / "home")
     runtime_env["XDG_DATA_HOME"] = str(outside / "xdg-data")
+    runtime_env["LOCALAPPDATA"] = str(outside / "local-app-data")
 
     installed_probe = subprocess.run(
         [
-            sys.executable,
+            str(runtime_python),
             "-c",
             (
                 "from importlib.resources import files; "
@@ -186,11 +192,11 @@ def test_wheel_contains_and_runs_packaged_migrations_and_runtime(
         Path(line.strip()).resolve()
         for line in installed_probe.stdout.strip().splitlines()[-2:]
     ]
-    assert not package_path.is_relative_to(repo), package_path
-    assert not resource_path.is_relative_to(repo), resource_path
+    assert package_path.is_relative_to(runtime_venv), package_path
+    assert resource_path.is_relative_to(runtime_venv), resource_path
     installed_schema = subprocess.run(
         [
-            sys.executable, "-c",
+            str(runtime_python), "-c",
             "from ah_there_it_is.agent.schemas import ItemIdInput, LocationIdInput; "
             "assert ItemIdInput.model_fields['page_size'].default == 50; "
             "assert LocationIdInput.model_fields['page_size'].default == 50; "
@@ -205,7 +211,10 @@ def test_wheel_contains_and_runs_packaged_migrations_and_runtime(
     serve_cwd = outside / "serve-cwd"
     upgrade_cwd.mkdir()
     serve_cwd.mkdir()
-    data_dir = outside / "xdg-data" / "ah-there-it-is"
+    data_dir = (
+        outside / "local-app-data" / "AhThereItIs"
+        if os.name == "nt" else outside / "xdg-data" / "ah-there-it-is"
+    )
     fresh = data_dir / "inventory.db"
 
     path_payloads = []
@@ -242,7 +251,7 @@ def test_wheel_contains_and_runs_packaged_migrations_and_runtime(
 
     subprocess.run(
         [
-            sys.executable,
+            str(runtime_python),
             "-m",
             "ah_there_it_is.storage_cli",
             "upgrade",
@@ -266,12 +275,12 @@ def test_wheel_contains_and_runs_packaged_migrations_and_runtime(
 
     rehearsal_candidate = outside / "installed-rehearsal-candidate.db"
     subprocess.run(
-        [sys.executable, "-m", "ah_there_it_is.storage_cli", "backup", str(rehearsal_candidate)],
+        [str(runtime_python), "-m", "ah_there_it_is.storage_cli", "backup", str(rehearsal_candidate)],
         cwd=outside, env=runtime_env, check=True, capture_output=True, text=True,
     )
     active_before_rehearsal = fresh.read_bytes()
     installed_rehearsal = subprocess.run(
-        [sys.executable, "-m", "ah_there_it_is.storage_cli", "restore-rehearsal", str(rehearsal_candidate)],
+        [str(runtime_python), "-m", "ah_there_it_is.storage_cli", "restore-rehearsal", str(rehearsal_candidate)],
         cwd=outside, env=runtime_env, check=True, capture_output=True, text=True,
     )
     rehearsal_report = json.loads(installed_rehearsal.stdout)
@@ -318,7 +327,7 @@ print(json.dumps({"revision": CURRENT_SCHEMA_REVISION}))
 '''
     completed = subprocess.run(
         [
-            sys.executable,
+            str(runtime_python),
             "-c",
             migration_smoke,
             str(outside),
@@ -454,6 +463,7 @@ print(json.dumps({"revision": CURRENT_SCHEMA_REVISION}))
         stdout=subprocess.PIPE,
         stderr=subprocess.PIPE,
         text=True,
+        creationflags=subprocess.CREATE_NEW_PROCESS_GROUP if os.name == "nt" else 0,
     )
     try:
         health_payload: dict[str, object] | None = None
@@ -509,7 +519,7 @@ print(json.dumps({"revision": CURRENT_SCHEMA_REVISION}))
         assert "data-tree-form" in tree_asset_body
     finally:
         if process.poll() is None:
-            process.send_signal(signal.SIGINT)
+            process.send_signal(signal.CTRL_C_EVENT if os.name == "nt" else signal.SIGINT)
         try:
             process.wait(timeout=10)
         except subprocess.TimeoutExpired:

@@ -151,7 +151,7 @@ The next implementation plan reuses the Stage 23 product-stage number under Assi
 
 ## Orchestrated implementation workflow
 
-Implementation-agent assignments and review records are archived under `agent-tasks/`. Assignment 0010 is the final assignment issued under protocol v3. After this process change is merged, future assignments use `agent-tasks/common/v4.md`.
+Implementation-agent assignments and review records are archived under `agent-tasks/`. Assignment 0010 is the final assignment issued under protocol v3. Protocol v4 governed historical U24-only assignments; v5 added pre-issued just-in-time batches. New host-selected assignments use `agent-tasks/common/v6.md` when explicitly launched under it.
 
 Protocol v4 uses a stage-owned seeded branch rather than a separate orchestrator documentation PR. After accepting the previous agent's compact report, the orchestrator does not re-run routine tests, re-review the successful implementation diff, or monitor that implementation CI. It reads the prior review/current strategy plus only the source areas needed to choose the next product or architecture gap.
 
@@ -200,3 +200,7 @@ New OpenAI-compatible and Gemini run metadata uses sanitized base URLs, stable n
 ## Stage 26 delivered — Assignments 0024–0028
 
 Location truth is explicit in storage, portable-v2 archives, agent/domain transitions, scenarios, suggestions and browser. Condition/state is shown separately from Location status (known, unknown, in_use, not_applicable); condition unknown and location unknown have distinct labels. Manual transitions are explicit, including terminal discard/sold and reactivation with a nonterminal state and known or unknown Location. Blank catalog defaults active; lifecycle and unknown filters persist through pagination; nonblank search includes terminal records by default. Suggestions are evidence-labeled and restricted to location-unknown Items. New Activity labels keep historical path evidence. Assignment 0028 verification passed: 360 tests, migration-check, 58-case corpus/scenario checks, 58/58 scenario evaluation, retrieval 86/86, provider-contract 23 tests. Review: `agent-tasks/reviews/0028-r1.md`. No next stage was selected.
+
+## Assignment 0029 delivered — implementation-host enablement
+
+Protocol v6 adds explicit `u24-bash` and `windows-git-bash` launcher profiles while preserving v4/v5 seed, batch, PR/CI, merge and main-advance controls. U24 remains the established execution path. Git Bash with native Windows Python is prepared for a separate first native pilot, including observed backup/restore/WAL/file replacement and process-cleanup checks. Just now selects Bash explicitly; migration and retrieval verification use OS temporary paths, and default scenario evaluation leaves the checkout clean. Installed-wheel smoke uses a temporary venv and platform-correct interpreter/console-script layout without network access. Assignment 0029 local verification ran on U24 only. Review: `agent-tasks/reviews/0029-r1.md`.

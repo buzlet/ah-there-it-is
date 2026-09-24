@@ -66,6 +66,13 @@ def test_windows_localappdata_and_home_fallback(tmp_path: Path) -> None:
         home=home,
     ) == (home / "AppData" / "Local" / "AhThereItIs").resolve()
 
+    assert resolve_data_dir(
+        environ={}, platform_name="win32", home=home,
+    ) == (home / "AppData" / "Local" / "AhThereItIs").resolve()
+    assert default_database_path(
+        environ={"LOCALAPPDATA": str(local)}, platform_name="win32", home=home,
+    ) == (local / "AhThereItIs" / "inventory.db").resolve()
+
 
 def test_data_dir_override_expands_home_and_ignores_blank(tmp_path: Path) -> None:
     home = tmp_path / "home"

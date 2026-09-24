@@ -62,6 +62,7 @@ just provider-smoke
 just live-compare baseline.json variant.json live-compare.json
 just scenario-check
 just scenario-eval
+just retrieval-eval
 just provider-contract
 just model-probe
 just storage-test
@@ -343,3 +344,7 @@ High-cardinality Item history and direct Location contents are now page bounded 
 The previously seeded Stage 23 browser Activity plan (Assignment 0012) was superseded before implementation after an external write-safety audit. Replacement Assignment 0013 delivered database-wide strong identity/path checks and atomic revalidation for agent writes, and made an omitted move target invalid while explicit null remains intentional. Read search ranking is unchanged. The read-only Activity browser was later delivered by Assignment 0020 after Event-time path evidence was added; Stage 26 now renders the new location and terminal transition Event types while preserving those historical path snapshots.
 
 Hard deletion and generic undo remain deferred. Voice, Telegram, images, QR, MCP, PWA, embeddings, multi-user support, public deployment, service-manager integration, containerization, and installer packaging also remain deferred.
+
+## Implementation host status — Assignment 0029
+
+The established U24/Bash execution path remains available as `u24-bash`. Protocol [`agent-tasks/common/v6.md`](agent-tasks/common/v6.md) adds an explicit launcher-selected `windows-git-bash` path using native Windows Python inside Git Bash, with the same seeded-history and PR/CI/merge lifecycle. Canonical `just` verification uses portable temporary paths and leaves the local checkout clean. The Windows path is prepared but awaits its first native Windows pilot; Assignment 0029 was implemented and verified on U24. Historical v4/v5 protocols remain unchanged.

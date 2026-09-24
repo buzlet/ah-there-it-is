@@ -1,4 +1,7 @@
+# Justfile
 # Repeated development operations. `just` is the canonical task runner.
+
+set shell := ["bash", "-cu"]
 
 export PYTHONPATH := "src"
 
@@ -26,10 +29,7 @@ migrate:
     python -m ah_there_it_is.storage_cli upgrade
 
 migration-check:
-    rm -f /tmp/ah-there-it-is-migration-check.db
-    AH_THERE_IT_IS_DATABASE_URL=sqlite:////tmp/ah-there-it-is-migration-check.db python -m ah_there_it_is.storage_cli upgrade
-    AH_THERE_IT_IS_DATABASE_URL=sqlite:////tmp/ah-there-it-is-migration-check.db python -m ah_there_it_is.storage_cli migration-check
-    rm -f /tmp/ah-there-it-is-migration-check.db
+    python -m ah_there_it_is.verification_paths migration-check
 
 eval-export file="evaluation-cases.json":
     python -m ah_there_it_is.evaluation_export > "{{file}}"
@@ -58,11 +58,11 @@ live-compare baseline variant output="live-compare.json":
 scenario-check scenarios="eval/scenarios-v1.json":
     python -c "from ah_there_it_is.agent.scenario_mock import load_scenario_suite; s=load_scenario_suite('{{scenarios}}'); print(f'{s.version}: {len(s.cases)} scenarios')"
 
-scenario-eval corpus="eval/corpus-v1.json" scenarios="eval/scenarios-v1.json" output="scenario-eval.json":
-    python -m ah_there_it_is.scenario_eval --corpus "{{corpus}}" --scenarios "{{scenarios}}" --output "{{output}}"
+scenario-eval corpus="eval/corpus-v1.json" scenarios="eval/scenarios-v1.json":
+    python -m ah_there_it_is.scenario_eval --corpus "{{corpus}}" --scenarios "{{scenarios}}"
 
-retrieval-eval corpus="eval/retrieval-robustness-v1.json" output="/tmp/ah-there-it-is-retrieval-eval.json":
-    python -m ah_there_it_is.retrieval_eval --corpus "{{corpus}}" --output "{{output}}"
+retrieval-eval corpus="eval/retrieval-robustness-v1.json":
+    python -m ah_there_it_is.retrieval_eval --corpus "{{corpus}}"
 
 model-probe suite="eval/model-probes-v1.json" output="model-probe.json":
     python -m ah_there_it_is.model_probe --suite "{{suite}}" --output "{{output}}"
