@@ -4,10 +4,11 @@ from __future__ import annotations
 
 from collections.abc import Callable
 from dataclasses import dataclass
+from datetime import datetime
 
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.exc import IntegrityError
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session, aliased
 
 from ah_there_it_is.agent.runner import AgentRunResult
 from ah_there_it_is.agent.receipts import MutationReceipt
@@ -44,7 +45,36 @@ class IdempotentExecution:
     replayed: bool
 
 
+@dataclass(frozen=True)
+class ChatRequestProjection:
+    id: int
+    request_key: str
+    requested_conversation_id: int | None
+    message: str
+    status: str
+    agent_run_id: int | None
+    error: str | None
+    recovered_from_id: int | None
+    recovered_from_request_key: str | None
+    recovery_note: str | None
+    created_at: datetime
+    updated_at: datetime
+
+
+@dataclass(frozen=True)
+class ChatRequestPage:
+    records: list[ChatRequestProjection]
+    page: int
+    page_size: int
+    total: int
+    has_previous: bool
+    has_next: bool
+
+
 class ChatRequestService:
+    DEFAULT_PAGE_SIZE = 50
+    MAX_PAGE_SIZE = 100
+
     def __init__(self, session: Session) -> None:
         self.session = session
 
@@ -116,6 +146,67 @@ class ChatRequestService:
                 .limit(limit)
             )
         )
+
+    def recent_projection(self, *, limit: int = 100) -> list[ChatRequestProjection]:
+        if limit < 1:
+            raise ValueError("limit must be >= 1")
+        return self._projections(limit=limit)
+
+    def page(
+        self,
+        *,
+        page: int = 1,
+        page_size: int = DEFAULT_PAGE_SIZE,
+    ) -> ChatRequestPage:
+        if page < 1:
+            raise ValueError("page must be at least 1")
+        if page_size < 1 or page_size > self.MAX_PAGE_SIZE:
+            raise ValueError(
+                f"page_size must be between 1 and {self.MAX_PAGE_SIZE}"
+            )
+        total = int(
+            self.session.scalar(select(func.count(ChatRequestRecord.id))) or 0
+        )
+        return ChatRequestPage(
+            records=self._projections(
+                limit=page_size,
+                offset=(page - 1) * page_size,
+            ),
+            page=page,
+            page_size=page_size,
+            total=total,
+            has_previous=page > 1,
+            has_next=page * page_size < total,
+        )
+
+    def _projections(
+        self, *, limit: int, offset: int = 0
+    ) -> list[ChatRequestProjection]:
+        source = aliased(ChatRequestRecord)
+        stmt = (
+            select(
+                ChatRequestRecord.id,
+                ChatRequestRecord.request_key,
+                ChatRequestRecord.requested_conversation_id,
+                ChatRequestRecord.message,
+                ChatRequestRecord.status,
+                ChatRequestRecord.agent_run_id,
+                ChatRequestRecord.error,
+                ChatRequestRecord.recovered_from_id,
+                source.request_key.label("recovered_from_request_key"),
+                ChatRequestRecord.recovery_note,
+                ChatRequestRecord.created_at,
+                ChatRequestRecord.updated_at,
+            )
+            .outerjoin(source, source.id == ChatRequestRecord.recovered_from_id)
+            .order_by(
+                ChatRequestRecord.updated_at.desc(),
+                ChatRequestRecord.id.desc(),
+            )
+            .offset(offset)
+            .limit(limit)
+        )
+        return [ChatRequestProjection(*row) for row in self.session.execute(stmt)]
 
     def get(self, request_key: str) -> ChatRequestRecord | None:
         return self.session.scalar(

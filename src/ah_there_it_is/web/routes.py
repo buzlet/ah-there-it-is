@@ -195,6 +195,22 @@ def build_router(templates: Jinja2Templates) -> APIRouter:
             updated_at=record.updated_at,
         )
 
+    def chat_request_projection_response(record) -> ChatRequestRecordResponse:
+        return ChatRequestRecordResponse(
+            id=record.id,
+            request_key=record.request_key,
+            requested_conversation_id=record.requested_conversation_id,
+            message=record.message,
+            status=record.status,
+            agent_run_id=record.agent_run_id,
+            error=record.error,
+            recovered_from_id=record.recovered_from_id,
+            recovered_from_request_key=record.recovered_from_request_key,
+            recovery_note=record.recovery_note,
+            created_at=record.created_at,
+            updated_at=record.updated_at,
+        )
+
     @router.get(
         "/api/chat-requests",
         response_model=list[ChatRequestRecordResponse],
@@ -207,8 +223,8 @@ def build_router(templates: Jinja2Templates) -> APIRouter:
             raise HTTPException(status_code=400, detail="limit must be between 1 and 500")
         service = ChatRequestService(session)
         return [
-            chat_request_response(record, session)
-            for record in service.recent(limit=limit)
+            chat_request_projection_response(record)
+            for record in service.recent_projection(limit=limit)
         ]
 
     @router.get(
@@ -227,19 +243,28 @@ def build_router(templates: Jinja2Templates) -> APIRouter:
     @router.get("/chat-requests", response_class=HTMLResponse)
     def chat_requests_page(
         request: Request,
+        page: int = 1,
+        page_size: int = ChatRequestService.DEFAULT_PAGE_SIZE,
         session: Session = Depends(get_session),
     ) -> HTMLResponse:
         service = ChatRequestService(session)
-        records = [
-            chat_request_response(record, session).model_dump()
-            for record in service.recent(limit=200)
-        ]
+        try:
+            request_page = service.page(page=page, page_size=page_size)
+        except ValueError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+        def page_url(target_page: int) -> str:
+            return f"/chat-requests?{urlencode({'page': target_page, 'page_size': request_page.page_size})}"
+
         return templates.TemplateResponse(
             request=request,
             name="chat_requests.html",
             context={
                 "app_name": request.app.state.settings.app_name,
-                "records": records,
+                "records": request_page.records,
+                "request_page": request_page,
+                "previous_url": page_url(request_page.page - 1),
+                "next_url": page_url(request_page.page + 1),
             },
         )
 

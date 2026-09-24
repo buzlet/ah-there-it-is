@@ -255,7 +255,6 @@ def test_chat_request_admin_api_and_page_show_recovery_audit() -> None:
             new_detail = client.get("/api/chat-requests/admin-recovery-0001")
 
         assert listing.status_code == 200
-        assert "Page 1" in listing.text
         assert listing.json()[0]["request_key"] == "admin-source-0001"
         assert detail.status_code == 200
         assert detail.json()["status"] == "failed"
@@ -263,6 +262,7 @@ def test_chat_request_admin_api_and_page_show_recovery_audit() -> None:
         assert "Recovery warning" in page.text
         assert "admin-source-0001" in page.text
         assert "/static/chat_requests.js" in page.text
+        assert "Page 1" in page.text
 
         assert recovered.status_code == 200
         body = recovered.json()
@@ -326,6 +326,39 @@ def test_chat_request_recovery_requires_explicit_risk_acknowledgement() -> None:
                 .one_or_none()
                 is None
             )
+    finally:
+        engine.dispose()
+
+
+def test_chat_request_page_navigation_and_limit_validation() -> None:
+    from ah_there_it_is.db.models import ChatRequestRecord
+
+    app, factory, engine = build_test_app()
+    try:
+        with factory() as session:
+            session.add_all(
+                ChatRequestRecord(
+                    request_key=f"page-request-{index:04d}",
+                    requested_conversation_id=None,
+                    message=f"message-{index}",
+                    status="failed",
+                    error="test",
+                )
+                for index in range(55)
+            )
+            session.commit()
+        with TestClient(app) as client:
+            first = client.get("/chat-requests?page=1&page_size=50")
+            second = client.get("/chat-requests?page=2&page_size=50")
+            invalid_page = client.get("/chat-requests?page=0")
+            invalid_page_size = client.get("/chat-requests?page_size=101")
+            invalid_limit = client.get("/api/chat-requests?limit=501")
+        assert first.status_code == 200 and "Next" in first.text
+        assert second.status_code == 200 and "Previous" in second.text
+        assert "page-request-0000" in second.text
+        assert invalid_page.status_code == 400
+        assert invalid_page_size.status_code == 400
+        assert invalid_limit.status_code == 400
     finally:
         engine.dispose()
 
@@ -631,6 +664,7 @@ def test_experiment_pages_show_side_by_side_and_accept_review() -> None:
             )
 
         assert listing.status_code == 200
+        assert "Page 1" in listing.text
         assert "strict-v2" in listing.text
         assert detail.status_code == 200
         assert "Baseline" in detail.text and "Variant" in detail.text
