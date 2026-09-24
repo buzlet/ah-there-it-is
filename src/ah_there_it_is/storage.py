@@ -655,7 +655,10 @@ def create_backup(
         validation = validate_database(temporary)
         if target.exists() and not overwrite:
             raise StorageError(f"backup destination already exists: {target}")
-        os.replace(temporary, target)
+        if overwrite:
+            os.replace(temporary, target)
+        else:
+            _publish_backup_no_overwrite(temporary, target)
         _fsync_path(target)
         _fsync_directory(target.parent)
         return DatabaseValidation(
@@ -1431,6 +1434,21 @@ def _publish_new_database(source: Path, target: Path) -> None:
             f"portable import destination sidecar appeared during publication: "
             f"{occupied_sidecar}"
         )
+    source.unlink()
+
+
+def _publish_backup_no_overwrite(source: Path, target: Path) -> None:
+    """Atomically publish a same-filesystem backup without replacement."""
+    try:
+        os.link(source, target)
+    except FileExistsError as exc:
+        raise StorageError(
+            f"backup destination appeared during backup: {target}"
+        ) from exc
+    except OSError as exc:
+        raise StorageError(
+            f"cannot atomically publish backup to {target}: {exc}"
+        ) from exc
     source.unlink()
 
 

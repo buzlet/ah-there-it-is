@@ -280,6 +280,41 @@ def test_backup_refuses_overwrite_and_active_path(tmp_path: Path) -> None:
         create_backup(url, active)
 
 
+def test_backup_no_overwrite_race_preserves_concurrent_destination(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    import ah_there_it_is.storage as storage
+
+    active = tmp_path / "active.db"
+    backup = tmp_path / "backup-race.db"
+    normal_backup = tmp_path / "backup-normal.db"
+    url = _migrate(active)
+    _seed_operational_state(url)
+    active_before = validate_database(active).sha256
+    assert create_backup(url, normal_backup, overwrite=False).path == str(
+        normal_backup.resolve()
+    )
+    validate_database(normal_backup)
+    original_publish = storage._publish_backup_no_overwrite
+
+    def inject_destination(source: Path, target: Path) -> None:
+        target.write_bytes(b"concurrent backup owner")
+        original_publish(source, target)
+
+    monkeypatch.setattr(
+        storage,
+        "_publish_backup_no_overwrite",
+        inject_destination,
+    )
+    with pytest.raises(StorageError, match="appeared during backup"):
+        create_backup(url, backup, overwrite=False)
+
+    assert backup.read_bytes() == b"concurrent backup owner"
+    assert validate_database(active).sha256 == active_before
+    assert not list(tmp_path.glob(".backup-race.db.backup.*.tmp"))
+
+
 def test_portable_export_contains_core_inventory_not_provider_traces(
     tmp_path: Path,
 ) -> None:
