@@ -1075,6 +1075,68 @@ def test_portable_import_refuses_existing_active_and_invalid_targets(
     assert not absent.exists()
 
 
+def test_portable_import_batches_target_scale_and_rolls_back_before_publication(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    import ah_there_it_is.storage as storage
+
+    active = tmp_path / "active.db"
+    source = tmp_path / "batch-import.json"
+    destination = tmp_path / "batch-import.db"
+    failed_destination = tmp_path / "failed-import.db"
+    url = _migrate(active)
+    raw = _minimal_portable_document()
+    template = raw["inventory"]["items"][0]
+    raw["inventory"]["items"] = [
+        {
+            **template,
+            "id": index,
+            "name": f"Batch Item {index}",
+            "aliases": [f"Alias {index}"],
+            "tags": [f"Tag {index % 20}", f"Tag {(index + 3) % 20}"],
+            "attributes": {"index": index},
+        }
+        for index in range(1, 1001)
+    ]
+    raw["history"]["events"] = []
+    source.write_text(json.dumps(raw, ensure_ascii=False), encoding="utf-8")
+
+    statements: list[str] = []
+    original_create_engine = storage.create_db_engine
+
+    def observed_engine(database_url: str):
+        engine = original_create_engine(database_url)
+        sqlalchemy_event.listen(
+            engine,
+            "before_cursor_execute",
+            lambda _connection, _cursor, statement, *_args: statements.append(statement),
+        )
+        return engine
+
+    monkeypatch.setattr(storage, "create_db_engine", observed_engine)
+    result = import_portable_inventory(url, source, destination)
+    assert result.items == 1000
+    insert_statements = [
+        statement for statement in statements
+        if statement.lstrip().upper().startswith("INSERT")
+    ]
+    assert len(insert_statements) < 40
+    assert sum("INTO tags" in statement for statement in insert_statements) <= 1
+    assert sum("INTO item_tags" in statement for statement in insert_statements) <= 1
+
+    monkeypatch.setattr(
+        storage,
+        "_validate_imported_search_state",
+        lambda _session: (_ for _ in ()).throw(RuntimeError("mid-import failure")),
+    )
+    with pytest.raises(RuntimeError, match="mid-import failure"):
+        import_portable_inventory(url, source, failed_destination)
+    assert not failed_destination.exists()
+    assert not Path(str(failed_destination) + "-wal").exists()
+    assert not Path(str(failed_destination) + "-shm").exists()
+
+
 def test_portable_import_dry_run_cli_creates_no_database(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,

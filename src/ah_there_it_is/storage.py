@@ -1042,8 +1042,8 @@ def _write_portable_inventory(
     session: Session,
     document: PortableDocument,
 ) -> None:
-    for node in _portable_tree_order(document.inventory.categories):
-        session.add(
+    for level in _portable_tree_levels(document.inventory.categories):
+        session.add_all([
             Category(
                 id=node.id,
                 parent_id=node.parent_id,
@@ -1052,12 +1052,12 @@ def _write_portable_inventory(
                 description=node.description,
                 created_at=_portable_datetime(node.created_at, "category.created_at"),
                 updated_at=_portable_datetime(node.updated_at, "category.updated_at"),
-            )
-        )
+            ) for node in level
+        ])
         session.flush()
 
-    for node in _portable_tree_order(document.inventory.locations):
-        session.add(
+    for level in _portable_tree_levels(document.inventory.locations):
+        session.add_all([
             Location(
                 id=node.id,
                 parent_id=node.parent_id,
@@ -1066,13 +1066,12 @@ def _write_portable_inventory(
                 description=node.description,
                 created_at=_portable_datetime(node.created_at, "location.created_at"),
                 updated_at=_portable_datetime(node.updated_at, "location.updated_at"),
-            )
-        )
+            ) for node in level
+        ])
         session.flush()
 
     items = sorted(document.inventory.items, key=lambda item: item.id)
-    for item in items:
-        session.add(
+    session.add_all([
             Item(
                 id=item.id,
                 name=item.name,
@@ -1090,36 +1089,55 @@ def _write_portable_inventory(
                 attributes=item.attributes,
                 created_at=_portable_datetime(item.created_at, "item.created_at"),
                 updated_at=_portable_datetime(item.updated_at, "item.updated_at"),
-            )
-        )
+            ) for item in items
+    ])
     session.flush()
 
-    for item in items:
-        for alias in item.aliases:
-            session.add(
-                Alias(
-                    item_id=item.id,
-                    name=alias,
-                    normalized_name=normalize_name(alias),
-                )
-            )
-    session.flush()
+    alias_rows = [
+        {
+            "item_id": item.id,
+            "name": alias,
+            "normalized_name": normalize_name(alias),
+        }
+        for item in items
+        for alias in item.aliases
+    ]
+    if alias_rows:
+        session.execute(Alias.__table__.insert(), alias_rows)
 
-    tags: dict[str, Tag] = {}
+    tag_names: dict[str, str] = {}
     for item in items:
         for tag_name in item.tags:
             normalized = normalize_name(tag_name)
-            tag = tags.get(normalized)
-            if tag is None:
-                tag = Tag(name=tag_name, normalized_name=normalized)
-                session.add(tag)
-                session.flush()
-                tags[normalized] = tag
-            session.add(ItemTag(item_id=item.id, tag_id=tag.id))
-    session.flush()
+            tag_names.setdefault(normalized, tag_name)
+    tag_ids = {
+        normalized: index
+        for index, normalized in enumerate(tag_names, start=1)
+    }
+    if tag_names:
+        session.execute(
+            Tag.__table__.insert(),
+            [
+                {
+                    "id": tag_ids[normalized],
+                    "name": name,
+                    "normalized_name": normalized,
+                }
+                for normalized, name in tag_names.items()
+            ],
+        )
+    item_tag_rows = [
+        {
+            "item_id": item.id,
+            "tag_id": tag_ids[normalize_name(tag_name)],
+        }
+        for item in items
+        for tag_name in item.tags
+    ]
+    if item_tag_rows:
+        session.execute(ItemTag.__table__.insert(), item_tag_rows)
 
-    for event in sorted(document.history.events, key=lambda event: event.id):
-        session.add(
+    session.add_all([
             Event(
                 id=event.id,
                 event_type=event.event_type,
@@ -1130,7 +1148,8 @@ def _write_portable_inventory(
                 original_text=event.original_text,
                 created_at=_portable_datetime(event.created_at, "event.created_at"),
             )
-        )
+        for event in sorted(document.history.events, key=lambda event: event.id)
+    ])
     session.flush()
 
 
@@ -1148,6 +1167,23 @@ def _portable_tree_order(nodes: list[PortableTreeNode]) -> list[PortableTreeNode
         return value
 
     return sorted(nodes, key=lambda node: (depth(node.id), node.id))
+
+
+def _portable_tree_levels(
+    nodes: list[PortableTreeNode],
+) -> list[list[PortableTreeNode]]:
+    levels: list[list[PortableTreeNode]] = []
+    by_id = {candidate.id: candidate for candidate in nodes}
+    for node in _portable_tree_order(nodes):
+        node_depth = 0
+        parent_id = node.parent_id
+        while parent_id is not None:
+            node_depth += 1
+            parent_id = by_id[parent_id].parent_id
+        while len(levels) <= node_depth:
+            levels.append([])
+        levels[node_depth].append(node)
+    return levels
 
 
 def _validate_imported_search_state(session: Session) -> None:
