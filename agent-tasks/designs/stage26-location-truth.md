@@ -289,3 +289,104 @@ A future Stage 26 implementation assignment should cover, at minimum:
 - doctor;
 - portable/bootstrap compatibility;
 - deterministic scenarios for known → in_use → known, known → unknown → known, known → sold/discarded, and invalid contradictory combinations.
+
+
+## Closed decision gates after Assignment 0023
+
+These decisions are now **approved** and remove the remaining product ambiguity before Stage 26 implementation.
+
+### Portable format evolution
+
+Adopt `inventory-portable-v2`.
+
+Rules:
+
+- current Stage 26-capable databases export as v2;
+- v1 remains a supported import format;
+- v1 import derives `location_status` conservatively:
+  - non-null location -> `known`;
+  - null + `discarded` -> `not_applicable`;
+  - all other null -> `unknown`;
+- new Stage 26 semantics must never be exported as v1 because that would discard meaning;
+- v2 carries `location_status` and the extended ItemState vocabulary explicitly.
+
+### Reactivation of terminal Items
+
+Both `sold` and `discarded` are reversible only through an explicit correction/reactivation operation.
+
+The reactivation request must explicitly choose:
+
+- a non-terminal ItemState;
+- either:
+  - a known Location ID, yielding `location_status=known`; or
+  - no Location, yielding `location_status=unknown`.
+
+Reactivation must not infer the previous non-terminal state or previous Location.
+
+Direct reactivation into `in_use` is not supported. Reactivate first, then use the explicit take/in-use operation.
+
+Every reactivation creates immutable domain history.
+
+### Visibility of terminal Items
+
+Terminal Items remain searchable by default.
+
+Reason: the product is a memory system, so "sold" or "discarded" is a useful answer to "where/what happened to X".
+
+Browser catalog behavior:
+
+- default view: active Items only;
+- explicit filter: terminal only;
+- explicit filter: all Items.
+
+Agent/read search results include terminal state clearly.
+
+Storage/location mutation tools must reject terminal Items until they are explicitly reactivated.
+
+### UI naming for the two unknown concepts
+
+Keep the internal enum names unchanged.
+
+User-facing labels must distinguish:
+
+- Item state `unknown` -> **Condition/state unknown**;
+- `location_status=unknown` -> **Location unknown**.
+
+API/schema documentation must preserve the same distinction.
+
+### Coverage policy after first baseline
+
+First CI branch-coverage baseline from PR #42:
+
+- statements: 6041;
+- missed statements: 853;
+- branches: 1516;
+- partial branches: 293;
+- total branch coverage: **84%**.
+
+Coverage remains **report-only** for now.
+
+Do not add a `fail-under` threshold until multiple representative implementation PRs establish a stable baseline. Coverage must remain CI-only; no local/project dependency is added merely to collect it.
+
+### Retrieval decision after Assignment 0023
+
+The gating retrieval corpus passes 86/86 with current SearchService semantics.
+
+Measured unsupported observations:
+
+- typo;
+- RU transliteration;
+- UK inflection.
+
+These remain non-requirements.
+
+One real bounded-candidate starvation case was measured:
+
+- query: `blue box`;
+- intended target FTS rank: 36;
+- current bounded candidate pool: 20;
+- target absent from the returned top five.
+
+The next search change is therefore limited to correcting bounded candidate starvation while preserving existing ranking semantics.
+
+Do not introduce fuzzy matching, transliteration, stemming/morphology, embeddings or vector search as part of that fix.
