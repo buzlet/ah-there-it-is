@@ -150,7 +150,9 @@ def test_conversation_persists_only_human_visible_turns(session: Session) -> Non
     )
 
     assert second.conversation_id == first.conversation_id
-    messages = ConversationService(session).list_messages(first.conversation_id)
+    messages = ConversationService(session).message_window(
+        first.conversation_id
+    ).messages
     assert [(message.role, message.content) for message in messages] == [
         ("user", "Переложил адаптер"),
         ("assistant", "Какой именно адаптер?"),

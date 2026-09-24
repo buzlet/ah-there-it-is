@@ -5,17 +5,19 @@ const form = document.getElementById("chat-form");
 const input = document.getElementById("message");
 const statusNode = document.getElementById("chat-status");
 const newButton = document.getElementById("new-conversation");
+const loadOlderButton = document.getElementById("load-older");
 let conversationId = Number(localStorage.getItem(STORAGE_KEY)) || null;
+let nextBeforeId = null;
 
-function addMessage(role, content, runId = null, rating = null, comment = null) {
+function addMessage(role, content, runId = null, rating = null, comment = null, prepend = false) {
   const node = document.createElement("div");
   node.className = `message ${role}`;
   const text = document.createElement("div");
   text.textContent = content;
   node.appendChild(text);
   if (role === "assistant" && runId) node.appendChild(feedbackControls(runId, rating, comment));
-  log.appendChild(node);
-  node.scrollIntoView({block: "nearest"});
+  if (prepend) log.prepend(node); else log.appendChild(node);
+  if (!prepend) node.scrollIntoView({block: "nearest"});
 }
 
 function feedbackControls(runId, currentRating, currentComment) {
@@ -64,8 +66,26 @@ async function restoreConversation() {
   for (const message of data.messages) {
     addMessage(message.role, message.content, message.run_id, message.rating, message.comment);
   }
+  nextBeforeId = data.next_before_id;
+  loadOlderButton.hidden = !data.has_older;
   return data.messages;
 }
+
+async function loadOlderMessages() {
+  if (!conversationId || !nextBeforeId) return;
+  const response = await fetch(
+    `/api/conversations/${conversationId}?before_id=${nextBeforeId}`
+  );
+  if (!response.ok) { statusNode.textContent = "Could not load older messages."; return; }
+  const data = await response.json();
+  for (const message of [...data.messages].reverse()) {
+    addMessage(message.role, message.content, message.run_id, message.rating, message.comment, true);
+  }
+  nextBeforeId = data.next_before_id;
+  loadOlderButton.hidden = !data.has_older;
+}
+
+loadOlderButton.addEventListener("click", loadOlderMessages);
 
 function makeRequestKey() {
   if (globalThis.crypto && typeof globalThis.crypto.randomUUID === "function") {
@@ -126,6 +146,8 @@ newButton.addEventListener("click", () => {
   localStorage.removeItem(STORAGE_KEY);
   conversationId = null;
   log.textContent = "";
+  nextBeforeId = null;
+  loadOlderButton.hidden = true;
   statusNode.textContent = "New conversation.";
   input.focus();
 });

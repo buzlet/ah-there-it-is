@@ -67,7 +67,7 @@ def test_agent_context_window_rules_and_new_conversation(session: Session) -> No
         "system", "user",
     ]
     assert fresh_llm.calls[0][0][-1].content == "First turn"
-    assert len(ConversationService(session).list_messages(fresh.conversation_id)) == 2
+    assert len(ConversationService(session).message_window(fresh.conversation_id).messages) == 2
 
     short_id = _seed_messages(session, 3)
     short = ConversationService(session).list_agent_context_messages(short_id)
@@ -123,9 +123,11 @@ def test_agent_run_loads_only_40_of_1000_and_logs_sent_context(
         message.model_dump(mode="json") for message in sent
     ]
 
-    stored = ConversationService(session).list_messages(conversation_id)
-    assert len(stored) == 1002
-    assert stored[0].content == "persisted-0001"
+    stored = ConversationService(session).message_window(
+        conversation_id, limit=100
+    ).messages
+    assert len(stored) == 100
+    assert stored[0].content == "persisted-0903"
     assert [message.content for message in stored[-2:]] == [
         "current turn", "Bounded reply.",
     ]
@@ -134,3 +136,39 @@ def test_agent_run_loads_only_40_of_1000_and_logs_sent_context(
             AgentRunLog.conversation_id == conversation_id
         )
     ) == 1
+
+
+def test_conversation_message_window_is_stable_and_bounded(session: Session) -> None:
+    conversation_id = _seed_messages(session, 1001)
+    service = ConversationService(session)
+
+    with _observe_messages(session) as (loaded, statements):
+        latest = service.message_window(conversation_id)
+
+    assert len(latest.messages) == 50
+    assert latest.has_older is True
+    assert latest.next_before_id == latest.messages[0].id
+    assert [message.content for message in latest.messages] == [
+        f"persisted-{index:04d}" for index in range(952, 1002)
+    ]
+    assert len(loaded) <= 51
+    assert any("LIMIT" in statement.upper() for statement in statements)
+
+    cursor = latest.next_before_id
+    assert cursor is not None
+    service.add_message(conversation_id, "user", "new-after-cursor")
+    older = service.message_window(conversation_id, limit=100, before_id=cursor)
+    assert len(older.messages) == 100
+    assert older.messages[-1].content == "persisted-0951"
+    assert not ({message.id for message in latest.messages} & {message.id for message in older.messages})
+
+    empty_id = service.create().id
+    empty = service.message_window(empty_id)
+    assert empty.messages == [] and empty.has_older is False
+    for invalid_limit in (0, 101):
+        try:
+            service.message_window(conversation_id, limit=invalid_limit)
+        except ValueError:
+            pass
+        else:
+            raise AssertionError("invalid limit accepted")

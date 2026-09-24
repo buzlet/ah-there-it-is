@@ -7,10 +7,11 @@ from ah_there_it_is.agent.experiments import ExperimentRunner
 from ah_there_it_is.app import create_app
 from ah_there_it_is.agent.runner import AgentRunner
 from ah_there_it_is.config import Settings
-from ah_there_it_is.db.models import Base
+from ah_there_it_is.db.models import AgentRunLog, Base
 from ah_there_it_is.db.search_schema import install_fts_schema
 from ah_there_it_is.db.session import create_db_engine, create_session_factory
 from ah_there_it_is.services.catalog import CatalogService
+from ah_there_it_is.services.conversations import ConversationService
 from ah_there_it_is.services.evaluation import EvaluationService
 from ah_there_it_is.services.inventory import InventoryService
 
@@ -261,6 +262,7 @@ def test_chat_request_admin_api_and_page_show_recovery_audit() -> None:
         assert "Recovery warning" in page.text
         assert "admin-source-0001" in page.text
         assert "/static/chat_requests.js" in page.text
+        assert "Page 1" in page.text
 
         assert recovered.status_code == 200
         body = recovered.json()
@@ -324,6 +326,39 @@ def test_chat_request_recovery_requires_explicit_risk_acknowledgement() -> None:
                 .one_or_none()
                 is None
             )
+    finally:
+        engine.dispose()
+
+
+def test_chat_request_page_navigation_and_limit_validation() -> None:
+    from ah_there_it_is.db.models import ChatRequestRecord
+
+    app, factory, engine = build_test_app()
+    try:
+        with factory() as session:
+            session.add_all(
+                ChatRequestRecord(
+                    request_key=f"page-request-{index:04d}",
+                    requested_conversation_id=None,
+                    message=f"message-{index}",
+                    status="failed",
+                    error="test",
+                )
+                for index in range(55)
+            )
+            session.commit()
+        with TestClient(app) as client:
+            first = client.get("/chat-requests?page=1&page_size=50")
+            second = client.get("/chat-requests?page=2&page_size=50")
+            invalid_page = client.get("/chat-requests?page=0")
+            invalid_page_size = client.get("/chat-requests?page_size=101")
+            invalid_limit = client.get("/api/chat-requests?limit=501")
+        assert first.status_code == 200 and "Next" in first.text
+        assert second.status_code == 200 and "Previous" in second.text
+        assert "page-request-0000" in second.text
+        assert invalid_page.status_code == 400
+        assert invalid_page_size.status_code == 400
+        assert invalid_limit.status_code == 400
     finally:
         engine.dispose()
 
@@ -393,12 +428,56 @@ def test_conversation_can_continue_and_be_restored_with_rating() -> None:
         assert feedback.status_code == 200
         assert feedback.json()["rating"] == 5
         assert restored.status_code == 200
+        assert restored.json()["limit"] == 50
+        assert restored.json()["has_older"] is False
         assistant = restored.json()["messages"][-1]
         assert assistant["run_id"] == first["run_id"]
         assert assistant["rating"] == 5
         assert assistant["comment"] == "точно"
         assert second.status_code == 200
         assert second.json()["conversation_id"] == first["conversation_id"]
+    finally:
+        engine.dispose()
+
+
+def test_conversation_api_pages_history_and_browser_exposes_load_older() -> None:
+    app, factory, engine = build_test_app()
+    try:
+        with factory() as session:
+            conversations = ConversationService(session)
+            conversation_id = conversations.create().id
+            for index in range(105):
+                conversations.add_message(
+                    conversation_id,
+                    "assistant" if index % 2 else "user",
+                    f"history-{index:03d}",
+                )
+        with TestClient(app) as client:
+            latest = client.get(f"/api/conversations/{conversation_id}?limit=50")
+            cursor = latest.json()["next_before_id"]
+            older = client.get(
+                f"/api/conversations/{conversation_id}?limit=50&before_id={cursor}"
+            )
+            invalid_limit = client.get(f"/api/conversations/{conversation_id}?limit=101")
+            invalid_cursor = client.get(f"/api/conversations/{conversation_id}?before_id=0")
+            missing_cursor = client.get(
+                f"/api/conversations/{conversation_id}?before_id=999999"
+            )
+            page = client.get("/")
+            script = client.get("/static/chat.js")
+
+        assert latest.status_code == 200 and latest.json()["has_older"] is True
+        assert len(latest.json()["messages"]) == 50
+        assert len(older.json()["messages"]) == 50
+        assert not (
+            {row["id"] for row in latest.json()["messages"]}
+            & {row["id"] for row in older.json()["messages"]}
+        )
+        assert invalid_limit.status_code == 400
+        assert invalid_cursor.status_code == 400
+        assert missing_cursor.status_code == 400
+        assert 'id="load-older"' in page.text
+        assert "before_id=${nextBeforeId}" in script.text
     finally:
         engine.dispose()
 
@@ -479,6 +558,43 @@ def test_evaluation_pages_show_variant_summary_and_trace() -> None:
         assert detail.status_code == 200
         assert "Tool trace" in detail.text
         assert "search_items" in detail.text
+        assert "Page 1" in summary.text
+    finally:
+        engine.dispose()
+
+
+def test_evaluation_page_navigation_and_validation() -> None:
+    app, factory, engine = build_test_app()
+    try:
+        with factory() as session:
+            conversation_id = ConversationService(session).create().id
+            session.add_all(
+                AgentRunLog(
+                    conversation_id=conversation_id,
+                    prompt_version="page-v1",
+                    prompt_hash="b" * 64,
+                    system_prompt="page",
+                    llm_provider="test",
+                    llm_model="page",
+                    llm_config={},
+                    input_messages=[],
+                    tool_trace=[],
+                    mutation_receipts=[],
+                    final_content=f"response-{index}",
+                    rounds=1,
+                    status="completed",
+                )
+                for index in range(55)
+            )
+            session.commit()
+        with TestClient(app) as client:
+            first = client.get("/evaluations?page=1&page_size=50")
+            second = client.get("/evaluations?page=2&page_size=50")
+            invalid = client.get("/evaluations?page_size=101")
+        assert first.status_code == 200 and "Next" in first.text
+        assert second.status_code == 200 and "Previous" in second.text
+        assert "response-0" in second.text
+        assert invalid.status_code == 400
     finally:
         engine.dispose()
 
@@ -548,6 +664,7 @@ def test_experiment_pages_show_side_by_side_and_accept_review() -> None:
             )
 
         assert listing.status_code == 200
+        assert "Page 1" in listing.text
         assert "strict-v2" in listing.text
         assert detail.status_code == 200
         assert "Baseline" in detail.text and "Variant" in detail.text

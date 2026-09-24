@@ -4,7 +4,7 @@ import threading
 import time
 
 import pytest
-from sqlalchemy import func, select
+from sqlalchemy import event, func, select
 from sqlalchemy.orm import Session
 
 from ah_there_it_is.agent import LLMResponse, ScriptedLLMClient, ToolCall
@@ -424,6 +424,56 @@ def test_recent_requests_orders_latest_update_first(session: Session) -> None:
 
     rows = service.recent(limit=2)
     assert [row.request_key for row in rows] == ["recent-0002", "recent-0001"]
+
+
+def test_request_projection_pages_recovery_links_without_n_plus_one(
+    session: Session,
+) -> None:
+    source = ChatRequestRecord(
+        request_key="projection-source",
+        requested_conversation_id=None,
+        message="source",
+        status="failed",
+        error="failed",
+    )
+    session.add(source)
+    session.flush()
+    session.add_all(
+        ChatRequestRecord(
+            request_key=f"projection-{index:04d}",
+            requested_conversation_id=None,
+            message="retry",
+            status="failed",
+            error="failed",
+            recovered_from_id=source.id,
+            recovery_note="checked",
+        )
+        for index in range(1005)
+    )
+    session.commit()
+    session.expunge_all()
+
+    statements: list[str] = []
+    engine = session.get_bind()
+    event.listen(
+        engine,
+        "before_cursor_execute",
+        lambda _connection, _cursor, statement, *_args: statements.append(statement),
+    )
+    service = ChatRequestService(session)
+    first = service.page(page=1, page_size=100)
+    second = service.page(page=2, page_size=100)
+    api_rows = service.recent_projection(limit=500)
+
+    assert len(first.records) == len(second.records) == 100
+    assert first.total == 1006 and first.has_next is True
+    assert first.records[0].id > first.records[-1].id > second.records[-1].id
+    assert all(row.recovered_from_request_key == "projection-source" for row in first.records)
+    assert len(api_rows) == 500
+    assert len(statements) == 5
+    for page, page_size in ((0, 50), (1, 0), (1, 101)):
+        with pytest.raises(ValueError):
+            service.page(page=page, page_size=page_size)
 
 
 def test_concurrent_same_key_allows_exactly_one_operation(tmp_path) -> None:

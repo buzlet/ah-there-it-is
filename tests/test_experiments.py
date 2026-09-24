@@ -1,12 +1,14 @@
 from __future__ import annotations
 
-from sqlalchemy import func, select
+import pytest
+from sqlalchemy import event, func, select
 from sqlalchemy.orm import Session
 
 from ah_there_it_is.agent import AgentRunner, LLMResponse, ScriptedLLMClient, ToolCall
 from ah_there_it_is.agent.experiments import CapturedEvidenceReplay, ExperimentRunner
 from ah_there_it_is.agent.tools import ToolRunState
-from ah_there_it_is.db.models import Event
+from ah_there_it_is.db.models import AgentRunLog, Event, ExperimentRun
+from ah_there_it_is.services.conversations import ConversationService
 from ah_there_it_is.services.evaluation import EvaluationService
 from ah_there_it_is.services.experiments import ExperimentService
 from ah_there_it_is.services.inventory import InventoryService
@@ -190,6 +192,74 @@ def test_experiment_summary_separates_provider_configs(session: Session) -> None
     ]
     assert len(summaries) == 2
     assert len({summary.llm_config_hash for summary in summaries}) == 2
+
+
+def test_experiment_pages_and_all_history_projection_are_bounded(session: Session) -> None:
+    conversation_id = ConversationService(session).create().id
+    source = AgentRunLog(
+        conversation_id=conversation_id,
+        prompt_version="source",
+        prompt_hash="s" * 64,
+        system_prompt="source",
+        llm_provider="test",
+        llm_model="source",
+        llm_config={},
+        input_messages=[],
+        tool_trace=[],
+        mutation_receipts=[],
+        final_content="source",
+        rounds=1,
+        status="completed",
+    )
+    session.add(source)
+    session.flush()
+    session.execute(
+        ExperimentRun.__table__.insert(),
+        [
+            {
+                "source_run_id": source.id,
+                "experiment_name": "bulk-over-10000",
+                "prompt_version": "v3",
+                "prompt_hash": "c" * 64,
+                "system_prompt": "bulk",
+                "llm_provider": "test",
+                "llm_model": "bulk",
+                "llm_config": {"temperature": 0},
+                "input_messages": [],
+                "tool_trace": [],
+                "final_content": "done",
+                "rounds": 1,
+                "status": "completed",
+            }
+            for _ in range(10_005)
+        ],
+    )
+    session.commit()
+    session.expunge_all()
+
+    service = ExperimentService(session)
+    page = service.run_page(page=1)
+    assert len(page.runs) == 50 and page.total == 10_005 and page.has_next is True
+    for invalid in ((0, 50), (1, 0), (1, 101)):
+        with pytest.raises(ValueError):
+            service.run_page(page=invalid[0], page_size=invalid[1])
+
+    session.expunge_all()
+    statements: list[str] = []
+    engine = session.get_bind()
+    event.listen(
+        engine,
+        "before_cursor_execute",
+        lambda _connection, _cursor, statement, *_args: statements.append(statement),
+    )
+    summary = service.summaries()[0]
+    assert summary.cases == 10_005
+    assert summary.completed == 10_005
+    assert len(statements) == 1
+    assert not any(
+        isinstance(value, (ExperimentRun, AgentRunLog))
+        for value in session.identity_map.values()
+    )
 
 
 def test_replay_marks_suggested_locations_seen_but_not_resolved() -> None:

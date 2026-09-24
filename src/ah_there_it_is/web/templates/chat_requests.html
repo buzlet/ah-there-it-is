@@ -69,6 +69,11 @@
   </tbody>
 </table>
 </div>
+<nav class="pagination" aria-label="Chat request pages">
+{% if request_page.has_previous %}<a href="{{ previous_url }}">Previous</a>{% endif %}
+<span>Page {{ request_page.page }} · {{ request_page.total }} requests</span>
+{% if request_page.has_next %}<a href="{{ next_url }}">Next</a>{% endif %}
+</nav>
 {% endblock %}
 {% block scripts %}
 <script src="/static/chat_requests.js" defer></script>

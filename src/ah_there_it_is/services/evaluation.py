@@ -8,7 +8,7 @@ import hashlib
 import json
 from typing import Any
 
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.orm import Session, selectinload
 
 from ah_there_it_is.db.models import AgentFeedback, AgentRunLog, utc_now
@@ -28,6 +28,16 @@ class EvaluationSummary:
     average_rating: float | None
 
 
+@dataclass(frozen=True)
+class EvaluationRunPage:
+    runs: list[AgentRunLog]
+    page: int
+    page_size: int
+    total: int
+    has_previous: bool
+    has_next: bool
+
+
 def canonical_llm_config(config: dict[str, Any]) -> tuple[str, str]:
     canonical = json.dumps(
         config,
@@ -40,6 +50,9 @@ def canonical_llm_config(config: dict[str, Any]) -> tuple[str, str]:
 
 
 class EvaluationService:
+    DEFAULT_PAGE_SIZE = 50
+    MAX_PAGE_SIZE = 100
+
     def __init__(self, session: Session) -> None:
         self.session = session
 
@@ -134,6 +147,37 @@ class EvaluationService:
         )
         return list(self.session.scalars(stmt))
 
+    def run_page(
+        self,
+        *,
+        page: int = 1,
+        page_size: int = DEFAULT_PAGE_SIZE,
+    ) -> EvaluationRunPage:
+        if page < 1:
+            raise ValueError("page must be at least 1")
+        if page_size < 1 or page_size > self.MAX_PAGE_SIZE:
+            raise ValueError(
+                f"page_size must be between 1 and {self.MAX_PAGE_SIZE}"
+            )
+        total = int(self.session.scalar(select(func.count(AgentRunLog.id))) or 0)
+        runs = list(
+            self.session.scalars(
+                select(AgentRunLog)
+                .options(selectinload(AgentRunLog.feedback))
+                .order_by(AgentRunLog.id.desc())
+                .offset((page - 1) * page_size)
+                .limit(page_size)
+            )
+        )
+        return EvaluationRunPage(
+            runs=runs,
+            page=page,
+            page_size=page_size,
+            total=total,
+            has_previous=page > 1,
+            has_next=page * page_size < total,
+        )
+
 
     def conversation_runs(self, conversation_id: int) -> list[AgentRunLog]:
         stmt = (
@@ -144,37 +188,67 @@ class EvaluationService:
         )
         return list(self.session.scalars(stmt))
 
-    def summaries(self) -> list[EvaluationSummary]:
+    def runs_for_assistant_messages(
+        self, assistant_message_ids: Sequence[int]
+    ) -> list[AgentRunLog]:
+        if not assistant_message_ids:
+            return []
         stmt = (
             select(AgentRunLog)
             .options(selectinload(AgentRunLog.feedback))
+            .where(AgentRunLog.assistant_message_id.in_(assistant_message_ids))
             .order_by(AgentRunLog.id.asc())
         )
-        runs = list(self.session.scalars(stmt))
+        return list(self.session.scalars(stmt))
+
+    def summaries(self) -> list[EvaluationSummary]:
+        stmt = (
+            select(
+                AgentRunLog.prompt_version,
+                AgentRunLog.prompt_hash,
+                AgentRunLog.llm_provider,
+                AgentRunLog.llm_model,
+                AgentRunLog.llm_config,
+                func.count(AgentRunLog.id),
+                func.count(AgentFeedback.id),
+                func.sum(AgentFeedback.rating),
+            )
+            .outerjoin(AgentFeedback, AgentFeedback.agent_run_id == AgentRunLog.id)
+            .group_by(
+                AgentRunLog.prompt_version,
+                AgentRunLog.prompt_hash,
+                AgentRunLog.llm_provider,
+                AgentRunLog.llm_model,
+                AgentRunLog.llm_config,
+            )
+        )
         groups: dict[
             tuple[str, str, str, str, str],
-            list[AgentRunLog],
+            dict[str, Any],
         ] = {}
         config_hashes: dict[tuple[str, str, str, str, str], str] = {}
-        for run in runs:
-            canonical, config_hash = canonical_llm_config(run.llm_config)
+        for row in self.session.execute(stmt):
+            config = dict(row.llm_config)
+            canonical, config_hash = canonical_llm_config(config)
             key = (
-                run.prompt_version,
-                run.prompt_hash,
-                run.llm_provider,
-                run.llm_model,
+                row.prompt_version,
+                row.prompt_hash,
+                row.llm_provider,
+                row.llm_model,
                 canonical,
             )
-            groups.setdefault(key, []).append(run)
+            group = groups.setdefault(
+                key,
+                {"config": config, "runs": 0, "rated_runs": 0, "rating_sum": 0},
+            )
+            group["runs"] += int(row[5])
+            group["rated_runs"] += int(row[6])
+            group["rating_sum"] += int(row[7] or 0)
             config_hashes[key] = config_hash
 
         summaries: list[EvaluationSummary] = []
         for key, group in groups.items():
-            ratings = [
-                run.feedback.rating
-                for run in group
-                if run.feedback is not None
-            ]
+            rated_runs = int(group["rated_runs"])
             summaries.append(
                 EvaluationSummary(
                     prompt_version=key[0],
@@ -182,11 +256,11 @@ class EvaluationService:
                     llm_provider=key[2],
                     llm_model=key[3],
                     llm_config_hash=config_hashes[key],
-                    llm_config=dict(group[0].llm_config),
-                    runs=len(group),
-                    rated_runs=len(ratings),
+                    llm_config=dict(group["config"]),
+                    runs=int(group["runs"]),
+                    rated_runs=rated_runs,
                     average_rating=(
-                        sum(ratings) / len(ratings) if ratings else None
+                        int(group["rating_sum"]) / rated_runs if rated_runs else None
                     ),
                 )
             )

@@ -195,6 +195,22 @@ def build_router(templates: Jinja2Templates) -> APIRouter:
             updated_at=record.updated_at,
         )
 
+    def chat_request_projection_response(record) -> ChatRequestRecordResponse:
+        return ChatRequestRecordResponse(
+            id=record.id,
+            request_key=record.request_key,
+            requested_conversation_id=record.requested_conversation_id,
+            message=record.message,
+            status=record.status,
+            agent_run_id=record.agent_run_id,
+            error=record.error,
+            recovered_from_id=record.recovered_from_id,
+            recovered_from_request_key=record.recovered_from_request_key,
+            recovery_note=record.recovery_note,
+            created_at=record.created_at,
+            updated_at=record.updated_at,
+        )
+
     @router.get(
         "/api/chat-requests",
         response_model=list[ChatRequestRecordResponse],
@@ -207,8 +223,8 @@ def build_router(templates: Jinja2Templates) -> APIRouter:
             raise HTTPException(status_code=400, detail="limit must be between 1 and 500")
         service = ChatRequestService(session)
         return [
-            chat_request_response(record, session)
-            for record in service.recent(limit=limit)
+            chat_request_projection_response(record)
+            for record in service.recent_projection(limit=limit)
         ]
 
     @router.get(
@@ -227,19 +243,28 @@ def build_router(templates: Jinja2Templates) -> APIRouter:
     @router.get("/chat-requests", response_class=HTMLResponse)
     def chat_requests_page(
         request: Request,
+        page: int = 1,
+        page_size: int = ChatRequestService.DEFAULT_PAGE_SIZE,
         session: Session = Depends(get_session),
     ) -> HTMLResponse:
         service = ChatRequestService(session)
-        records = [
-            chat_request_response(record, session).model_dump()
-            for record in service.recent(limit=200)
-        ]
+        try:
+            request_page = service.page(page=page, page_size=page_size)
+        except ValueError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+        def page_url(target_page: int) -> str:
+            return f"/chat-requests?{urlencode({'page': target_page, 'page_size': request_page.page_size})}"
+
         return templates.TemplateResponse(
             request=request,
             name="chat_requests.html",
             context={
                 "app_name": request.app.state.settings.app_name,
-                "records": records,
+                "records": request_page.records,
+                "request_page": request_page,
+                "previous_url": page_url(request_page.page - 1),
+                "next_url": page_url(request_page.page + 1),
             },
         )
 
@@ -314,15 +339,24 @@ def build_router(templates: Jinja2Templates) -> APIRouter:
     @router.get("/api/conversations/{conversation_id}", response_model=ConversationResponse)
     def conversation(
         conversation_id: int,
+        limit: int = ConversationService.DEFAULT_MESSAGE_WINDOW_LIMIT,
+        before_id: int | None = None,
         session: Session = Depends(get_session),
     ) -> ConversationResponse:
         conversations = ConversationService(session)
         evaluations = EvaluationService(session)
         try:
-            messages = conversations.list_messages(conversation_id)
+            window = conversations.message_window(
+                conversation_id, limit=limit, before_id=before_id
+            )
         except EntityNotFoundError as exc:
             raise HTTPException(status_code=404, detail=str(exc)) from exc
-        runs = evaluations.conversation_runs(conversation_id)
+        except ValueError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+        assistant_message_ids = [
+            message.id for message in window.messages if message.role == "assistant"
+        ]
+        runs = evaluations.runs_for_assistant_messages(assistant_message_ids)
         by_assistant_message = {
             run.assistant_message_id: run
             for run in runs
@@ -339,8 +373,12 @@ def build_router(templates: Jinja2Templates) -> APIRouter:
                     rating=(run.feedback.rating if run and run.feedback else None),
                     comment=(run.feedback.comment if run and run.feedback else None),
                 )
-                for message in messages
+                for message in window.messages
             ],
+            limit=window.limit,
+            before_id=before_id,
+            has_older=window.has_older,
+            next_before_id=window.next_before_id,
         )
 
     @router.post("/api/runs/{run_id}/feedback", response_model=FeedbackResponse)
@@ -771,15 +809,31 @@ def build_router(templates: Jinja2Templates) -> APIRouter:
 
 
     @router.get("/experiments", response_class=HTMLResponse)
-    def experiments(request: Request, session: Session = Depends(get_session)) -> HTMLResponse:
+    def experiments(
+        request: Request,
+        page: int = 1,
+        page_size: int = ExperimentService.DEFAULT_PAGE_SIZE,
+        session: Session = Depends(get_session),
+    ) -> HTMLResponse:
         service = ExperimentService(session)
+        try:
+            run_page = service.run_page(page=page, page_size=page_size)
+        except ValueError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+        def page_url(target_page: int) -> str:
+            return f"/experiments?{urlencode({'page': target_page, 'page_size': run_page.page_size})}"
+
         return templates.TemplateResponse(
             request=request,
             name="experiments.html",
             context={
                 "app_name": request.app.state.settings.app_name,
                 "summaries": service.summaries(),
-                "runs": service.recent_runs(limit=100),
+                "runs": run_page.runs,
+                "run_page": run_page,
+                "previous_url": page_url(run_page.page - 1),
+                "next_url": page_url(run_page.page + 1),
             },
         )
 
@@ -832,15 +886,31 @@ def build_router(templates: Jinja2Templates) -> APIRouter:
         )
 
     @router.get("/evaluations", response_class=HTMLResponse)
-    def evaluations(request: Request, session: Session = Depends(get_session)) -> HTMLResponse:
+    def evaluations(
+        request: Request,
+        page: int = 1,
+        page_size: int = EvaluationService.DEFAULT_PAGE_SIZE,
+        session: Session = Depends(get_session),
+    ) -> HTMLResponse:
         service = EvaluationService(session)
+        try:
+            run_page = service.run_page(page=page, page_size=page_size)
+        except ValueError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+        def page_url(target_page: int) -> str:
+            return f"/evaluations?{urlencode({'page': target_page, 'page_size': run_page.page_size})}"
+
         return templates.TemplateResponse(
             request=request,
             name="evaluations.html",
             context={
                 "app_name": request.app.state.settings.app_name,
                 "summaries": service.summaries(),
-                "runs": service.recent_runs(limit=100),
+                "runs": run_page.runs,
+                "run_page": run_page,
+                "previous_url": page_url(run_page.page - 1),
+                "next_url": page_url(run_page.page + 1),
             },
         )
 

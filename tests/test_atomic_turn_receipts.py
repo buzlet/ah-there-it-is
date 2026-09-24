@@ -57,7 +57,7 @@ def test_error_after_changed_mutation_rolls_back_and_stops(
     assert run.status == "failed"
     assert run.mutation_receipts == []
     assert run.user_message_id is None
-    assert ConversationService(session).list_messages(run.conversation_id) == []
+    assert ConversationService(session).message_window(run.conversation_id).messages == []
     created = run.tool_trace[1]["tool_results"][0]["result"]
     assert created["changed"] is True
     assert created["commit_state"] == "rolled_back"
@@ -286,6 +286,9 @@ def test_chat_mutation_error_returns_failure_without_conversation_message() -> N
             run = EvaluationService(session).recent_runs()[0]
             assert run.status == "failed"
             assert run.mutation_receipts == []
-            assert ConversationService(session).list_messages(run.conversation_id) == []
+            assert (
+                ConversationService(session).message_window(run.conversation_id).messages
+                == []
+            )
     finally:
         engine.dispose()
