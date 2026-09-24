@@ -115,3 +115,40 @@ python tools/agent/lifecycle_checkpoints.py checkpoint-status \
   --state-dir "$HOME/.local/state/ah-there-it-is" \
   --assignment 0031
 ```
+
+## Canonical verification supervisor
+
+`tools/agent/canonical_verifier.py` supervises exactly these existing recipes,
+in this fixed order: `check`, `migration-check`, `corpus-check`,
+`scenario-check`, `scenario-eval`, `retrieval-eval`, and `provider-contract`.
+It calls `just <recipe>` directly from the supplied repository; it does not
+reimplement any recipe or change CI.
+
+Each run uses a new state directory outside the worktree. The default timeout
+is one hour per recipe. Stdout and stderr are stored separately per attempt in
+bounded logs (up to 1 MiB per stream); truncation metadata and both ends of a
+large stream are kept. Atomic `run.json` updates preserve completed-check state,
+and `summary.json` is atomically written when the run reaches a terminal result.
+A repository-scoped process lock prevents two verifier runs from running at the
+same time.
+
+```bash
+python tools/agent/canonical_verifier.py start \
+  --repo /home/gpt/projects/ah-there-it-is \
+  --state-dir "$HOME/.local/state/ah-there-it-is/canonical-runs/0032-final-head"
+
+python tools/agent/canonical_verifier.py status \
+  --state-dir "$HOME/.local/state/ah-there-it-is/canonical-runs/0032-final-head"
+
+python tools/agent/canonical_verifier.py resume \
+  --repo /home/gpt/projects/ah-there-it-is \
+  --state-dir "$HOME/.local/state/ah-there-it-is/canonical-runs/0032-final-head"
+```
+
+A timed-out recipe is stopped by signaling its process group, then escalating
+after a short grace interval. Status reports a live supervisor or a still-live
+orphaned recipe process group so a second verifier is not started. Resume only
+continues after the previous supervisor has stopped, when the recorded Git HEAD
+and fixed recipe definitions still match and every recorded check succeeded. An
+interrupted recipe without a durable success record is run again; successful
+checks are reused only from a valid same-HEAD prefix.
