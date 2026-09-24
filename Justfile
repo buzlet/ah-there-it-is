@@ -4,6 +4,7 @@
 set shell := ["bash", "-cu"]
 
 export PYTHONPATH := "src"
+export PATH := ".venv/bin:" + env_var("PATH")
 
 default:
     @just --list
