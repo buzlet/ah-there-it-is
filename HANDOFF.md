@@ -14,14 +14,15 @@ Historical process material is archived and is not normal implementation context
 
 ## Execution
 
-Established U24 account:
+Direct U24 execution runs as OS user `rdu1`.
 
-- user: `gpt`;
-- home: `/home/gpt`;
-- repo: `/home/gpt/projects/ah-there-it-is`;
-- venv: repository `.venv`.
+Each issued patch/batch receives its own exact checkout path under:
 
-The direct-shell environment is already connected to U24. Do not create an SSH layer or launch a nested Codex process.
+`/home/rdu1/Projects/<patch-name>`
+
+The agent must stay inside that checkout for Git, edits, Python, Just and tests. Do not switch to `gpt`, do not use sudo, and do not reuse another patch checkout.
+
+The direct-shell environment is already connected to U24.
 
 Remote Commander on U24 remains available when explicitly selected.
 

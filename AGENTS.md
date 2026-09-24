@@ -59,14 +59,13 @@ The agent must not expand verification scope on its own.
 
 ## Execution
 
-Direct U24 execution is already connected to the machine and runs as local development on U24.
+Direct U24 execution is already connected to the machine and runs as OS user `rdu1`.
 
-Required U24 state:
+The launcher supplies a unique patch checkout under:
 
-- user `gpt`;
-- `HOME=/home/gpt`;
-- repo `/home/gpt/projects/ah-there-it-is`;
-- Python from repository `.venv`.
+`/home/rdu1/Projects/<patch-name>`
+
+All Git, edits, Python, Just and tests must run only inside that exact checkout. Do not switch users, use sudo, or operate in another repository checkout.
 
 Remote Commander on U24 remains supported when explicitly selected.
 
