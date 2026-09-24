@@ -28,7 +28,7 @@ jobs:
       - name: Tests with coverage
         run: |
           python -m coverage run --branch --source=ah_there_it_is -m pytest
-          python -m coverage report --show-missing
+          python -m coverage report --show-missing --precision=2 --fail-under=83.00
       - run: just migration-check
       - run: just corpus-check
       - run: just scenario-check
