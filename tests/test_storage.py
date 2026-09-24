@@ -315,6 +315,83 @@ def test_backup_no_overwrite_race_preserves_concurrent_destination(
     assert not list(tmp_path.glob(".backup-race.db.backup.*.tmp"))
 
 
+@pytest.mark.parametrize(
+    ("failure_stage", "published"),
+    [
+        ("copy", False),
+        ("validation", False),
+        ("replace", False),
+        ("file_fsync", True),
+        ("directory_fsync", True),
+    ],
+)
+def test_backup_overwrite_failure_atomicity(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    failure_stage: str,
+    published: bool,
+) -> None:
+    import ah_there_it_is.storage as storage
+
+    active = tmp_path / f"active-{failure_stage}.db"
+    backup = tmp_path / f"overwrite-{failure_stage}.db"
+    url = _migrate(active)
+    _seed_operational_state(url)
+    create_backup(url, backup)
+    old_bytes = backup.read_bytes()
+
+    engine = create_db_engine(url)
+    try:
+        with Session(engine) as session:
+            InventoryService(session).create_item(f"New state {failure_stage}")
+    finally:
+        engine.dispose()
+
+    if failure_stage == "copy":
+        monkeypatch.setattr(
+            storage,
+            "_copy_sqlite_snapshot",
+            lambda _source, _target: (_ for _ in ()).throw(OSError("copy fault")),
+        )
+    elif failure_stage == "validation":
+        original_validate = storage.validate_database
+
+        def fail_candidate(path, **kwargs):
+            if ".backup." in Path(path).name:
+                raise DatabaseValidationError("validation fault")
+            return original_validate(path, **kwargs)
+
+        monkeypatch.setattr(storage, "validate_database", fail_candidate)
+    elif failure_stage == "replace":
+        monkeypatch.setattr(
+            storage.os,
+            "replace",
+            lambda _source, _target: (_ for _ in ()).throw(OSError("replace fault")),
+        )
+    elif failure_stage == "file_fsync":
+        monkeypatch.setattr(
+            storage,
+            "_fsync_path",
+            lambda _path: (_ for _ in ()).throw(OSError("file fsync fault")),
+        )
+    else:
+        monkeypatch.setattr(
+            storage,
+            "_fsync_directory",
+            lambda _path: (_ for _ in ()).throw(OSError("directory fsync fault")),
+        )
+
+    with pytest.raises(StorageError) as raised:
+        create_backup(url, backup, overwrite=True)
+    assert not list(tmp_path.glob(f".{backup.name}.backup.*.tmp"))
+    if published:
+        assert "was published but durability sync failed" in str(raised.value)
+        validate_database(backup)
+        assert backup.read_bytes() != old_bytes
+    else:
+        assert backup.read_bytes() == old_bytes
+
+
 def test_portable_export_contains_core_inventory_not_provider_traces(
     tmp_path: Path,
 ) -> None:

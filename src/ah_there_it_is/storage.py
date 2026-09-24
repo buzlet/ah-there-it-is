@@ -651,16 +651,41 @@ def create_backup(
 
     temporary = _temporary_sibling(target, "backup")
     try:
-        _copy_sqlite_snapshot(source, temporary)
-        validation = validate_database(temporary)
+        try:
+            _copy_sqlite_snapshot(source, temporary)
+        except Exception as exc:
+            raise StorageError(f"backup snapshot copy failed: {exc}") from exc
+        try:
+            validation = validate_database(temporary)
+        except Exception as exc:
+            raise StorageError(f"backup candidate validation failed: {exc}") from exc
         if target.exists() and not overwrite:
             raise StorageError(f"backup destination already exists: {target}")
-        if overwrite:
-            os.replace(temporary, target)
-        else:
-            _publish_backup_no_overwrite(temporary, target)
-        _fsync_path(target)
-        _fsync_directory(target.parent)
+        try:
+            if overwrite:
+                os.replace(temporary, target)
+            else:
+                _publish_backup_no_overwrite(temporary, target)
+        except StorageError:
+            raise
+        except OSError as exc:
+            raise StorageError(f"backup publication failed: {exc}") from exc
+        try:
+            _fsync_path(target)
+            _fsync_directory(target.parent)
+        except OSError as exc:
+            try:
+                validate_database(target)
+                validation_detail = "published destination validates successfully"
+            except Exception as validation_error:
+                validation_detail = (
+                    "published destination validation failed: "
+                    f"{type(validation_error).__name__}: {validation_error}"
+                )
+            raise StorageError(
+                f"backup was published but durability sync failed: {exc}; "
+                f"{validation_detail}"
+            ) from exc
         return DatabaseValidation(
             path=str(target),
             size_bytes=target.stat().st_size,
