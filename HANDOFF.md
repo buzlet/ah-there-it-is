@@ -14,11 +14,11 @@ Historical process material is archived and is not normal implementation context
 
 ## Execution
 
-Direct U24 execution runs as OS user `rdu1`.
+Direct U24 execution runs as OS user `rdu01`.
 
 Each issued patch/batch receives its own exact checkout path under:
 
-`/home/rdu1/Projects/<patch-name>`
+`/home/rdu01/projects/<patch-name>`
 
 The agent must stay inside that checkout for Git, edits, Python, Just and tests. Do not switch to `gpt`, do not use sudo, and do not reuse another patch checkout.
 
