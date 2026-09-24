@@ -37,6 +37,8 @@ class ItemSearchCandidate(SearchCandidate):
     entity_type: Literal["item"] = "item"
     state: str
     location_id: int | None = None
+    current_location_id: int | None = None
+    location_status: str
     location_path: str | None = None
     category_id: int | None = None
     category_path: str | None = None

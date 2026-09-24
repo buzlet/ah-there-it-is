@@ -15,6 +15,7 @@ class ExpectedCheck(BaseModel):
     kind: Literal[
         "item_location",
         "item_location_none",
+        "item_location_status",
         "item_exists",
         "item_state",
         "item_quantity",
@@ -28,6 +29,7 @@ class ExpectedCheck(BaseModel):
     ]
     item_query: str | None = None
     location_query: str | None = None
+    location_status: str | None = None
     state: str | None = None
     quantity: int | None = Field(default=None, ge=1)
     text: str | None = None
@@ -45,6 +47,7 @@ class ExpectedCheck(BaseModel):
         item_kinds = {
             "item_location",
             "item_location_none",
+            "item_location_status",
             "item_exists",
             "item_state",
             "item_quantity",
@@ -58,6 +61,8 @@ class ExpectedCheck(BaseModel):
             raise ValueError(f"{self.kind} requires item_query")
         if self.kind == "item_location" and not self.location_query:
             raise ValueError("item_location requires location_query")
+        if self.kind == "item_location_status" and self.location_status is None:
+            raise ValueError("item_location_status requires location_status")
         if self.kind == "item_state" and self.state is None:
             raise ValueError("item_state requires state")
         if self.kind == "item_quantity" and self.quantity is None:
@@ -83,6 +88,7 @@ class EvaluationCase(BaseModel):
     turns: list[str] = Field(min_length=1)
     focus: str
     checks: list[ExpectedCheck] = Field(default_factory=list)
+    expected_error: str | None = None
 
 
 class EvaluationCorpus(BaseModel):

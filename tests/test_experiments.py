@@ -120,7 +120,7 @@ def test_replaying_mutation_does_not_mutate_live_inventory(session: Session) -> 
         "search_categories",
         "search_tags",
     }
-    assert "move_item" in second_tools
+    assert "move_item" not in second_tools
     assert "move_item" in third_tools
 
 

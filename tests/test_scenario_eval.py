@@ -151,7 +151,25 @@ def test_scenario_suite_matches_corpus_and_core_cases_pass() -> None:
     assert report["pipeline"] == "application-scenario-mock"
     corpus = load_corpus(CORPUS)
     assert {case.case_id for case in suite.cases} == {case.id for case in corpus.cases}
-    assert len(suite.cases) == 42
+    assert len(suite.cases) == 58
+    assert {
+        "loc-truth-in-use-known",
+        "loc-truth-unknown-known",
+        "loc-truth-suggest-move",
+        "loc-truth-discard",
+        "loc-truth-sold",
+        "loc-truth-discard-unknown",
+        "loc-truth-sold-unknown",
+        "loc-truth-discard-known",
+        "loc-truth-sold-known",
+        "loc-truth-terminal-rejects",
+        "loc-truth-terminal-reject-move",
+        "loc-truth-terminal-reject-unknown",
+        "loc-truth-move-null",
+        "loc-truth-move-omitted",
+        "loc-truth-reactivate-omitted",
+        "loc-truth-noop-receipt",
+    }.issubset({case.case_id for case in suite.cases})
     assert report["summary"]["count"] == len(suite.cases)
     assert report["summary"]["completed"] == len(suite.cases)
     assert report["summary"]["failed"] == 0
@@ -159,6 +177,18 @@ def test_scenario_suite_matches_corpus_and_core_cases_pass() -> None:
     assert report["summary"]["checks_passed"] == len(suite.cases)
     assert report["summary"]["checks_failed"] == 0
     assert report["summary"]["unchecked"] == 0
+    results_by_id = {case["case_id"]: case for case in report["cases"]}
+    for case_id in (
+        "loc-truth-terminal-rejects",
+        "loc-truth-terminal-reject-move",
+        "loc-truth-terminal-reject-unknown",
+        "loc-truth-move-null",
+        "loc-truth-move-omitted",
+        "loc-truth-reactivate-omitted",
+    ):
+        assert results_by_id[case_id]["expected_error"]
+        assert results_by_id[case_id]["observed_error"] == results_by_id[case_id]["expected_error"]
+        assert results_by_id[case_id]["checks_passed"] is True
     assert {
         "find-01",
         "move-01",

@@ -233,7 +233,7 @@
       "turns": [
         "Достал красный мультиметр."
       ],
-      "focus": "Take item out of storage; location becomes unknown/none.",
+      "focus": "Explicit take marks the item in use and clears its stored location.",
       "checks": [
         {
           "kind": "item_location_none",
@@ -248,6 +248,11 @@
           "item_query": "красный мультиметр",
           "event_type": "item_taken",
           "from_location_query": "Балкон Шкаф"
+        },
+        {
+          "kind": "item_location_status",
+          "item_query": "красный мультиметр",
+          "location_status": "in_use"
         }
       ]
     },
@@ -831,6 +836,11 @@
           "item_query": "CH341A",
           "event_type": "item_taken",
           "from_location_query": "Правый ящик"
+        },
+        {
+          "kind": "item_location_status",
+          "item_query": "CH341A",
+          "location_status": "in_use"
         }
       ]
     },
@@ -856,8 +866,541 @@
           "item_query": "DT-830B",
           "event_type": "item_taken",
           "from_location_query": "Балкон Шкаф"
+        },
+        {
+          "kind": "item_location_status",
+          "item_query": "DT-830B",
+          "location_status": "in_use"
         }
       ]
+    },
+    {
+      "id": "loc-truth-in-use-known",
+      "group": "location_truth",
+      "turns": [
+        "Взял CH341A из ящика, затем положил в средний ящик."
+      ],
+      "focus": "Known storage transitions to in-use and then to a new known Location.",
+      "checks": [
+        {
+          "kind": "item_state",
+          "item_query": "CH341A",
+          "state": "working"
+        },
+        {
+          "kind": "item_location_status",
+          "item_query": "CH341A",
+          "location_status": "known"
+        },
+        {
+          "kind": "item_location",
+          "item_query": "CH341A",
+          "location_query": "Средний ящик"
+        },
+        {
+          "kind": "event_count_delta",
+          "expected_delta": 2
+        },
+        {
+          "kind": "item_event",
+          "item_query": "CH341A",
+          "event_type": "item_taken"
+        },
+        {
+          "kind": "item_event",
+          "item_query": "CH341A",
+          "event_type": "item_moved"
+        }
+      ]
+    },
+    {
+      "id": "loc-truth-unknown-known",
+      "group": "location_truth",
+      "turns": [
+        "Место DT-830B неизвестно; положи его в правый ящик."
+      ],
+      "focus": "Known storage can be explicitly marked unknown and later set to a resolved Location.",
+      "checks": [
+        {
+          "kind": "item_state",
+          "item_query": "DT-830B",
+          "state": "needs_test"
+        },
+        {
+          "kind": "item_location_status",
+          "item_query": "DT-830B",
+          "location_status": "known"
+        },
+        {
+          "kind": "item_location",
+          "item_query": "DT-830B",
+          "location_query": "Правый ящик"
+        },
+        {
+          "kind": "event_count_delta",
+          "expected_delta": 2
+        },
+        {
+          "kind": "item_event",
+          "item_query": "DT-830B",
+          "event_type": "item_location_unknown"
+        },
+        {
+          "kind": "item_event",
+          "item_query": "DT-830B",
+          "event_type": "item_moved"
+        }
+      ]
+    },
+    {
+      "id": "loc-truth-suggest-move",
+      "group": "location_truth",
+      "turns": [
+        "CH341A: отметь место неизвестным, покажи предположение и перемести в правый ящик."
+      ],
+      "focus": "Unknown-location suggestions do not authorize a move; the chosen Location is resolved separately.",
+      "checks": [
+        {
+          "kind": "item_state",
+          "item_query": "CH341A",
+          "state": "working"
+        },
+        {
+          "kind": "item_location_status",
+          "item_query": "CH341A",
+          "location_status": "known"
+        },
+        {
+          "kind": "item_location",
+          "item_query": "CH341A",
+          "location_query": "Правый ящик"
+        },
+        {
+          "kind": "event_count_delta",
+          "expected_delta": 2
+        },
+        {
+          "kind": "item_event",
+          "item_query": "CH341A",
+          "event_type": "item_location_unknown"
+        },
+        {
+          "kind": "item_event",
+          "item_query": "CH341A",
+          "event_type": "item_moved"
+        }
+      ]
+    },
+    {
+      "id": "loc-truth-discard",
+      "group": "location_truth",
+      "turns": [
+        "CH341A утилизирован."
+      ],
+      "focus": "A known item can enter a terminal state with not-applicable location.",
+      "checks": [
+        {
+          "kind": "item_state",
+          "item_query": "CH341A",
+          "state": "discarded"
+        },
+        {
+          "kind": "item_location_status",
+          "item_query": "CH341A",
+          "location_status": "not_applicable"
+        },
+        {
+          "kind": "item_location_none",
+          "item_query": "CH341A"
+        },
+        {
+          "kind": "event_count_delta",
+          "expected_delta": 1
+        },
+        {
+          "kind": "item_event",
+          "item_query": "CH341A",
+          "event_type": "item_discarded"
+        }
+      ]
+    },
+    {
+      "id": "loc-truth-sold",
+      "group": "location_truth",
+      "turns": [
+        "CH341A продан."
+      ],
+      "focus": "A known item can enter a terminal state with not-applicable location.",
+      "checks": [
+        {
+          "kind": "item_state",
+          "item_query": "CH341A",
+          "state": "sold"
+        },
+        {
+          "kind": "item_location_status",
+          "item_query": "CH341A",
+          "location_status": "not_applicable"
+        },
+        {
+          "kind": "item_location_none",
+          "item_query": "CH341A"
+        },
+        {
+          "kind": "event_count_delta",
+          "expected_delta": 1
+        },
+        {
+          "kind": "item_event",
+          "item_query": "CH341A",
+          "event_type": "item_sold"
+        }
+      ]
+    },
+    {
+      "id": "loc-truth-discard-unknown",
+      "group": "location_truth",
+      "turns": [
+        "CH341A: discard_item, затем вернуть в состояние working."
+      ],
+      "focus": "Sold or discarded items reactivate only through the explicit non-terminal operation.",
+      "checks": [
+        {
+          "kind": "item_state",
+          "item_query": "CH341A",
+          "state": "working"
+        },
+        {
+          "kind": "item_location_status",
+          "item_query": "CH341A",
+          "location_status": "unknown"
+        },
+        {
+          "kind": "event_count_delta",
+          "expected_delta": 2
+        },
+        {
+          "kind": "item_event",
+          "item_query": "CH341A",
+          "event_type": "item_reactivated"
+        },
+        {
+          "kind": "item_location_none",
+          "item_query": "CH341A"
+        }
+      ]
+    },
+    {
+      "id": "loc-truth-sold-unknown",
+      "group": "location_truth",
+      "turns": [
+        "CH341A: mark_item_sold, затем вернуть в состояние needs_test."
+      ],
+      "focus": "Sold or discarded items reactivate only through the explicit non-terminal operation.",
+      "checks": [
+        {
+          "kind": "item_state",
+          "item_query": "CH341A",
+          "state": "needs_test"
+        },
+        {
+          "kind": "item_location_status",
+          "item_query": "CH341A",
+          "location_status": "unknown"
+        },
+        {
+          "kind": "event_count_delta",
+          "expected_delta": 2
+        },
+        {
+          "kind": "item_event",
+          "item_query": "CH341A",
+          "event_type": "item_reactivated"
+        },
+        {
+          "kind": "item_location_none",
+          "item_query": "CH341A"
+        }
+      ]
+    },
+    {
+      "id": "loc-truth-discard-known",
+      "group": "location_truth",
+      "turns": [
+        "CH341A: discard_item, затем вернуть в состояние working."
+      ],
+      "focus": "Sold or discarded items reactivate only through the explicit non-terminal operation.",
+      "checks": [
+        {
+          "kind": "item_state",
+          "item_query": "CH341A",
+          "state": "working"
+        },
+        {
+          "kind": "item_location_status",
+          "item_query": "CH341A",
+          "location_status": "known"
+        },
+        {
+          "kind": "event_count_delta",
+          "expected_delta": 2
+        },
+        {
+          "kind": "item_event",
+          "item_query": "CH341A",
+          "event_type": "item_reactivated"
+        },
+        {
+          "kind": "item_location",
+          "item_query": "CH341A",
+          "location_query": "Средний ящик"
+        }
+      ]
+    },
+    {
+      "id": "loc-truth-sold-known",
+      "group": "location_truth",
+      "turns": [
+        "CH341A: mark_item_sold, затем вернуть в состояние used."
+      ],
+      "focus": "Sold or discarded items reactivate only through the explicit non-terminal operation.",
+      "checks": [
+        {
+          "kind": "item_state",
+          "item_query": "CH341A",
+          "state": "used"
+        },
+        {
+          "kind": "item_location_status",
+          "item_query": "CH341A",
+          "location_status": "known"
+        },
+        {
+          "kind": "event_count_delta",
+          "expected_delta": 2
+        },
+        {
+          "kind": "item_event",
+          "item_query": "CH341A",
+          "event_type": "item_reactivated"
+        },
+        {
+          "kind": "item_location",
+          "item_query": "CH341A",
+          "location_query": "Правый ящик"
+        }
+      ]
+    },
+    {
+      "id": "loc-truth-terminal-rejects",
+      "group": "location_truth",
+      "turns": [
+        "Утилизируй CH341A.",
+        "Попробуй взять утилизированный CH341A."
+      ],
+      "focus": "Terminal items reject move, take, and unknown-location mutations.",
+      "checks": [
+        {
+          "kind": "item_state",
+          "item_query": "CH341A",
+          "state": "discarded"
+        },
+        {
+          "kind": "item_location_status",
+          "item_query": "CH341A",
+          "location_status": "not_applicable"
+        },
+        {
+          "kind": "item_location_none",
+          "item_query": "CH341A"
+        },
+        {
+          "kind": "event_count_delta",
+          "expected_delta": 1
+        },
+        {
+          "kind": "item_event",
+          "item_query": "CH341A",
+          "event_type": "item_discarded"
+        }
+      ],
+      "expected_error": "AgentTurnFailedError: tool take_item failed: ValueError"
+    },
+    {
+      "id": "loc-truth-move-null",
+      "group": "location_truth",
+      "turns": [
+        "Null не является целью перемещения."
+      ],
+      "focus": "move_item requires an explicit positive resolved Location ID.",
+      "checks": [
+        {
+          "kind": "item_location",
+          "item_query": "CH341A",
+          "location_query": "Правый ящик"
+        },
+        {
+          "kind": "item_location_status",
+          "item_query": "CH341A",
+          "location_status": "known"
+        },
+        {
+          "kind": "no_mutation"
+        }
+      ],
+      "expected_error": "AgentTurnFailedError: tool move_item failed: invalid_arguments"
+    },
+    {
+      "id": "loc-truth-move-omitted",
+      "group": "location_truth",
+      "turns": [
+        "Для перемещения требуется Location."
+      ],
+      "focus": "move_item requires an explicit positive resolved Location ID.",
+      "checks": [
+        {
+          "kind": "item_location",
+          "item_query": "DT-830B",
+          "location_query": "Балкон Шкаф"
+        },
+        {
+          "kind": "item_location_status",
+          "item_query": "DT-830B",
+          "location_status": "known"
+        },
+        {
+          "kind": "no_mutation"
+        }
+      ],
+      "expected_error": "AgentTurnFailedError: tool move_item failed: invalid_arguments"
+    },
+    {
+      "id": "loc-truth-reactivate-omitted",
+      "group": "location_truth",
+      "turns": [
+        "Утилизируй CH341A.",
+        "Активируй утилизированный CH341A без поля location_id."
+      ],
+      "focus": "Reactivation requires an explicit location_id field, even when null is intended.",
+      "checks": [
+        {
+          "kind": "item_state",
+          "item_query": "CH341A",
+          "state": "discarded"
+        },
+        {
+          "kind": "item_location_status",
+          "item_query": "CH341A",
+          "location_status": "not_applicable"
+        },
+        {
+          "kind": "item_location_none",
+          "item_query": "CH341A"
+        },
+        {
+          "kind": "event_count_delta",
+          "expected_delta": 1
+        }
+      ],
+      "expected_error": "AgentTurnFailedError: tool reactivate_item failed: invalid_arguments"
+    },
+    {
+      "id": "loc-truth-noop-receipt",
+      "group": "location_truth",
+      "turns": [
+        "Возьми CH341A дважды; второй раз должен быть без изменения."
+      ],
+      "focus": "Repeated take is a truthful no-op receipt and creates no duplicate Event.",
+      "checks": [
+        {
+          "kind": "item_state",
+          "item_query": "CH341A",
+          "state": "working"
+        },
+        {
+          "kind": "item_location_status",
+          "item_query": "CH341A",
+          "location_status": "in_use"
+        },
+        {
+          "kind": "item_location_none",
+          "item_query": "CH341A"
+        },
+        {
+          "kind": "event_count_delta",
+          "expected_delta": 1
+        }
+      ]
+    },
+    {
+      "id": "loc-truth-terminal-reject-move",
+      "group": "location_truth",
+      "turns": [
+        "Утилизируй CH341A.",
+        "Попробуй переместить утилизированный CH341A."
+      ],
+      "focus": "A committed terminal item rejects this explicit mutation and retains persisted state.",
+      "checks": [
+        {
+          "kind": "item_state",
+          "item_query": "CH341A",
+          "state": "discarded"
+        },
+        {
+          "kind": "item_location_status",
+          "item_query": "CH341A",
+          "location_status": "not_applicable"
+        },
+        {
+          "kind": "item_location_none",
+          "item_query": "CH341A"
+        },
+        {
+          "kind": "event_count_delta",
+          "expected_delta": 1
+        },
+        {
+          "kind": "item_event",
+          "item_query": "CH341A",
+          "event_type": "item_discarded"
+        }
+      ],
+      "expected_error": "AgentTurnFailedError: tool move_item failed: ValueError"
+    },
+    {
+      "id": "loc-truth-terminal-reject-unknown",
+      "group": "location_truth",
+      "turns": [
+        "Утилизируй CH341A.",
+        "Отметь место утилизированного CH341A неизвестным."
+      ],
+      "focus": "A committed terminal item rejects this explicit mutation and retains persisted state.",
+      "checks": [
+        {
+          "kind": "item_state",
+          "item_query": "CH341A",
+          "state": "discarded"
+        },
+        {
+          "kind": "item_location_status",
+          "item_query": "CH341A",
+          "location_status": "not_applicable"
+        },
+        {
+          "kind": "item_location_none",
+          "item_query": "CH341A"
+        },
+        {
+          "kind": "event_count_delta",
+          "expected_delta": 1
+        },
+        {
+          "kind": "item_event",
+          "item_query": "CH341A",
+          "event_type": "item_discarded"
+        }
+      ],
+      "expected_error": "AgentTurnFailedError: tool mark_item_location_unknown failed: ValueError"
     }
   ]
 }

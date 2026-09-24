@@ -2,11 +2,23 @@
 
 from __future__ import annotations
 
-from typing import Any
+from typing import Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field
 
 from ah_there_it_is.domain.states import ItemState
+
+
+NonTerminalItemState = Literal[
+    "unknown",
+    "new",
+    "working",
+    "used",
+    "broken",
+    "needs_test",
+    "for_parts",
+    "for_sale",
+]
 
 
 class _ToolInput(BaseModel):
@@ -67,7 +79,7 @@ class UpdateItemInput(_ToolInput):
     item_id: int = Field(gt=0)
     name: str | None = Field(default=None, max_length=300)
     description: str | None = None
-    state: ItemState | None = None
+    state: NonTerminalItemState | None = None
     category_id: int | None = Field(default=None, gt=0)
     quantity: int | None = Field(default=None, ge=1)
     attributes: dict[str, Any] | None = None
@@ -75,6 +87,16 @@ class UpdateItemInput(_ToolInput):
     tags: list[str] | None = None
 
 
+class ItemMutationInput(_ToolInput):
+    item_id: int = Field(gt=0)
+
+
 class MoveItemInput(_ToolInput):
     item_id: int = Field(gt=0)
+    location_id: int = Field(gt=0)
+
+
+class ReactivateItemInput(_ToolInput):
+    item_id: int = Field(gt=0)
+    state: NonTerminalItemState
     location_id: int | None = Field(gt=0)

@@ -159,6 +159,8 @@ class SearchService:
                     description=item.description,
                     state=item.state,
                     location_id=item.current_location_id,
+                    current_location_id=item.current_location_id,
+                    location_status=item.location_status,
                     location_path=self._path(item.current_location),
                     category_id=item.category_id,
                     category_path=self._path(item.category),

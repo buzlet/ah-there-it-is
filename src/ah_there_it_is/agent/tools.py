@@ -21,8 +21,10 @@ from ah_there_it_is.agent.schemas import (
     CreateLocationInput,
     IdInput,
     ItemIdInput,
+    ItemMutationInput,
     LocationIdInput,
     MoveItemInput,
+    ReactivateItemInput,
     SearchInput,
     SuggestItemLocationsInput,
     UpdateItemInput,
@@ -181,10 +183,16 @@ class ToolDispatcher:
             names.add("create_category")
 
         if self.state.resolved["item"]:
-            names.update({"suggest_item_locations", "update_item"})
-            # Preserve the v1 nullable argument adapter until the explicit
-            # take_item tool is introduced; null only takes a located item.
-            if not self.state.searches["location"] or self.state.resolved["location"]:
+            names.update({
+                "suggest_item_locations",
+                "update_item",
+                "take_item",
+                "mark_item_location_unknown",
+                "discard_item",
+                "mark_item_sold",
+                "reactivate_item",
+            })
+            if self.state.resolved["location"]:
                 names.add("move_item")
         return names
 
@@ -354,9 +362,34 @@ class ToolDispatcher:
                 self._update_item,
             ),
             "move_item": _ToolSpec(
-                "Move/take an already-resolved item using a resolved location ID or null.",
+                "Move an already-resolved item to a separately resolved Location.",
                 MoveItemInput,
                 self._move_item,
+            ),
+            "take_item": _ToolSpec(
+                "Mark an already-resolved non-terminal item as in use; its stored location becomes unknown to storage search.",
+                ItemMutationInput,
+                self._take_item,
+            ),
+            "mark_item_location_unknown": _ToolSpec(
+                "Mark the location of an already-resolved non-terminal item as unknown.",
+                ItemMutationInput,
+                self._mark_item_location_unknown,
+            ),
+            "discard_item": _ToolSpec(
+                "Mark an already-resolved item as discarded; terminal items must be reactivated before other state changes.",
+                ItemMutationInput,
+                self._discard_item,
+            ),
+            "mark_item_sold": _ToolSpec(
+                "Mark an already-resolved item as sold; terminal items must be reactivated before other state changes.",
+                ItemMutationInput,
+                self._mark_item_sold,
+            ),
+            "reactivate_item": _ToolSpec(
+                "Reactivate a sold or discarded resolved item with a non-terminal state and an explicit resolved Location or explicit null for unknown location.",
+                ReactivateItemInput,
+                self._reactivate_item,
             ),
         }
 
@@ -514,24 +547,77 @@ class ToolDispatcher:
     def _move_item(self, raw: BaseModel) -> dict[str, Any]:
         args = self._cast(MoveItemInput, raw)
         self._require_resolved("item", args.item_id)
-        if args.location_id is not None:
-            self._require_resolved("location", args.location_id)
+        self._require_resolved("location", args.location_id)
+        item = self._validated_write(
+            [("item", args.item_id), ("location", args.location_id)],
+            lambda: self.inventory.move_item(
+                args.item_id,
+                args.location_id,
+                original_text=self.original_text,
+            ),
+        )
+        return self._item_dict(item)
+
+    def _take_item(self, raw: BaseModel) -> dict[str, Any]:
+        args = self._cast(ItemMutationInput, raw)
+        self._require_resolved("item", args.item_id)
+        item = self._validated_write(
+            [("item", args.item_id)],
+            lambda: self.inventory.take_item(
+                args.item_id, original_text=self.original_text
+            ),
+        )
+        return self._item_dict(item)
+
+    def _mark_item_location_unknown(self, raw: BaseModel) -> dict[str, Any]:
+        args = self._cast(ItemMutationInput, raw)
+        self._require_resolved("item", args.item_id)
+        item = self._validated_write(
+            [("item", args.item_id)],
+            lambda: self.inventory.mark_item_location_unknown(
+                args.item_id, original_text=self.original_text
+            ),
+        )
+        return self._item_dict(item)
+
+    def _discard_item(self, raw: BaseModel) -> dict[str, Any]:
+        args = self._cast(ItemMutationInput, raw)
+        self._require_resolved("item", args.item_id)
+        item = self._validated_write(
+            [("item", args.item_id)],
+            lambda: self.inventory.discard_item(
+                args.item_id, original_text=self.original_text
+            ),
+        )
+        return self._item_dict(item)
+
+    def _mark_item_sold(self, raw: BaseModel) -> dict[str, Any]:
+        args = self._cast(ItemMutationInput, raw)
+        self._require_resolved("item", args.item_id)
+        item = self._validated_write(
+            [("item", args.item_id)],
+            lambda: self.inventory.mark_item_sold(
+                args.item_id, original_text=self.original_text
+            ),
+        )
+        return self._item_dict(item)
+
+    def _reactivate_item(self, raw: BaseModel) -> dict[str, Any]:
+        args = self._cast(ReactivateItemInput, raw)
+        self._require_resolved("item", args.item_id)
         references = [("item", args.item_id)]
         if args.location_id is not None:
+            self._require_resolved("location", args.location_id)
             references.append(("location", args.location_id))
-        def apply_legacy_move() -> Item:
-            if args.location_id is None:
-                current = self.inventory.get_item(args.item_id)
-                if current.current_location_id is None:
-                    return current
-                return self.inventory.take_item(
-                    args.item_id, original_text=self.original_text
-                )
-            return self.inventory.move_item(
-                args.item_id, args.location_id, original_text=self.original_text
-            )
-
-        item = self._validated_write(references, apply_legacy_move)
+        item = self._validated_write(
+            references,
+            lambda: self.inventory.reactivate_item(
+                args.item_id,
+                state=args.state,
+                location_id=args.location_id,
+                original_text=self.original_text,
+            ),
+        )
         return self._item_dict(item)
 
     def _require_seen(self, entity_type: str, entity_id: int) -> None:
@@ -667,6 +753,8 @@ class ToolDispatcher:
             "category_id": item.category_id,
             "category_path": self._path(item.category),
             "location_id": item.current_location_id,
+            "current_location_id": item.current_location_id,
+            "location_status": item.location_status,
             "location_path": self._path(item.current_location),
         }
 
