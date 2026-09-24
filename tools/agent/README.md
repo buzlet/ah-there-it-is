@@ -185,3 +185,44 @@ Use a new state directory outside the worktree for each wait. When supplied,
 `summary.json` is atomically written with the final result. Without a state
 directory, the CLI still emits one concise JSON result to stdout. Exit status is
 zero only for `success`; all other final states return nonzero.
+
+## Integrated execution recovery
+
+`tools/agent/execution_recovery.py` joins the v7 prompt, Codex, and Git recovery
+steps. It materializes an immutable prompt from the exact task blob at the
+control SHA, writes its prompt and hash-only metadata outside the worktree, and
+uses a `flock` held by the detached Codex supervisor to prevent a second run
+for the same Git common directory and assignment branch. A continuation needs
+the exact previous run ID, a terminal/stale prior process, a new run ID, and
+validated durable branch/main/PR/CI/checkpoint fields. The helper detects a
+merged branch and an unexpected main advance from Git ancestry even if final
+Codex JSONL output is absent.
+
+Run the lifecycle preflight and seed verifier before using `start`; recovery
+does not replace either one. Keep one stable external state root across
+controller restarts. The full v7 sequence, recovery matrix, and continuation
+prompt contract are in [SSH_CODEX_OPERATIONS.md](SSH_CODEX_OPERATIONS.md).
+
+```bash
+python tools/agent/execution_recovery.py materialize \
+  --repo <repo_path> --control-sha <immutable-control-sha> \
+  --manifest <manifest-path> --task <task-id> \
+  --task-order <comma-separated-order> \
+  --start-main-sha <expected-origin-main-sha> \
+  --output <external-state-root>/prompts/<task>-attempt-1.md
+
+python tools/agent/execution_recovery.py start \
+  --repo <repo_path> --branch <assignment-branch> \
+  --run-id <fresh-run-id> \
+  --prompt-file <external-state-root>/prompts/<task>-attempt-1.md \
+  --state-dir <external-state-root> \
+  --control-sha <immutable-control-sha> --task <task-id>
+
+python tools/agent/execution_recovery.py status \
+  --repo <repo_path> --branch <assignment-branch> \
+  --state-dir <external-state-root>
+```
+
+Do not use direct `codex exec` or `codex resume --last` while the branch lock is
+held. `status` is read-only; it never advances or regresses a lifecycle
+checkpoint.

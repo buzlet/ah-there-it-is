@@ -497,3 +497,11 @@ Initial supported channels are Remote Commander on existing v6 hosts and SSH-sup
 - Focused checks passed: 24 new waiter tests and 12 lifecycle-checkpoint regression tests. Full canonical verification passed on implementation commit `190f4db21b3dbe67550aa6063203bafe7edb4530`: 421 tests, migration check, 58 corpus cases, 58/58 scenarios with no failures/unchecked cases, retrieval 86/86, and 23 provider-contract tests. One existing Starlette deprecation warning was reported.
 - Scope is limited to agent tooling, its tests, and execution tooling documentation. No workflow, dependency, or application/inventory behavior changed.
 - Review: `agent-tasks/reviews/0033-r1.md`.
+
+
+### Agent execution reliability — Assignment 0034
+
+- Integrated exact control-SHA prompt materialization, detached Codex sessions, branch-scoped recovery locks, lifecycle checkpoint guidance, canonical verifier, bounded CI waiting, and durable Git reconciliation. Added an operator recovery matrix and deterministic fake Codex/`gh` tests.
+- Focused tooling checks passed: 66 tests. Full canonical verification passed on implementation HEAD `8397ba5b6fe3a0e0e48263f886a0bd38f16cb859`: 427 tests, migration check, 58 corpus cases, 58/58 scenarios with all checks, 86/86 retrieval cases, and 23 provider-contract tests. One existing Starlette deprecation warning was reported.
+- Scope is process tooling and documentation only. No inventory/product behavior, runtime dependency, provider behavior, or Windows SSH-Codex support changed. The batch used local shell commands; no real SSH-Codex pilot is claimed. Review: `agent-tasks/reviews/0034-r1.md`.
+- Next-stage plan: wait for the next explicit assignment/product-semantic gate. Do not infer or begin quantity/physical-instance policy, undo/delete, authentication/multi-user, or retrieval-algorithm work from this tooling batch.
