@@ -4,7 +4,7 @@
 
 Repository: `buzlet/ah-there-it-is`.
 
-Product stages through Stage 26 and assignments through 0040 are complete.
+Product stages through Stage 26 and assignments through 0050 are complete.
 
 Active implementation protocol:
 
@@ -47,7 +47,7 @@ One coherent issued batch:
 
 ## Product summary
 
-Current system includes nested inventory trees, deterministic search, explicit location truth, sold/discarded lifecycle + reactivation, historical Event path evidence, provider-neutral scenarios, write-target safety, atomic turns/receipts, crash-safe idempotency, bounded conversation context, doctor/FTS repair, backup/restore/rehearsal and portable-v2.
+Current system includes nested inventory trees, deterministic search, explicit location truth, sold/discarded lifecycle + reactivation, historical Event path evidence, provider-neutral scenarios, write-target safety, atomic turns/receipts, crash-safe idempotency, bounded conversation context, doctor/FTS repair, hardened backup/restore/rehearsal, projection/streaming portable-v2 export, snapshot-consistent export, batched/race-safe portable import and bounded doctor diagnostics.
 
 ## Next decision
 
