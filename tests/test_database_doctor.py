@@ -244,3 +244,71 @@ def test_fts_diagnostic_samples_are_bounded(active: tuple[Path, str]) -> None:
     assert not report.ok
     assert report.checks['fts_extra_rows'].count == 25
     assert len(report.checks['fts_extra_rows'].samples) == 20
+
+
+def test_thousands_of_violations_have_exact_counts_and_bounded_samples(
+    active: tuple[Path, str], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from ah_there_it_is import database_doctor
+
+    path, url = active
+    with closing(sqlite3.connect(path)) as connection, connection:
+        connection.execute(
+            """
+            WITH RECURSIVE ids(id) AS (
+                VALUES (1000)
+                UNION ALL
+                SELECT id + 1 FROM ids WHERE id < 3499
+            )
+            INSERT INTO items (
+                id, name, normalized_name, state, quantity, current_location_id,
+                location_status, attributes, created_at, updated_at
+            )
+            SELECT id, '   ', 'wrong', 'invalid', 0, NULL, 'unknown', '{}', '2026', '2026'
+            FROM ids
+            """
+        )
+        update_trigger = connection.execute(
+            "SELECT sql FROM sqlite_master WHERE type='trigger' AND name='items_location_truth_bu'"
+        ).fetchone()[0]
+        connection.execute('DROP TRIGGER items_location_truth_bu')
+        connection.execute("UPDATE items SET location_status='invalid' WHERE id >= 1000")
+        connection.execute(update_trigger)
+        connection.execute('DELETE FROM item_search_fts WHERE rowid >= 1000')
+
+    helper_results: list[tuple[int, tuple[str, ...]]] = []
+    original = database_doctor._sql_violation_summary
+
+    def checked_summary(connection, query, parameters=()):
+        result = original(connection, query, parameters)
+        assert isinstance(result[1], tuple)
+        assert len(result[1]) <= 20
+        helper_results.append(result)
+        return result
+
+    monkeypatch.setattr(database_doctor, '_sql_violation_summary', checked_summary)
+    authoritative = _snapshot(path)
+    before = {candidate.name: candidate.read_bytes() for candidate in path.parent.glob('active.db*')}
+    report = diagnose_database(url)
+    after = {candidate.name: candidate.read_bytes() for candidate in path.parent.glob('active.db*')}
+
+    expected = tuple(str(value) for value in range(1000, 1020))
+    for name in (
+        'items_normalized_names',
+        'items_nonblank_names',
+        'item_states',
+        'item_quantities',
+        'item_location_truth',
+        'fts_missing_rows',
+    ):
+        assert report.checks[name].count == 2500
+        assert report.checks[name].samples == expected
+    assert report.checks['items_duplicate_identity'].count == 2500
+    assert report.checks['items_duplicate_identity'].samples == ('2',) + tuple(
+        str(value) for value in range(1001, 1020)
+    )
+    assert helper_results
+    assert all(len(check.samples) <= 20 for check in report.checks.values())
+    assert after.keys() == before.keys()
+    assert all(after[name] == contents for name, contents in before.items() if not name.endswith('-shm'))
+    assert _snapshot(path) == authoritative
