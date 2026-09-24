@@ -830,6 +830,10 @@ def stream_portable_inventory(
     try:
         factory = create_session_factory(engine)
         with factory() as session, temporary.open("w", encoding="utf-8") as handle:
+            # SQLAlchemy's logical autobegin does not force pysqlite to open a
+            # database read transaction for SELECT statements. An explicit
+            # BEGIN makes all projection phases share one SQLite snapshot.
+            session.connection().exec_driver_sql("BEGIN")
             counts = _write_portable_stream(
                 handle, session, validation.alembic_revision
             )

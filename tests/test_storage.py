@@ -454,6 +454,95 @@ def test_portable_export_stream_result_and_target_scale_are_complete(
     assert loaded["inventory"]["items"][-1]["id"] == 1000
 
 
+def test_portable_export_snapshot_is_coherent_across_projection_phases(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    import sqlite3
+    import ah_there_it_is.storage as storage
+
+    active = tmp_path / "snapshot.db"
+    first_output = tmp_path / "snapshot-first.json"
+    second_output = tmp_path / "snapshot-second.json"
+    url = _migrate(active)
+    writer = sqlite3.connect(str(active))
+    writer.execute("PRAGMA journal_mode=WAL")
+    writer.execute("PRAGMA wal_autocheckpoint=0")
+    writer.execute("PRAGMA foreign_keys=ON")
+    stamp = "2020-01-01 00:00:00"
+    writer.execute(
+        "INSERT INTO categories(id,parent_id,name,normalized_name,description,created_at,updated_at) "
+        "VALUES (1,NULL,'Before category','before category',NULL,?,?)",
+        (stamp, stamp),
+    )
+    writer.execute(
+        "INSERT INTO locations(id,parent_id,name,normalized_name,description,created_at,updated_at) "
+        "VALUES (1,NULL,'Before location','before location',NULL,?,?)",
+        (stamp, stamp),
+    )
+    writer.execute(
+        "INSERT INTO items(id,name,normalized_name,description,state,category_id,current_location_id,"
+        "location_status,quantity,attributes,created_at,updated_at) "
+        "VALUES (1,'Before item','before item',NULL,'working',1,1,'known',1,'{}',?,?)",
+        (stamp, stamp),
+    )
+    writer.execute(
+        "INSERT INTO events(id,event_type,item_id,from_location_id,to_location_id,payload,original_text,created_at) "
+        "VALUES (1,'item_created',1,NULL,1,'{}',NULL,?)",
+        (stamp,),
+    )
+    writer.commit()
+
+    original_stream_trees = storage._stream_trees
+    committed_bytes: dict[str, bytes] = {}
+
+    def interleaved_stream_trees(session, model):
+        yield from original_stream_trees(session, model)
+        if model is Category and not committed_bytes:
+            writer.execute(
+                "INSERT INTO categories(id,parent_id,name,normalized_name,description,created_at,updated_at) "
+                "VALUES (2,NULL,'After category','after category',NULL,?,?)",
+                (stamp, stamp),
+            )
+            writer.execute(
+                "INSERT INTO locations(id,parent_id,name,normalized_name,description,created_at,updated_at) "
+                "VALUES (2,NULL,'After location','after location',NULL,?,?)",
+                (stamp, stamp),
+            )
+            writer.execute(
+                "INSERT INTO items(id,name,normalized_name,description,state,category_id,current_location_id,"
+                "location_status,quantity,attributes,created_at,updated_at) "
+                "VALUES (2,'After item','after item',NULL,'working',2,2,'known',1,'{}',?,?)",
+                (stamp, stamp),
+            )
+            writer.execute(
+                "INSERT INTO events(id,event_type,item_id,from_location_id,to_location_id,payload,original_text,created_at) "
+                "VALUES (2,'item_created',2,NULL,2,'{}',NULL,?)",
+                (stamp,),
+            )
+            writer.commit()
+            committed_bytes["main"] = active.read_bytes()
+            committed_bytes["wal"] = Path(str(active) + "-wal").read_bytes()
+
+    monkeypatch.setattr(storage, "_stream_trees", interleaved_stream_trees)
+    try:
+        first = stream_portable_inventory(url, first_output)
+        first_document = json.loads(first_output.read_text(encoding="utf-8"))
+        assert first.categories == first.locations == first.items == first.events == 1
+        assert [row["id"] for row in first_document["inventory"]["categories"]] == [1]
+        assert [row["id"] for row in first_document["inventory"]["locations"]] == [1]
+        assert [row["id"] for row in first_document["inventory"]["items"]] == [1]
+        assert [row["id"] for row in first_document["history"]["events"]] == [1]
+        assert active.read_bytes() == committed_bytes["main"]
+        assert Path(str(active) + "-wal").read_bytes() == committed_bytes["wal"]
+
+        monkeypatch.setattr(storage, "_stream_trees", original_stream_trees)
+        second = stream_portable_inventory(url, second_output)
+        assert second.categories == second.locations == second.items == second.events == 2
+    finally:
+        writer.close()
+
+
 def test_validation_rejects_wrong_alembic_revision(tmp_path: Path) -> None:
     active = tmp_path / "active.db"
     _migrate(active)
