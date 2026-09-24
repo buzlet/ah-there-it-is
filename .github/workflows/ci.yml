@@ -27,9 +27,12 @@ jobs:
       - run: just corpus-check
       - run: just scenario-check
       - run: just scenario-eval eval/corpus-v1.json eval/scenarios-v1.json scenario-eval.json
+      - run: just retrieval-eval eval/retrieval-robustness-v1.json retrieval-eval.json
       - uses: actions/upload-artifact@v4
         if: always()
         with:
-          name: application-scenario-report
-          path: scenario-eval.json
+          name: application-evaluation-reports
+          path: |
+            scenario-eval.json
+            retrieval-eval.json
           if-no-files-found: warn
