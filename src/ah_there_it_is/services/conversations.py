@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from dataclasses import dataclass
+
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
@@ -9,8 +11,18 @@ from ah_there_it_is.db.models import Conversation, Message, utc_now
 from ah_there_it_is.domain.exceptions import EntityNotFoundError
 
 
+@dataclass(frozen=True)
+class ConversationMessageWindow:
+    messages: list[Message]
+    limit: int
+    has_older: bool
+    next_before_id: int | None
+
+
 class ConversationService:
     AGENT_CONTEXT_MESSAGE_LIMIT = 40
+    DEFAULT_MESSAGE_WINDOW_LIMIT = 50
+    MAX_MESSAGE_WINDOW_LIMIT = 100
 
     def __init__(self, session: Session) -> None:
         self.session = session
@@ -46,14 +58,45 @@ class ConversationService:
         self._persist(message, commit=commit)
         return message
 
-    def list_messages(self, conversation_id: int) -> list[Message]:
+    def message_window(
+        self,
+        conversation_id: int,
+        *,
+        limit: int = DEFAULT_MESSAGE_WINDOW_LIMIT,
+        before_id: int | None = None,
+    ) -> ConversationMessageWindow:
+        if limit < 1 or limit > self.MAX_MESSAGE_WINDOW_LIMIT:
+            raise ValueError(
+                f"limit must be between 1 and {self.MAX_MESSAGE_WINDOW_LIMIT}"
+            )
+        if before_id is not None and before_id < 1:
+            raise ValueError("before_id must be a positive integer")
         self.get(conversation_id)
+        if before_id is not None and self.session.scalar(
+            select(Message.id).where(
+                Message.id == before_id,
+                Message.conversation_id == conversation_id,
+            )
+        ) is None:
+            raise ValueError("before_id is not a message in this conversation")
         stmt = (
             select(Message)
             .where(Message.conversation_id == conversation_id)
-            .order_by(Message.id.asc())
+            .order_by(Message.id.desc())
+            .limit(limit + 1)
         )
-        return list(self.session.scalars(stmt))
+        if before_id is not None:
+            stmt = stmt.where(Message.id < before_id)
+        newest_first = list(self.session.scalars(stmt))
+        has_older = len(newest_first) > limit
+        messages = newest_first[:limit]
+        messages.reverse()
+        return ConversationMessageWindow(
+            messages=messages,
+            limit=limit,
+            has_older=has_older,
+            next_before_id=messages[0].id if has_older and messages else None,
+        )
 
     def list_agent_context_messages(self, conversation_id: int) -> list[Message]:
         self.get(conversation_id)

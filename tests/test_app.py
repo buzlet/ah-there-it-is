@@ -11,6 +11,7 @@ from ah_there_it_is.db.models import Base
 from ah_there_it_is.db.search_schema import install_fts_schema
 from ah_there_it_is.db.session import create_db_engine, create_session_factory
 from ah_there_it_is.services.catalog import CatalogService
+from ah_there_it_is.services.conversations import ConversationService
 from ah_there_it_is.services.evaluation import EvaluationService
 from ah_there_it_is.services.inventory import InventoryService
 
@@ -393,12 +394,56 @@ def test_conversation_can_continue_and_be_restored_with_rating() -> None:
         assert feedback.status_code == 200
         assert feedback.json()["rating"] == 5
         assert restored.status_code == 200
+        assert restored.json()["limit"] == 50
+        assert restored.json()["has_older"] is False
         assistant = restored.json()["messages"][-1]
         assert assistant["run_id"] == first["run_id"]
         assert assistant["rating"] == 5
         assert assistant["comment"] == "точно"
         assert second.status_code == 200
         assert second.json()["conversation_id"] == first["conversation_id"]
+    finally:
+        engine.dispose()
+
+
+def test_conversation_api_pages_history_and_browser_exposes_load_older() -> None:
+    app, factory, engine = build_test_app()
+    try:
+        with factory() as session:
+            conversations = ConversationService(session)
+            conversation_id = conversations.create().id
+            for index in range(105):
+                conversations.add_message(
+                    conversation_id,
+                    "assistant" if index % 2 else "user",
+                    f"history-{index:03d}",
+                )
+        with TestClient(app) as client:
+            latest = client.get(f"/api/conversations/{conversation_id}?limit=50")
+            cursor = latest.json()["next_before_id"]
+            older = client.get(
+                f"/api/conversations/{conversation_id}?limit=50&before_id={cursor}"
+            )
+            invalid_limit = client.get(f"/api/conversations/{conversation_id}?limit=101")
+            invalid_cursor = client.get(f"/api/conversations/{conversation_id}?before_id=0")
+            missing_cursor = client.get(
+                f"/api/conversations/{conversation_id}?before_id=999999"
+            )
+            page = client.get("/")
+            script = client.get("/static/chat.js")
+
+        assert latest.status_code == 200 and latest.json()["has_older"] is True
+        assert len(latest.json()["messages"]) == 50
+        assert len(older.json()["messages"]) == 50
+        assert not (
+            {row["id"] for row in latest.json()["messages"]}
+            & {row["id"] for row in older.json()["messages"]}
+        )
+        assert invalid_limit.status_code == 400
+        assert invalid_cursor.status_code == 400
+        assert missing_cursor.status_code == 400
+        assert 'id="load-older"' in page.text
+        assert "before_id=${nextBeforeId}" in script.text
     finally:
         engine.dispose()
 

@@ -223,6 +223,10 @@ class ConversationMessageResponse(BaseModel):
 class ConversationResponse(BaseModel):
     id: int
     messages: list[ConversationMessageResponse]
+    limit: int
+    before_id: int | None = None
+    has_older: bool
+    next_before_id: int | None
 
 
 class ExperimentReviewRequest(BaseModel):

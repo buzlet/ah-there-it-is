@@ -144,6 +144,19 @@ class EvaluationService:
         )
         return list(self.session.scalars(stmt))
 
+    def runs_for_assistant_messages(
+        self, assistant_message_ids: Sequence[int]
+    ) -> list[AgentRunLog]:
+        if not assistant_message_ids:
+            return []
+        stmt = (
+            select(AgentRunLog)
+            .options(selectinload(AgentRunLog.feedback))
+            .where(AgentRunLog.assistant_message_id.in_(assistant_message_ids))
+            .order_by(AgentRunLog.id.asc())
+        )
+        return list(self.session.scalars(stmt))
+
     def summaries(self) -> list[EvaluationSummary]:
         stmt = (
             select(AgentRunLog)

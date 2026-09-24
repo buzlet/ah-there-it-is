@@ -314,15 +314,24 @@ def build_router(templates: Jinja2Templates) -> APIRouter:
     @router.get("/api/conversations/{conversation_id}", response_model=ConversationResponse)
     def conversation(
         conversation_id: int,
+        limit: int = ConversationService.DEFAULT_MESSAGE_WINDOW_LIMIT,
+        before_id: int | None = None,
         session: Session = Depends(get_session),
     ) -> ConversationResponse:
         conversations = ConversationService(session)
         evaluations = EvaluationService(session)
         try:
-            messages = conversations.list_messages(conversation_id)
+            window = conversations.message_window(
+                conversation_id, limit=limit, before_id=before_id
+            )
         except EntityNotFoundError as exc:
             raise HTTPException(status_code=404, detail=str(exc)) from exc
-        runs = evaluations.conversation_runs(conversation_id)
+        except ValueError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+        assistant_message_ids = [
+            message.id for message in window.messages if message.role == "assistant"
+        ]
+        runs = evaluations.runs_for_assistant_messages(assistant_message_ids)
         by_assistant_message = {
             run.assistant_message_id: run
             for run in runs
@@ -339,8 +348,12 @@ def build_router(templates: Jinja2Templates) -> APIRouter:
                     rating=(run.feedback.rating if run and run.feedback else None),
                     comment=(run.feedback.comment if run and run.feedback else None),
                 )
-                for message in messages
+                for message in window.messages
             ],
+            limit=window.limit,
+            before_id=before_id,
+            has_older=window.has_older,
+            next_before_id=window.next_before_id,
         )
 
     @router.post("/api/runs/{run_id}/feedback", response_model=FeedbackResponse)
