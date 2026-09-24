@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Supervise the repository's fixed canonical Just verification sequence."""
+"""Supervise the optional full-local integration verification sequence."""
 
 from __future__ import annotations
 
@@ -21,9 +21,9 @@ from pathlib import Path
 from typing import Any
 
 try:
-    from tools.agent.codex_session import _group_state, _read_proc_stat
+    from tools.agent.process_state import _group_state, _read_proc_stat
 except ModuleNotFoundError:  # Direct script execution sets sys.path to tools/agent.
-    from codex_session import _group_state, _read_proc_stat
+    from process_state import _group_state, _read_proc_stat
 
 CANONICAL_RECIPES = (
     "check",
@@ -32,7 +32,6 @@ CANONICAL_RECIPES = (
     "scenario-check",
     "scenario-eval",
     "retrieval-eval",
-    "provider-contract",
 )
 DEFAULT_TIMEOUT_SECONDS = 3600.0
 MAX_TIMEOUT_SECONDS = 86400.0
