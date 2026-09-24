@@ -91,12 +91,16 @@ def test_manual_item_create_edit_search_and_history() -> None:
 
             cleared = client.patch(f'/api/items/{item_id}', json={
                 'name': 'Manual Probe Revised', 'description': None, 'state': 'used',
-                'quantity': 2, 'category_id': None, 'location_id': None,
+                'quantity': 2, 'category_id': None,
                 'attributes': {}, 'aliases': [], 'tags': [],
             })
             assert cleared.status_code == 200
             assert cleared.json()['category_id'] is None
-            assert cleared.json()['location_id'] is None
+            assert cleared.json()['location_id'] == location['id']
+            taken = client.post(f'/api/items/{item_id}/take')
+            assert taken.status_code == 200
+            assert taken.json()['location_id'] is None
+            assert taken.json()['location_status'] == 'in_use'
             assert cleared.json()['description'] is None
             assert cleared.json()['attributes'] == {}
             assert cleared.json()['aliases'] == []
@@ -104,18 +108,23 @@ def test_manual_item_create_edit_search_and_history() -> None:
 
             replaced = client.patch(f'/api/items/{item_id}', json={
                 'description': 'replacement description marker',
-                'category_id': category['id'], 'location_id': location['id'],
+                'category_id': category['id'],
                 'attributes': {'model': 'REPLACEMENT-777'},
                 'aliases': ['Replacement, alias'], 'tags': ['replacement tag'],
             })
             assert replaced.status_code == 200
-            assert replaced.json()['location_path'] == 'Bench'
+            assert replaced.json()['location_status'] == 'in_use'
             assert replaced.json()['category_path'] == 'Electronics'
             assert replaced.json()['aliases'] == ['Replacement, alias']
             assert replaced.json()['tags'] == ['replacement tag']
+            moved = client.post(
+                f'/api/items/{item_id}/move', json={'location_id': location['id']}
+            )
+            assert moved.status_code == 200
+            assert moved.json()['location_path'] == 'Bench'
             assert client.patch(f'/api/items/{item_id}', json={
                 'description': 'replacement description marker',
-                'category_id': category['id'], 'location_id': location['id'],
+                'category_id': category['id'],
                 'attributes': {'model': 'REPLACEMENT-777'},
                 'aliases': ['Replacement, alias'], 'tags': ['replacement tag'],
             }).status_code == 200
@@ -127,8 +136,8 @@ def test_manual_item_create_edit_search_and_history() -> None:
                 'item_created', 'item_updated', 'item_taken', 'item_updated', 'item_moved'
             ]
             assert [event.original_text for event in events] == [
-                '[manual web create]', '[manual web edit]', '[manual web edit]',
-                '[manual web edit]', '[manual web edit]'
+                '[manual web create]', '[manual web edit]', '[manual web take]',
+                '[manual web edit]', '[manual web move]'
             ]
             search = SearchService(session)
             for query in ('Manual Probe Revised', 'Replacement, alias', 'replacement tag',
@@ -150,7 +159,9 @@ def test_manual_api_errors_and_atomicity() -> None:
 
             assert client.post('/api/items', json={'name': 'First', 'category_id': root['id']}).status_code == 400
             assert client.patch(f"/api/items/{second['id']}", json={'name': 'First', 'description': 'partial'}).status_code == 400
-            assert client.patch(f"/api/items/{second['id']}", json={'description': 'partial', 'location_id': 999}).status_code == 404
+            assert client.patch(f"/api/items/{second['id']}", json={'description': 'partial', 'location_id': 999}).status_code == 422
+            assert client.patch(f"/api/items/{second['id']}", json={'location_id': None}).status_code == 422
+            assert client.post(f"/api/items/{second['id']}/move", json={'location_id': 999}).status_code == 404
             assert client.patch(f"/api/items/{second['id']}", json={'attributes': []}).status_code == 422
             assert client.post('/api/items', json={'name': 'Invalid', 'state': 'not-a-state'}).status_code == 422
             assert client.post('/api/items', json={'name': 'Invalid', 'quantity': 0}).status_code == 422
@@ -293,5 +304,139 @@ def test_manual_pages_expose_complete_forms() -> None:
             assert f'/{kind}/' in page.text and '/edit' in page.text
             assert '— root —' in page.text
             assert '/static/tree.js' in page.text
+    finally:
+        engine.dispose()
+
+
+def test_browser_location_truth_actions_lifecycle_and_suggestions() -> None:
+    app, factory, engine = build_test_app()
+    try:
+        with TestClient(app) as client:
+            location = client.post('/api/locations', json={'name': 'Test shelf'}).json()
+            created = client.post('/api/items', json={
+                'name': 'Truth workflow item',
+                'location_id': location['id'],
+            })
+            assert created.status_code == 201
+            item_id = created.json()['id']
+            assert created.json()['state'] == 'unknown'
+            assert created.json()['location_status'] == 'known'
+
+            known_page = client.get(f'/items/{item_id}')
+            assert 'Condition/state unknown' in known_page.text
+            assert f'href="/locations/{location["id"]}"' in known_page.text
+            assert 'Location suggestions' not in known_page.text
+            assert 'Choose a Location' in known_page.text
+            assert 'unknown / taken' not in known_page.text
+
+            taken = client.post(f'/api/items/{item_id}/take')
+            assert taken.status_code == 200
+            assert taken.json()['state'] == 'unknown'
+            assert taken.json()['location_status'] == 'in_use'
+            in_use_page = client.get(f'/items/{item_id}')
+            assert 'In use / taken from storage' in in_use_page.text
+            assert 'Location suggestions' not in in_use_page.text
+
+            unknown = client.post(f'/api/items/{item_id}/location-unknown')
+            assert unknown.status_code == 200
+            assert unknown.json()['location_status'] == 'unknown'
+            unknown_page = client.get(f'/items/{item_id}')
+            assert 'Location unknown' in unknown_page.text
+            assert 'inferences, not confirmed current locations' in unknown_page.text
+            assert 'data-transition-kind="location-unknown"' in unknown_page.text
+            assert client.post(f'/api/items/{item_id}/move', json={}).status_code == 422
+            assert client.post(
+                f'/api/items/{item_id}/move', json={'location_id': None}
+            ).status_code == 422
+
+            moved = client.post(
+                f'/api/items/{item_id}/move',
+                json={'location_id': location['id']},
+            )
+            assert moved.status_code == 200
+            assert moved.json()['location_status'] == 'known'
+            assert moved.json()['current_location_id'] == location['id']
+
+            discarded = client.post(f'/api/items/{item_id}/discard')
+            assert discarded.status_code == 200
+            assert discarded.json()['state'] == 'discarded'
+            assert discarded.json()['location_status'] == 'not_applicable'
+            terminal_page = client.get(f'/items/{item_id}')
+            assert 'Not applicable' in terminal_page.text
+            assert 'Reactivate terminal Item' in terminal_page.text
+            assert 'data-transition-kind="move"' not in terminal_page.text
+            assert 'data-transition-kind="discard"' not in terminal_page.text
+            assert 'Location suggestions' not in terminal_page.text
+            assert client.post(f'/api/items/{item_id}/take').status_code == 400
+            assert client.post(
+                f'/api/items/{item_id}/move', json={'location_id': location['id']}
+            ).status_code == 400
+
+            assert client.post(
+                f'/api/items/{item_id}/reactivate',
+                json={'state': 'working'},
+            ).status_code == 422
+            assert client.post(
+                f'/api/items/{item_id}/reactivate',
+                json={'state': 'sold', 'location_id': location['id']},
+            ).status_code == 422
+            reactivated = client.post(
+                f'/api/items/{item_id}/reactivate',
+                json={'state': 'working', 'location_id': location['id']},
+            )
+            assert reactivated.status_code == 200
+            assert reactivated.json()['state'] == 'working'
+            assert reactivated.json()['location_status'] == 'known'
+            sold = client.post(f'/api/items/{item_id}/sold')
+            assert sold.status_code == 200
+            assert sold.json()['state'] == 'sold'
+            assert sold.json()['location_status'] == 'not_applicable'
+
+            unknown_terminal = client.post('/api/items', json={'name': 'Unknown reactivation'})
+            unknown_id = unknown_terminal.json()['id']
+            assert client.post(f'/api/items/{unknown_id}/sold').status_code == 200
+            reactivated_unknown = client.post(
+                f'/api/items/{unknown_id}/reactivate',
+                json={'state': 'unknown', 'location_id': None},
+            )
+            assert reactivated_unknown.status_code == 200
+            assert reactivated_unknown.json()['state'] == 'unknown'
+            assert reactivated_unknown.json()['location_status'] == 'unknown'
+
+            terminal_search = client.get('/items', params={'q': 'Truth workflow item'})
+            assert 'Truth workflow item' in terminal_search.text
+            assert '>sold<' in terminal_search.text
+            assert 'Not applicable' in terminal_search.text
+            terminal_only = client.get('/items', params={'lifecycle': 'terminal'})
+            assert 'Truth workflow item' in terminal_only.text
+            default_catalog = client.get('/items')
+            assert 'Truth workflow item' not in default_catalog.text
+            unknown_filter = client.get('/items', params={
+                'lifecycle': 'active', 'location_status': 'unknown',
+            })
+            assert 'Unknown reactivation' in unknown_filter.text
+            assert 'Truth workflow item' not in unknown_filter.text
+
+            activity = client.get('/activity')
+            assert 'Item discarded' in activity.text
+            assert 'Item sold' in activity.text
+            history = client.get(f'/items/{item_id}')
+            assert 'Location marked unknown' in history.text
+
+        with factory() as session:
+            history = InventoryService(session).get_item_history(item_id)
+            assert [event.event_type for event in history] == [
+                'item_created', 'item_taken', 'item_location_unknown', 'item_moved',
+                'item_discarded', 'item_reactivated', 'item_sold',
+            ]
+            moved_event_id = next(
+                event.id for event in history if event.event_type == 'item_moved'
+            )
+        with TestClient(app) as client:
+            movement_detail = client.get(f'/activity/{moved_event_id}')
+        assert movement_detail.status_code == 200
+        assert 'Moved to a known Location' in movement_detail.text
+        assert 'Historical path at event time' in movement_detail.text
+        assert 'Test shelf' in movement_detail.text
     finally:
         engine.dispose()

@@ -5,10 +5,21 @@
 <form action="/items" method="get" role="search">
   <label for="item-query">Search items</label>
   <input id="item-query" name="q" type="search" value="{{ query }}" placeholder="Name, alias, tag, attribute or description">
-  <button type="submit">Search</button>
+  <label for="lifecycle-filter">Lifecycle</label>
+  <select id="lifecycle-filter" name="lifecycle">
+    <option value="active" {% if lifecycle == "active" %}selected{% endif %}>Active Items</option>
+    <option value="terminal" {% if lifecycle == "terminal" %}selected{% endif %}>Terminal Items</option>
+    <option value="all" {% if lifecycle == "all" %}selected{% endif %}>All Items</option>
+  </select>
+  <label for="location-filter">Location status</label>
+  <select id="location-filter" name="location_status">
+    <option value="all" {% if location_status == "all" %}selected{% endif %}>All location statuses</option>
+    <option value="unknown" {% if location_status == "unknown" %}selected{% endif %}>Location unknown</option>
+  </select>
+  <button type="submit">Search / filter</button>
   {% if query %}<a href="/items">Clear search</a>{% endif %}
 </form>
-{% if query %}<p class="muted">Results for “{{ query }}” · Showing up to {{ search_limit }} ranked matches</p>{% endif %}
+{% if query %}<p class="muted">Results for “{{ query }}” · Up to {{ search_limit }} ranked matches after filters</p>{% endif %}
 {% if item_page %}
 <p class="muted">
   Total: {{ item_page.total }} · Page {{ item_page.page }}{% if item_page.pages %} of {{ item_page.pages }}{% endif %}
@@ -16,27 +27,34 @@
 {% endif %}
 {% if items %}
 <div class="table-wrap"><table>
-  <thead><tr><th>Item</th><th>State</th>{% if item_page %}<th>Qty</th>{% else %}<th>Match</th>{% endif %}<th>Category</th><th>Location</th></tr></thead>
+  <thead><tr><th>Item</th><th>Condition / state</th>{% if item_page %}<th>Qty</th>{% else %}<th>Match</th>{% endif %}<th>Category</th><th>Location status</th></tr></thead>
   <tbody>
   {% for item in items %}
     <tr>
       <td><a href="/items/{{ item.id }}">{{ item.name }}</a></td>
-      <td>{{ item.state }}</td>
+      <td>{% if item.state == "unknown" %}Condition/state unknown{% else %}{{ item.state|replace("_", " ") }}{% endif %}</td>
       {% if item_page %}<td>{{ item.quantity }}</td>{% else %}<td>{{ item.match_type|replace("_", " ") }}</td>{% endif %}
       <td>{% if item.category_id %}<a href="/categories/{{ item.category_id }}">{{ item.category_path }}</a>{% else %}—{% endif %}</td>
-      <td>{% if item.location_id %}<a href="/locations/{{ item.location_id }}">{{ item.location_path }}</a>{% else %}—{% endif %}</td>
+      <td>
+        {% if item.location_status == "known" %}
+          {% if item.location_id %}<a href="/locations/{{ item.location_id }}">{{ item.location_path or "Current Location" }}</a>{% else %}Current Location unavailable{% endif %}
+        {% elif item.location_status == "unknown" %}Location unknown
+        {% elif item.location_status == "in_use" %}In use / taken from storage
+        {% elif item.location_status == "not_applicable" %}Not applicable — terminal Item, no current Location
+        {% else %}Location status unavailable{% endif %}
+      </td>
     </tr>
   {% endfor %}
   </tbody>
 </table></div>
-{% else %}<p class="muted">{% if query %}No matching items.{% else %}No items on this page.{% endif %}</p>{% endif %}
+{% else %}<p class="muted">{% if query %}No matching Items for these filters.{% else %}No Items on this page for these filters.{% endif %}</p>{% endif %}
 {% if item_page %}
 <nav aria-label="Item pages">
   {% if item_page.has_previous %}
-    <a href="/items?page={{ item_page.previous_page }}&page_size={{ item_page.page_size }}">Previous</a>
+    <a href="/items?lifecycle={{ lifecycle }}&amp;location_status={{ location_status }}&amp;page={{ item_page.previous_page }}&amp;page_size={{ item_page.page_size }}">Previous</a>
   {% endif %}
   {% if item_page.has_next %}
-    <a href="/items?page={{ item_page.next_page }}&page_size={{ item_page.page_size }}">Next</a>
+    <a href="/items?lifecycle={{ lifecycle }}&amp;location_status={{ location_status }}&amp;page={{ item_page.next_page }}&amp;page_size={{ item_page.page_size }}">Next</a>
   {% endif %}
 </nav>
 {% endif %}

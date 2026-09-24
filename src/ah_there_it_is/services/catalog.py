@@ -11,6 +11,7 @@ from sqlalchemy.orm import Session, selectinload
 
 from ah_there_it_is.db.models import Category, Item, ItemTag, Location
 from ah_there_it_is.domain.exceptions import EntityNotFoundError
+from ah_there_it_is.domain.states import ItemState, LocationStatus
 from ah_there_it_is.services.activity import ActivityService
 from ah_there_it_is.services.inventory import InventoryService
 from ah_there_it_is.services.search import SearchService
@@ -51,6 +52,8 @@ class CatalogService:
         *,
         page: int = 1,
         page_size: int = DEFAULT_PAGE_SIZE,
+        lifecycle: str = "all",
+        location_status: str = "all",
     ) -> ItemPage:
         if page < 1:
             raise ValueError("page must be >= 1")
@@ -58,8 +61,11 @@ class CatalogService:
             raise ValueError(
                 f"page_size must be between 1 and {self.MAX_PAGE_SIZE}"
             )
+        filters = self._item_filters(lifecycle, location_status)
 
-        total = int(self.session.scalar(select(func.count(Item.id))) or 0)
+        total = int(self.session.scalar(
+            select(func.count(Item.id)).where(*filters)
+        ) or 0)
         pages = ceil(total / page_size) if total else 0
         stmt = (
             select(Item)
@@ -69,6 +75,7 @@ class CatalogService:
                 selectinload(Item.category),
                 selectinload(Item.current_location),
             )
+            .where(*filters)
             .order_by(Item.normalized_name, Item.id)
             .offset((page - 1) * page_size)
             .limit(page_size)
@@ -88,13 +95,40 @@ class CatalogService:
             next_page=page + 1 if has_next else None,
         )
 
-    def search_items(self, query: str) -> list[dict[str, Any]]:
+    def search_items(
+        self,
+        query: str,
+        *,
+        lifecycle: str = "all",
+        location_status: str = "all",
+    ) -> list[dict[str, Any]]:
+        self._item_filters(lifecycle, location_status)
         return [
             candidate.model_dump()
             for candidate in SearchService(self.session).search_items(
-                query, limit=self.SEARCH_LIMIT
+                query,
+                limit=self.SEARCH_LIMIT,
+                lifecycle=lifecycle,
+                location_status=location_status,
             )
         ]
+
+    @staticmethod
+    def _item_filters(lifecycle: str, location_status: str) -> list[Any]:
+        if lifecycle not in {"active", "terminal", "all"}:
+            raise ValueError("lifecycle must be active, terminal, or all")
+        if location_status not in {"all", "unknown"}:
+            raise ValueError("location_status must be all or unknown")
+
+        terminal_states = (ItemState.DISCARDED.value, ItemState.SOLD.value)
+        filters: list[Any] = []
+        if lifecycle == "active":
+            filters.append(Item.state.not_in(terminal_states))
+        elif lifecycle == "terminal":
+            filters.append(Item.state.in_(terminal_states))
+        if location_status == "unknown":
+            filters.append(Item.location_status == LocationStatus.UNKNOWN.value)
+        return filters
 
     def location_detail(
         self, location_id: int, *, page: int = 1, page_size: int = DEFAULT_PAGE_SIZE

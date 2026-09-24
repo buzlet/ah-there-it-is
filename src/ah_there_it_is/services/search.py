@@ -11,6 +11,7 @@ from sqlalchemy.orm import Session, selectinload
 from ah_there_it_is.db.models import Alias, Category, Item, ItemTag, Location, Tag
 from ah_there_it_is.domain.names import normalize_name, normalize_search_text
 from ah_there_it_is.domain.search import ItemSearchCandidate, SearchCandidate
+from ah_there_it_is.domain.states import ItemState, LocationStatus
 
 
 @dataclass(frozen=True)
@@ -38,7 +39,18 @@ class SearchService:
     def __init__(self, session: Session) -> None:
         self.session = session
 
-    def search_items(self, query: str, *, limit: int = 5) -> list[ItemSearchCandidate]:
+    def search_items(
+        self,
+        query: str,
+        *,
+        limit: int = 5,
+        lifecycle: str = "all",
+        location_status: str = "all",
+    ) -> list[ItemSearchCandidate]:
+        if lifecycle not in {"active", "terminal", "all"}:
+            raise ValueError("lifecycle must be active, terminal, or all")
+        if location_status not in {"all", "unknown"}:
+            raise ValueError("location_status must be all or unknown")
         query = query.strip()
         if not query or limit < 1:
             return []
@@ -117,7 +129,17 @@ class SearchService:
         }
 
         ranked: dict[int, _Ranked] = {}
+        terminal_states = {ItemState.DISCARDED.value, ItemState.SOLD.value}
         for item_id, item in items_by_id.items():
+            if lifecycle == "active" and item.state in terminal_states:
+                continue
+            if lifecycle == "terminal" and item.state not in terminal_states:
+                continue
+            if (
+                location_status == "unknown"
+                and item.location_status != LocationStatus.UNKNOWN.value
+            ):
+                continue
             candidate = self._rank_item_python(item, identity, search_key)
             if candidate is not None:
                 ranked[item_id] = candidate

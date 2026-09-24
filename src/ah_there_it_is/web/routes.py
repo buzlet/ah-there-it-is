@@ -28,8 +28,9 @@ from ah_there_it_is.services.chat_requests import (
 )
 from ah_there_it_is.services.conversations import ConversationService
 from ah_there_it_is.services.evaluation import EvaluationService
-from ah_there_it_is.services.inventory import InventoryService
 from ah_there_it_is.services.experiments import ExperimentService
+from ah_there_it_is.services.inventory import InventoryService
+from ah_there_it_is.services.location_suggestions import LocationSuggestionService
 from ah_there_it_is.web.dependencies import get_session
 from ah_there_it_is.web.schemas import (
     ChatRequest,
@@ -45,6 +46,8 @@ from ah_there_it_is.web.schemas import (
     ExperimentReviewResponse,
     ItemCreateRequest,
     ItemEditRequest,
+    ItemMoveRequest,
+    ItemReactivateRequest,
     ItemResponse,
     TreeCreateRequest,
     TreeEditRequest,
@@ -433,21 +436,35 @@ def build_router(templates: Jinja2Templates) -> APIRouter:
     def items(
         request: Request,
         q: str = "",
+        lifecycle: str | None = None,
+        location_status: str = "all",
         page: int = 1,
         page_size: int = CatalogService.DEFAULT_PAGE_SIZE,
         session: Session = Depends(get_session),
     ) -> HTMLResponse:
         catalog = CatalogService(session)
         query = q.strip()
-        if query:
-            rows = catalog.search_items(query)
-            item_page = None
-        else:
-            try:
-                item_page = catalog.item_page(page=page, page_size=page_size)
-            except ValueError as exc:
-                raise HTTPException(status_code=400, detail=str(exc)) from exc
-            rows = item_page.items
+        selected_lifecycle = (
+            lifecycle if lifecycle is not None else ("all" if query else "active")
+        )
+        try:
+            if query:
+                rows = catalog.search_items(
+                    query,
+                    lifecycle=selected_lifecycle,
+                    location_status=location_status,
+                )
+                item_page = None
+            else:
+                item_page = catalog.item_page(
+                    page=page,
+                    page_size=page_size,
+                    lifecycle=selected_lifecycle,
+                    location_status=location_status,
+                )
+                rows = item_page.items
+        except ValueError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
         return templates.TemplateResponse(
             request=request,
             name="items.html",
@@ -457,6 +474,8 @@ def build_router(templates: Jinja2Templates) -> APIRouter:
                 "item_page": item_page,
                 "query": query,
                 "search_limit": catalog.SEARCH_LIMIT,
+                "lifecycle": selected_lifecycle,
+                "location_status": location_status,
             },
         )
 
@@ -489,6 +508,11 @@ def build_router(templates: Jinja2Templates) -> APIRouter:
             raise HTTPException(status_code=404, detail=str(exc)) from exc
         except ValueError as exc:
             raise HTTPException(status_code=400, detail=str(exc)) from exc
+        suggestions = (
+            LocationSuggestionService(session).suggest_item_locations(item_id)
+            if item["location_status"] == "unknown"
+            else []
+        )
         return templates.TemplateResponse(
             request=request,
             name="item_detail.html",
@@ -497,6 +521,7 @@ def build_router(templates: Jinja2Templates) -> APIRouter:
                 "item": item,
                 "locations": catalog.list_locations(),
                 "categories": catalog.list_categories(),
+                "location_suggestions": suggestions,
             },
         )
 
@@ -523,22 +548,103 @@ def build_router(templates: Jinja2Templates) -> APIRouter:
     ) -> ItemResponse:
         inventory = InventoryService(session, autocommit=False)
         patch = payload.model_dump(exclude_unset=True, mode="python")
-        location_provided = "location_id" in patch
-        location_id = patch.pop("location_id", None)
+        item = _manual_mutation(
+            session,
+            lambda: inventory.update_item(
+                item_id, **patch, original_text="[manual web edit]"
+            ),
+        )
+        return ItemResponse(**CatalogService(session).item_dict(item))
 
-        def action():
-            if patch:
-                inventory.update_item(item_id, **patch, original_text="[manual web edit]")
-            if location_provided:
-                if location_id is None:
-                    current = inventory.get_item(item_id)
-                    if current.current_location_id is not None:
-                        inventory.take_item(item_id, original_text="[manual web edit]")
-                else:
-                    inventory.move_item(item_id, location_id, original_text="[manual web edit]")
-            return inventory.get_item(item_id)
+    @router.post("/api/items/{item_id}/move", response_model=ItemResponse)
+    def move_item(
+        item_id: int,
+        payload: ItemMoveRequest,
+        session: Session = Depends(get_session),
+    ) -> ItemResponse:
+        inventory = InventoryService(session, autocommit=False)
+        item = _manual_mutation(
+            session,
+            lambda: inventory.move_item(
+                item_id,
+                payload.location_id,
+                original_text="[manual web move]",
+            ),
+        )
+        return ItemResponse(**CatalogService(session).item_dict(item))
 
-        item = _manual_mutation(session, action)
+    @router.post("/api/items/{item_id}/take", response_model=ItemResponse)
+    def take_item(
+        item_id: int,
+        session: Session = Depends(get_session),
+    ) -> ItemResponse:
+        inventory = InventoryService(session, autocommit=False)
+        item = _manual_mutation(
+            session,
+            lambda: inventory.take_item(
+                item_id, original_text="[manual web take]"
+            ),
+        )
+        return ItemResponse(**CatalogService(session).item_dict(item))
+
+    @router.post("/api/items/{item_id}/location-unknown", response_model=ItemResponse)
+    def mark_item_location_unknown(
+        item_id: int,
+        session: Session = Depends(get_session),
+    ) -> ItemResponse:
+        inventory = InventoryService(session, autocommit=False)
+        item = _manual_mutation(
+            session,
+            lambda: inventory.mark_item_location_unknown(
+                item_id, original_text="[manual web mark location unknown]"
+            ),
+        )
+        return ItemResponse(**CatalogService(session).item_dict(item))
+
+    @router.post("/api/items/{item_id}/discard", response_model=ItemResponse)
+    def discard_item(
+        item_id: int,
+        session: Session = Depends(get_session),
+    ) -> ItemResponse:
+        inventory = InventoryService(session, autocommit=False)
+        item = _manual_mutation(
+            session,
+            lambda: inventory.discard_item(
+                item_id, original_text="[manual web discard]"
+            ),
+        )
+        return ItemResponse(**CatalogService(session).item_dict(item))
+
+    @router.post("/api/items/{item_id}/sold", response_model=ItemResponse)
+    def mark_item_sold(
+        item_id: int,
+        session: Session = Depends(get_session),
+    ) -> ItemResponse:
+        inventory = InventoryService(session, autocommit=False)
+        item = _manual_mutation(
+            session,
+            lambda: inventory.mark_item_sold(
+                item_id, original_text="[manual web sold]"
+            ),
+        )
+        return ItemResponse(**CatalogService(session).item_dict(item))
+
+    @router.post("/api/items/{item_id}/reactivate", response_model=ItemResponse)
+    def reactivate_item(
+        item_id: int,
+        payload: ItemReactivateRequest,
+        session: Session = Depends(get_session),
+    ) -> ItemResponse:
+        inventory = InventoryService(session, autocommit=False)
+        item = _manual_mutation(
+            session,
+            lambda: inventory.reactivate_item(
+                item_id,
+                state=payload.state,
+                location_id=payload.location_id,
+                original_text="[manual web reactivate]",
+            ),
+        )
         return ItemResponse(**CatalogService(session).item_dict(item))
 
     @router.get("/locations", response_class=HTMLResponse)

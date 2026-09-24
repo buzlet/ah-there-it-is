@@ -31,6 +31,16 @@ class ActivityPage:
 class ActivityService:
     DEFAULT_PAGE_SIZE = 50
     MAX_PAGE_SIZE = 100
+    EVENT_LABELS = {
+        "item_created": "Item created",
+        "item_updated": "Item details updated",
+        "item_moved": "Moved to a known Location",
+        "item_taken": "Taken from storage / in use",
+        "item_location_unknown": "Location marked unknown",
+        "item_discarded": "Item discarded",
+        "item_sold": "Item sold",
+        "item_reactivated": "Item reactivated",
+    }
 
     def __init__(self, session: Session) -> None:
         self.session = session
@@ -86,6 +96,7 @@ class ActivityService:
             {
                 "id": event_id,
                 "event_type": event_type,
+                "event_label": self._event_label(event_type),
                 "created_at": created_at,
                 "item_id": item_id,
                 "item_name": item_name,
@@ -148,6 +159,7 @@ class ActivityService:
             {
                 "id": event.id,
                 "event_type": event.event_type,
+                "event_label": self._event_label(event.event_type),
                 "created_at": event.created_at,
                 "event_url": f"/activity/{event.id}",
                 "from_path": self._location_path_projection(
@@ -181,6 +193,7 @@ class ActivityService:
         return {
             "id": event.id,
             "event_type": event.event_type,
+            "event_label": self._event_label(event.event_type),
             "created_at": event.created_at,
             "item_id": event.item_id,
             "item_name": item_name,
@@ -196,6 +209,10 @@ class ActivityService:
             "payload": event.payload,
             "original_text": event.original_text,
         }
+
+    @classmethod
+    def _event_label(cls, event_type: str) -> str:
+        return cls.EVENT_LABELS.get(event_type, event_type)
 
     @staticmethod
     def _evidence(event: Event) -> dict[str, Any] | None:

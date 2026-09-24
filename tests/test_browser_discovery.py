@@ -41,12 +41,18 @@ def test_browser_search_uses_existing_ranking_and_links(
             )
             ids = item.id, category.id, location.id
 
-        calls: list[tuple[str, int]] = []
+        calls: list[tuple[str, int, str, str]] = []
         original = SearchService.search_items
 
-        def traced(self: SearchService, value: str, *, limit: int = 5):
-            calls.append((value, limit))
-            return original(self, value, limit=limit)
+        def traced(
+            self: SearchService, value: str, *, limit: int = 5,
+            lifecycle: str = "all", location_status: str = "all",
+        ):
+            calls.append((value, limit, lifecycle, location_status))
+            return original(
+                self, value, limit=limit, lifecycle=lifecycle,
+                location_status=location_status,
+            )
 
         monkeypatch.setattr(SearchService, "search_items", traced)
         with TestClient(app) as client:
@@ -54,7 +60,7 @@ def test_browser_search_uses_existing_ranking_and_links(
             item_detail = client.get(f"/items/{ids[0]}")
 
         assert response.status_code == 200
-        assert calls == [(query, 100)]
+        assert calls == [(query, 100, "all", "all")]
         assert f'href="/items/{ids[0]}"' in response.text
         assert f'href="/categories/{ids[1]}"' in response.text
         assert f'href="/locations/{ids[2]}"' in response.text
@@ -84,11 +90,11 @@ def test_blank_query_keeps_paged_catalog_and_reset() -> None:
         assert first.status_code == 200
         assert "Total: 3" in first.text
         assert len(re.findall(r'href="/items/\d+"', first.text)) == 2
-        assert 'href="/items?page=2&page_size=2"' in first.text
+        assert 'href="/items?lifecycle=active&amp;location_status=all&amp;page=2&amp;page_size=2"' in first.text
         assert second.status_code == 200
         assert len(re.findall(r'href="/items/\d+"', second.text)) == 1
         assert empty.status_code == 200
-        assert "No matching items." in empty.text
+        assert "No matching Items for these filters." in empty.text
         assert 'href="/items">Clear search</a>' in empty.text
         assert "Total:" not in empty.text
         assert invalid.status_code == 400

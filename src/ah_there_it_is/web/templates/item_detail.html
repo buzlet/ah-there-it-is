@@ -1,23 +1,112 @@
 {% extends "base.html" %}
 {% block title %}{{ item.name }} · {{ app_name }}{% endblock %}
 {% block content %}
-<div class="section-head"><div><a href="/items">← Items</a><h1>{{ item.name }}</h1></div></div>
+<div class="section-head"><div><a href="{% if item.state in ['discarded', 'sold'] %}/items?lifecycle=all{% else %}/items{% endif %}">← Items</a><h1>{{ item.name }}</h1></div></div>
 <div class="two-col">
   <section class="card">
     <h2>Details</h2>
     {% include "_item_form.html" %}
   </section>
   <section class="card">
-    <h2>Structured data</h2>
+    <h2>Item truth</h2>
     <dl>
+      <dt>Condition / state</dt>
+      <dd>{% if item.state == "unknown" %}Condition/state unknown{% else %}{{ item.state|replace("_", " ") }}{% endif %}</dd>
+      <dt>Location status</dt>
+      <dd>
+        {% if item.location_status == "known" %}
+          {% if item.location_id %}<a href="/locations/{{ item.location_id }}">{{ item.location_path or "Current Location" }}</a>{% else %}Current Location unavailable{% endif %}
+        {% elif item.location_status == "unknown" %}Location unknown
+        {% elif item.location_status == "in_use" %}In use / taken from storage
+        {% elif item.location_status == "not_applicable" %}Not applicable — terminal Item, no current Location
+        {% else %}Location status unavailable{% endif %}
+      </dd>
+      <dt>Current Location</dt><dd>{% if item.location_id %}<a href="/locations/{{ item.location_id }}">{{ item.location_path or "Location" }}</a>{% else %}None{% endif %}</dd>
+      <dt>Category</dt><dd>{% if item.category_id %}<a href="/categories/{{ item.category_id }}">{{ item.category_path }}</a>{% else %}—{% endif %}</dd>
+      <dt>Quantity</dt><dd>{{ item.quantity }}</dd>
       <dt>Aliases</dt><dd>{{ item.aliases|join(", ") or "—" }}</dd>
       <dt>Tags</dt><dd>{{ item.tags|join(", ") or "—" }}</dd>
-      <dt>Category</dt><dd>{% if item.category_id %}<a href="/categories/{{ item.category_id }}">{{ item.category_path }}</a>{% else %}—{% endif %}</dd>
-      <dt>Location</dt><dd>{% if item.location_id %}<a href="/locations/{{ item.location_id }}">{{ item.location_path }}</a>{% else %}—{% endif %}</dd>
-      <dt>Attributes</dt><dd><pre>{{ item.attributes }}</pre></dd>
+      <dt>Attributes</dt><dd><pre>{{ item.attributes|tojson(indent=2) }}</pre></dd>
     </dl>
   </section>
 </div>
+
+{% if item.state not in ["discarded", "sold"] %}
+<section class="card">
+  <h2>Location actions</h2>
+  <form data-transition-kind="move" data-transition-url="/api/items/{{ item.id }}/move">
+    <label>Move to known Location
+      <select name="location_id" required>
+        <option value="" selected disabled>Choose a Location</option>
+        {% for location in locations %}<option value="{{ location.id }}">{{ location.path }}</option>{% endfor %}
+      </select>
+    </label>
+    <button type="submit">Move Item</button>
+    <span role="status" class="muted"></span>
+  </form>
+  <form data-transition-kind="take" data-transition-url="/api/items/{{ item.id }}/take">
+    <button type="submit">Mark in use / taken from storage</button>
+    <span role="status" class="muted"></span>
+  </form>
+  <form data-transition-kind="location-unknown" data-transition-url="/api/items/{{ item.id }}/location-unknown">
+    <button type="submit">Mark location unknown</button>
+    <span role="status" class="muted"></span>
+  </form>
+</section>
+<section class="card">
+  <h2>Lifecycle actions</h2>
+  <form data-transition-kind="discard" data-transition-url="/api/items/{{ item.id }}/discard">
+    <button type="submit">Mark discarded</button>
+    <span role="status" class="muted"></span>
+  </form>
+  <form data-transition-kind="sold" data-transition-url="/api/items/{{ item.id }}/sold">
+    <button type="submit">Mark sold</button>
+    <span role="status" class="muted"></span>
+  </form>
+</section>
+{% else %}
+<section class="card">
+  <h2>Reactivate terminal Item</h2>
+  <form data-transition-kind="reactivate" data-transition-url="/api/items/{{ item.id }}/reactivate">
+    <label>Target condition / state
+      <select name="state" required>
+        <option value="unknown">Condition/state unknown</option>
+        {% for state in ["new","working","used","broken","needs_test","for_parts","for_sale"] %}
+          <option value="{{ state }}">{{ state|replace("_", " ") }}</option>
+        {% endfor %}
+      </select>
+    </label>
+    <fieldset>
+      <legend>Location after reactivation</legend>
+      <label class="inline-check"><input class="reactivation-location-mode" type="radio" name="location_mode" value="known" checked> Known Location</label>
+      <label>Choose known Location
+        <select name="location_id" required>
+          <option value="" selected disabled>Choose a Location</option>
+          {% for location in locations %}<option value="{{ location.id }}">{{ location.path }}</option>{% endfor %}
+        </select>
+      </label>
+      <label class="inline-check"><input class="reactivation-location-mode" type="radio" name="location_mode" value="unknown"> Location unknown</label>
+    </fieldset>
+    <button type="submit">Reactivate Item</button>
+    <span role="status" class="muted"></span>
+  </form>
+</section>
+{% endif %}
+
+{% if item.location_status == "unknown" %}
+<section class="card">
+  <h2>Location suggestions</h2>
+  <p class="muted">These are evidence-based inferences, not confirmed current locations.</p>
+  {% if location_suggestions %}
+  <ul>
+    {% for suggestion in location_suggestions %}
+    <li><a href="/locations/{{ suggestion.location_id }}">{{ suggestion.location_path }}</a> · Inferred from {{ suggestion.evidence.reasons|join(", ")|replace("_", " ") }}</li>
+    {% endfor %}
+  </ul>
+  {% else %}<p class="muted">No location suggestions from available evidence.</p>{% endif %}
+</section>
+{% endif %}
+
 <section class="card">
   <h2>History</h2>
   <p class="muted">Total: {{ item.history_page.total }} · Page {{ item.history_page.page }}{% if item.history_page.pages %} of {{ item.history_page.pages }}{% endif %}</p>
@@ -25,7 +114,7 @@
   <ol class="history">
     {% for event in item.history %}
     <li>
-      <strong><a href="{{ event.event_url }}">{{ event.event_type }}</a></strong> · {{ event.created_at }}
+      <strong><a href="{{ event.event_url }}">{{ event.event_label or event.event_type }}</a></strong> · {{ event.created_at }}
       {% if event.from_path or event.to_path %}
       <br><span class="muted">
         {% if event.from_path %}{{ event.from_path.label }}: {{ event.from_path.text or "path unavailable" }}{% else %}—{% endif %}
