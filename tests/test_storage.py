@@ -11,20 +11,25 @@ from sqlalchemy import event as sqlalchemy_event, func, select
 from sqlalchemy.orm import Session
 
 from ah_there_it_is.db.models import (
+    AgentRunLog,
     Alias,
     ChatRequestRecord,
     Conversation,
+    Category,
     Event,
     Item,
     ItemTag,
+    Location,
     Message,
     Tag,
+    ExperimentRun,
 )
 from ah_there_it_is.db.migrations import upgrade_database
 from ah_there_it_is.db.session import create_db_engine
 from ah_there_it_is.eval_fixture import seed_inventory_fixture
 from ah_there_it_is.services.inventory import InventoryService
 from ah_there_it_is.services.search import SearchService
+from ah_there_it_is.database_doctor import diagnose_database
 from ah_there_it_is.storage import (
     CURRENT_SCHEMA_REVISION,
     PORTABLE_EXPORT_VERSION,
@@ -789,6 +794,168 @@ def test_portable_import_round_trip_preserves_domain_and_search(
         if "_history_evidence" in event["payload"]
     }
     assert reexported_evidence == exported_evidence
+
+
+def test_portable_roundtrip_target_scale_preserves_semantics(tmp_path: Path) -> None:
+    active = tmp_path / "scale-active.db"
+    exported = tmp_path / "scale-export.json"
+    imported = tmp_path / "scale-imported.db"
+    reexported = tmp_path / "scale-reexport.json"
+    url = _migrate(active)
+    engine = create_db_engine(url)
+    stamp = __import__("datetime").datetime(2020, 1, 1)
+    try:
+        with Session(engine) as session:
+            session.execute(
+                Category.__table__.insert(),
+                [
+                    {
+                        "id": index,
+                        "parent_id": index - 1 if index % 10 != 1 else None,
+                        "name": f"Category {index}",
+                        "normalized_name": f"category {index}",
+                        "description": None,
+                        "created_at": stamp,
+                        "updated_at": stamp,
+                    }
+                    for index in range(1, 121)
+                ],
+            )
+            session.execute(
+                Location.__table__.insert(),
+                [
+                    {
+                        "id": index,
+                        "parent_id": index - 1 if index % 10 != 1 else None,
+                        "name": f"Location {index}",
+                        "normalized_name": f"location {index}",
+                        "description": None,
+                        "created_at": stamp,
+                        "updated_at": stamp,
+                    }
+                    for index in range(1, 121)
+                ],
+            )
+            items = []
+            for index in range(1, 1001):
+                mode = index % 4
+                state, location_status, location_id = (
+                    ("sold", "not_applicable", None) if mode == 0
+                    else ("working", "known", (index % 120) + 1) if mode == 1
+                    else ("used", "in_use", None) if mode == 2
+                    else ("unknown", "unknown", None)
+                )
+                items.append({
+                    "id": index,
+                    "name": f"Scale Item {index}",
+                    "normalized_name": f"scale item {index}",
+                    "description": f"Описание {index}",
+                    "state": state,
+                    "category_id": (index % 120) + 1,
+                    "current_location_id": location_id,
+                    "location_status": location_status,
+                    "quantity": (index % 3) + 1,
+                    "attributes": {"index": index, "group": index % 7},
+                    "created_at": stamp,
+                    "updated_at": stamp,
+                })
+            session.execute(Item.__table__.insert(), items)
+            session.execute(
+                Alias.__table__.insert(),
+                [
+                    {
+                        "id": index,
+                        "item_id": index,
+                        "name": f"Alias {index}",
+                        "normalized_name": f"alias {index}",
+                    }
+                    for index in range(1, 1001)
+                ],
+            )
+            session.execute(
+                Tag.__table__.insert(),
+                [
+                    {"id": index, "name": f"Tag {index}", "normalized_name": f"tag {index}"}
+                    for index in range(1, 21)
+                ],
+            )
+            session.execute(
+                ItemTag.__table__.insert(),
+                [
+                    {"item_id": item_id, "tag_id": tag_id}
+                    for item_id in range(1, 1001)
+                    for tag_id in sorted({(item_id % 20) + 1, ((item_id + 7) % 20) + 1})
+                ],
+            )
+            session.execute(
+                Event.__table__.insert(),
+                [
+                    {
+                        "id": index,
+                        "event_type": "item_created",
+                        "item_id": index,
+                        "from_location_id": None,
+                        "to_location_id": items[index - 1]["current_location_id"],
+                        "payload": {"name": f"Scale Item {index}"},
+                        "original_text": f"seed {index}",
+                        "created_at": stamp,
+                    }
+                    for index in range(1, 1001)
+                ],
+            )
+            session.execute(
+                Conversation.__table__.insert(),
+                [{"id": 1, "created_at": stamp, "updated_at": stamp}],
+            )
+            session.execute(
+                AgentRunLog.__table__.insert(),
+                [{
+                    "id": 1, "conversation_id": 1, "user_message_id": None,
+                    "assistant_message_id": None, "prompt_version": "excluded",
+                    "prompt_hash": "x" * 64, "system_prompt": "excluded",
+                    "llm_provider": "test", "llm_model": "excluded",
+                    "llm_config": {}, "input_messages": [], "tool_trace": [],
+                    "mutation_receipts": [], "final_content": "excluded",
+                    "rounds": 1, "status": "completed", "error": None,
+                    "created_at": stamp,
+                }],
+            )
+            session.execute(
+                ExperimentRun.__table__.insert(),
+                [{
+                    "id": 1, "source_run_id": 1, "experiment_name": "excluded",
+                    "prompt_version": "excluded", "prompt_hash": "y" * 64,
+                    "system_prompt": "excluded", "llm_provider": "test",
+                    "llm_model": "excluded", "llm_config": {},
+                    "input_messages": [], "tool_trace": [], "final_content": "excluded",
+                    "rounds": 1, "status": "completed", "error": None,
+                    "divergence_reason": None, "created_at": stamp,
+                }],
+            )
+            session.commit()
+    finally:
+        engine.dispose()
+
+    first = export_portable_inventory(url, exported)
+    result = import_portable_inventory(url, exported, imported)
+    second = export_portable_inventory(f"sqlite:///{imported}", reexported)
+
+    assert _semantic_portable(first) == _semantic_portable(second)
+    assert result.categories == result.locations == 120
+    assert result.items == result.events == 1000
+    assert [row["id"] for row in second["inventory"]["items"]] == list(range(1, 1001))
+    assert validate_database(imported).integrity_check == ("ok",)
+    assert diagnose_database(f"sqlite:///{imported}").ok is True
+
+    imported_engine = create_db_engine(f"sqlite:///{imported}")
+    try:
+        with Session(imported_engine) as session:
+            assert SearchService(session).search_items("Scale Item 1000")[0].id == 1000
+            assert session.scalar(select(func.count(Conversation.id))) == 0
+            assert session.scalar(select(func.count(AgentRunLog.id))) == 0
+            assert session.scalar(select(func.count(ExperimentRun.id))) == 0
+    finally:
+        imported_engine.dispose()
 
 
 def test_portable_import_refuses_existing_active_and_invalid_targets(
