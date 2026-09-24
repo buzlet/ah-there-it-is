@@ -4,10 +4,54 @@ from __future__ import annotations
 
 import json
 import sys
+from collections.abc import Iterable
+from typing import Any, TextIO
 
 from ah_there_it_is.config import get_settings
 from ah_there_it_is.db.session import create_db_engine, create_session_factory
-from ah_there_it_is.services.evaluation import EvaluationService
+from ah_there_it_is.services.evaluation import (
+    EvaluationExportRecord,
+    EvaluationService,
+)
+
+
+def _record_dict(record: EvaluationExportRecord) -> dict[str, Any]:
+    return {
+        "run_id": record.run_id,
+        "conversation_id": record.conversation_id,
+        "prompt_version": record.prompt_version,
+        "prompt_hash": record.prompt_hash,
+        "system_prompt": record.system_prompt,
+        "llm_provider": record.llm_provider,
+        "llm_model": record.llm_model,
+        "llm_config": record.llm_config,
+        "input_messages": record.input_messages,
+        "tool_trace": record.tool_trace,
+        "final_content": record.final_content,
+        "rounds": record.rounds,
+        "status": record.status,
+        "error": record.error,
+        "rating": record.rating,
+        "comment": record.comment,
+        "created_at": record.created_at.isoformat(),
+    }
+
+
+def write_evaluation_json(
+    records: Iterable[EvaluationExportRecord], stream: TextIO
+) -> None:
+    stream.write("[")
+    first = True
+    for record in records:
+        if first:
+            first = False
+        else:
+            stream.write(",")
+        stream.write("\n  ")
+        stream.write(json.dumps(_record_dict(record), ensure_ascii=False))
+    if not first:
+        stream.write("\n")
+    stream.write("]\n")
 
 
 def main() -> int:
@@ -16,32 +60,9 @@ def main() -> int:
     factory = create_session_factory(engine)
     try:
         with factory() as session:
-            runs = EvaluationService(session).recent_runs(limit=100_000)
-            records = [
-                {
-                    "run_id": run.id,
-                    "conversation_id": run.conversation_id,
-                    "prompt_version": run.prompt_version,
-                    "prompt_hash": run.prompt_hash,
-                    "system_prompt": run.system_prompt,
-                    "llm_provider": run.llm_provider,
-                    "llm_model": run.llm_model,
-                    "llm_config": run.llm_config,
-                    "input_messages": run.input_messages,
-                    "tool_trace": run.tool_trace,
-                    "final_content": run.final_content,
-                    "rounds": run.rounds,
-                    "status": run.status,
-                    "error": run.error,
-                    "rating": run.feedback.rating if run.feedback else None,
-                    "comment": run.feedback.comment if run.feedback else None,
-                    "created_at": run.created_at.isoformat(),
-                }
-                for run in reversed(runs)
-                if run.feedback is not None
-            ]
-        json.dump(records, sys.stdout, ensure_ascii=False, indent=2)
-        sys.stdout.write("\n")
+            write_evaluation_json(
+                EvaluationService(session).iter_export_records(), sys.stdout
+            )
         return 0
     finally:
         engine.dispose()

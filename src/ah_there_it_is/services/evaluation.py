@@ -2,8 +2,9 @@
 
 from __future__ import annotations
 
-from collections.abc import Sequence
+from collections.abc import Iterator, Sequence
 from dataclasses import dataclass
+from datetime import datetime
 import hashlib
 import json
 from typing import Any
@@ -38,6 +39,27 @@ class EvaluationRunPage:
     has_next: bool
 
 
+@dataclass(frozen=True)
+class EvaluationExportRecord:
+    run_id: int
+    conversation_id: int
+    prompt_version: str
+    prompt_hash: str
+    system_prompt: str
+    llm_provider: str
+    llm_model: str
+    llm_config: dict[str, Any]
+    input_messages: list[dict[str, Any]]
+    tool_trace: list[dict[str, Any]]
+    final_content: str | None
+    rounds: int
+    status: str
+    error: str | None
+    rating: int
+    comment: str | None
+    created_at: datetime
+
+
 def canonical_llm_config(config: dict[str, Any]) -> tuple[str, str]:
     canonical = json.dumps(
         config,
@@ -52,6 +74,7 @@ def canonical_llm_config(config: dict[str, Any]) -> tuple[str, str]:
 class EvaluationService:
     DEFAULT_PAGE_SIZE = 50
     MAX_PAGE_SIZE = 100
+    EXPORT_CHUNK_SIZE = 500
 
     def __init__(self, session: Session) -> None:
         self.session = session
@@ -200,6 +223,35 @@ class EvaluationService:
             .order_by(AgentRunLog.id.asc())
         )
         return list(self.session.scalars(stmt))
+
+    def iter_export_records(self) -> Iterator[EvaluationExportRecord]:
+        stmt = (
+            select(
+                AgentRunLog.id.label("run_id"),
+                AgentRunLog.conversation_id,
+                AgentRunLog.prompt_version,
+                AgentRunLog.prompt_hash,
+                AgentRunLog.system_prompt,
+                AgentRunLog.llm_provider,
+                AgentRunLog.llm_model,
+                AgentRunLog.llm_config,
+                AgentRunLog.input_messages,
+                AgentRunLog.tool_trace,
+                AgentRunLog.final_content,
+                AgentRunLog.rounds,
+                AgentRunLog.status,
+                AgentRunLog.error,
+                AgentFeedback.rating,
+                AgentFeedback.comment,
+                AgentRunLog.created_at,
+            )
+            .join(AgentFeedback, AgentFeedback.agent_run_id == AgentRunLog.id)
+            .where(AgentRunLog.status == "completed")
+            .order_by(AgentRunLog.id.asc())
+            .execution_options(yield_per=self.EXPORT_CHUNK_SIZE)
+        )
+        for row in self.session.execute(stmt):
+            yield EvaluationExportRecord(*row)
 
     def summaries(self) -> list[EvaluationSummary]:
         stmt = (
