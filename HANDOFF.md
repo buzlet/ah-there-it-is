@@ -204,3 +204,17 @@ Location truth is explicit in storage, portable-v2 archives, agent/domain transi
 ## Assignment 0029 delivered — implementation-host enablement
 
 Protocol v6 adds explicit `u24-bash` and `windows-git-bash` launcher profiles while preserving v4/v5 seed, batch, PR/CI, merge and main-advance controls. U24 remains the established execution path. Git Bash with native Windows Python is prepared for a separate first native pilot, including observed backup/restore/WAL/file replacement and process-cleanup checks. Just now selects Bash explicitly; migration and retrieval verification use OS temporary paths, and default scenario evaluation leaves the checkout clean. Installed-wheel smoke uses a temporary venv and platform-correct interpreter/console-script layout without network access. Assignment 0029 local verification ran on U24 only. Review: `agent-tasks/reviews/0029-r1.md`.
+
+
+## Protocol v7 — execution channels
+
+Protocol v7 separates execution host from execution channel.
+
+Supported combinations:
+- U24 Bash + Remote Commander;
+- Windows Git Bash + Remote Commander (native pilot still pending);
+- U24 Bash + SSH-supervised Codex CLI.
+
+For the SSH-Codex channel, the chat/controller owns SSH transport and supervision while Codex CLI owns repository implementation work. The preferred automation surface is non-interactive `codex exec --json --full-auto -` with the exact issued prompt on stdin and durable JSONL/stderr state outside the repository. An SSH disconnect never authorizes launching a duplicate Codex process; durable process/repository/PR state must be inspected first.
+
+Historical v4/v5/v6 files remain immutable records of their respective execution models.
