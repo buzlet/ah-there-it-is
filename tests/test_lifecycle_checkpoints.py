@@ -1,0 +1,368 @@
+from __future__ import annotations
+
+import json
+import os
+import subprocess
+from pathlib import Path
+
+import pytest
+
+from tools.agent import lifecycle_checkpoints as lifecycle
+
+
+CONTROL_BRANCH = "queue/post-test-control"
+TASK_BRANCH = "feat/agent-test"
+REMOTE_URL = "https://example.invalid/buzlet/ah-there-it-is.git"
+MANIFEST_PATH = "agent-tasks/batches/test/manifest.md"
+SPEC_PATH = "agent-tasks/batches/test/0031-task.md"
+ASSIGNMENT_PATH = "agent-tasks/assignments/0031-task.md"
+MANIFEST = f"""# Test batch
+
+Batch ID: `test-batch`
+
+### 0030 — earlier task
+
+Branch: `feat/agent-earlier`
+Spec source: `agent-tasks/batches/test/0030-task.md`
+Assignment destination: `agent-tasks/assignments/0030-task.md`
+
+### 0031 — current task
+
+Branch: `{TASK_BRANCH}`
+Spec source: `{SPEC_PATH}`
+Assignment destination: `{ASSIGNMENT_PATH}`
+Depends on: 0030 merged.
+"""
+SPEC = "# Exact issued task\n\nPreserve these bytes.\n"
+
+
+def _git(repo: Path, *args: str) -> str:
+    result = subprocess.run(
+        ["git", "-C", str(repo), *args],
+        check=True,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        text=True,
+    )
+    return result.stdout.strip()
+
+
+def _commit(repo: Path, message: str) -> str:
+    _git(repo, "add", "--all")
+    _git(repo, "commit", "-m", message)
+    return _git(repo, "rev-parse", "HEAD")
+
+
+def _configure(repo: Path) -> None:
+    _git(repo, "config", "user.name", "Lifecycle Test")
+    _git(repo, "config", "user.email", "lifecycle@example.invalid")
+
+
+def _batch_repo(tmp_path: Path) -> dict[str, str | Path]:
+    repo = tmp_path / "repo"
+    repo.mkdir()
+    _git(repo, "init", "--initial-branch=main")
+    _configure(repo)
+    (repo / "README.md").write_text("base\n", encoding="utf-8")
+    base = _commit(repo, "base")
+    _git(repo, "remote", "add", "origin", REMOTE_URL)
+    _git(repo, "update-ref", "refs/remotes/origin/main", base)
+
+    _git(repo, "checkout", "-b", CONTROL_BRANCH)
+    (repo / "agent-tasks/batches/test").mkdir(parents=True)
+    (repo / "agent-tasks/assignments").mkdir(parents=True)
+    (repo / MANIFEST_PATH).write_text(MANIFEST, encoding="utf-8")
+    (repo / SPEC_PATH).write_bytes(SPEC.encode())
+    (repo / "agent-tasks/batches/test/0030-task.md").write_text("earlier\n", encoding="utf-8")
+    control = _commit(repo, "control manifest")
+    _git(repo, "update-ref", f"refs/remotes/origin/{CONTROL_BRANCH}", control)
+    _git(repo, "checkout", "main")
+    return {
+        "repo": repo,
+        "base": base,
+        "control": control,
+        "manifest": MANIFEST_PATH,
+        "spec": SPEC_PATH,
+        "assignment": ASSIGNMENT_PATH,
+    }
+
+
+def _preflight(repo: dict[str, str | Path], **overrides):
+    values = {
+        "repo_path": str(repo["repo"]),
+        "expected_repo_path": str(repo["repo"]),
+        "expected_origin": REMOTE_URL,
+        "control_branch": CONTROL_BRANCH,
+        "control_sha": str(repo["control"]),
+        "manifest_path": str(repo["manifest"]),
+        "task_id": "0031",
+        "expected_start_main_sha": str(repo["base"]),
+        "expected_task_order": ["0030", "0031"],
+        "expected_task_spec_source": str(repo["spec"]),
+        "expected_assignment_destination": str(repo["assignment"]),
+    }
+    values.update(overrides)
+    return lifecycle.check_preflight(**values)
+
+
+def _task_branch(repo: Path, base: str, assignment: str = SPEC) -> tuple[str, str]:
+    _git(repo, "checkout", "-b", TASK_BRANCH, base)
+    destination = repo / ASSIGNMENT_PATH
+    destination.parent.mkdir(parents=True, exist_ok=True)
+    destination.write_bytes(assignment.encode())
+    seed = _commit(repo, "immutable seed")
+    return seed, _git(repo, "rev-parse", f"{seed}^")
+
+
+def _simple_repo(tmp_path: Path) -> Path:
+    repo = tmp_path / "checkpoint-repo"
+    repo.mkdir()
+    _git(repo, "init", "--initial-branch=" + TASK_BRANCH)
+    _configure(repo)
+    (repo / "README.md").write_text("initial\n", encoding="utf-8")
+    _commit(repo, "initial")
+    return repo
+
+
+def test_preflight_checks_manifest_control_identity_and_target_branch(tmp_path: Path) -> None:
+    repo = _batch_repo(tmp_path)
+
+    result = _preflight(repo)
+
+    assert result["status"] == "ok"
+    assert result["selected_task"] == {
+        "position": 2,
+        "id": "0031",
+        "title": "current task",
+        "branch": TASK_BRANCH,
+        "spec_source": SPEC_PATH,
+        "assignment_destination": ASSIGNMENT_PATH,
+        "depends_on": "0030 merged.",
+    }
+    assert all(check["ok"] for check in result["checks"])
+
+
+def test_preflight_rejects_wrong_start_sha_and_wrong_control_sha(tmp_path: Path) -> None:
+    repo = _batch_repo(tmp_path)
+
+    wrong_start = _preflight(repo, expected_start_main_sha="1" * 40)
+    wrong_control = _preflight(repo, control_sha=str(repo["base"]))
+
+    assert wrong_start["status"] == "blocked"
+    assert not next(check for check in wrong_start["checks"] if check["name"] == "expected_start_main")["ok"]
+    assert wrong_control["status"] == "blocked"
+    assert not next(check for check in wrong_control["checks"] if check["name"] == "manifest_at_control_sha")["ok"]
+
+
+def test_preflight_rejects_dirty_worktree_and_existing_task_branch(tmp_path: Path) -> None:
+    repo = _batch_repo(tmp_path)
+    path = Path(repo["repo"])
+    (path / "untracked.txt").write_text("dirty\n", encoding="utf-8")
+
+    dirty = _preflight(repo)
+    (path / "untracked.txt").unlink()
+    _git(path, "branch", TASK_BRANCH, str(repo["base"]))
+    existing = _preflight(repo)
+
+    assert dirty["status"] == "blocked"
+    assert not next(check for check in dirty["checks"] if check["name"] == "worktree_clean")["ok"]
+    assert existing["status"] == "blocked"
+    assert not next(check for check in existing["checks"] if check["name"] == "target_task_branch")["ok"]
+    assert _preflight(repo, allow_existing_task_branch=True)["status"] == "ok"
+
+
+def test_seed_verification_checks_exact_assignment_and_later_ancestry(tmp_path: Path) -> None:
+    repo = _batch_repo(tmp_path)
+    path = Path(repo["repo"])
+    seed, base = _task_branch(path, str(repo["base"]))
+    args = {
+        "repo_path": str(path),
+        "branch": TASK_BRANCH,
+        "base_sha": base,
+        "control_sha": str(repo["control"]),
+        "assignment_source": str(repo["spec"]),
+        "assignment_destination": str(repo["assignment"]),
+    }
+
+    verified = lifecycle.verify_seed(**args)
+    assert verified["status"] == "verified"
+    assert verified["seed_sha"] == seed
+
+    (path / "implementation.py").write_text("# implementation\n", encoding="utf-8")
+    later = _commit(path, "implementation")
+    assert lifecycle.verify_seed(**args, seed_sha=seed)["status"] == "blocked"
+    later_check = lifecycle.verify_seed(**args, seed_sha=seed, allow_later_head=True)
+    assert later_check["status"] == "verified"
+    assert later_check["head"] == later
+
+
+def test_seed_verification_rejects_assignment_byte_mismatch_and_non_ancestor(tmp_path: Path) -> None:
+    repo = _batch_repo(tmp_path)
+    path = Path(repo["repo"])
+    seed, base = _task_branch(path, str(repo["base"]), assignment="different bytes\n")
+    args = {
+        "repo_path": str(path),
+        "branch": TASK_BRANCH,
+        "base_sha": base,
+        "control_sha": str(repo["control"]),
+        "assignment_source": str(repo["spec"]),
+        "assignment_destination": str(repo["assignment"]),
+    }
+    mismatch = lifecycle.verify_seed(**args)
+    assert mismatch["status"] == "blocked"
+    assert not next(check for check in mismatch["checks"] if check["name"] == "assignment_bytes_match_control")["ok"]
+
+    _git(path, "branch", "saved-seed", seed)
+    _git(path, "checkout", "-B", TASK_BRANCH, base)
+    (path / "alternative.txt").write_text("another child of base\n", encoding="utf-8")
+    _commit(path, "alternative seed")
+    diverged = lifecycle.verify_seed(**args, seed_sha=seed, allow_later_head=True)
+    assert diverged["status"] == "blocked"
+    assert not next(check for check in diverged["checks"] if check["name"] == "seed_ancestor")["ok"]
+
+
+def test_checkpoint_phases_are_monotonic_and_corrections_keep_high_water_mark(tmp_path: Path) -> None:
+    repo = _simple_repo(tmp_path)
+    state = tmp_path / "state"
+    common = {"repo_path": str(repo), "state_dir": str(state), "assignment": "0031"}
+
+    for phase in ("preflight_ok", "seeded", "implementation_ready", "focused_green"):
+        lifecycle.write_checkpoint(**common, phase=phase)
+    with pytest.raises(lifecycle.LifecycleError, match="regression"):
+        lifecycle.write_checkpoint(**common, phase="seeded")
+
+    (repo / "implementation.py").write_text("# corrected\n", encoding="utf-8")
+    _commit(repo, "implementation correction")
+    corrected = lifecycle.write_checkpoint(
+        **common,
+        phase="implementation_ready",
+        correction_iteration=1,
+    )["checkpoint"]
+
+    assert corrected["phase"] == "implementation_ready"
+    assert corrected["highest_phase"] == "focused_green"
+    assert corrected["correction_iteration"] == 1
+    assert corrected["correction_history"][0]["iteration"] == 1
+    assert [event["phase"] for event in corrected["phase_history"]][-2:] == [
+        "focused_green",
+        "implementation_ready",
+    ]
+
+
+def test_checkpoint_writes_atomic_private_file_and_preserves_old_state_on_failure(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    repo = _simple_repo(tmp_path)
+    state = tmp_path / "state"
+    common = {"repo_path": str(repo), "state_dir": str(state), "assignment": "0031"}
+    result = lifecycle.write_checkpoint(**common, phase="preflight_ok")
+    path = Path(result["checkpoint_path"])
+    original = path.read_bytes()
+    assert path.stat().st_mode & 0o777 == 0o600
+
+    def fail_replace(_source, _destination):
+        raise OSError("simulated atomic rename failure")
+
+    monkeypatch.setattr(lifecycle.os, "replace", fail_replace)
+    with pytest.raises(OSError, match="simulated"):
+        lifecycle.write_checkpoint(**common, phase="seeded")
+
+    assert path.read_bytes() == original
+    assert not list(path.parent.glob("*.tmp"))
+
+
+def test_checkpoint_status_reports_stale_and_malformed_state(tmp_path: Path) -> None:
+    repo = _simple_repo(tmp_path)
+    state = tmp_path / "state"
+    common = {"repo_path": str(repo), "state_dir": str(state), "assignment": "0031"}
+    result = lifecycle.write_checkpoint(**common, phase="preflight_ok")
+    path = Path(result["checkpoint_path"])
+
+    (repo / "later.txt").write_text("later\n", encoding="utf-8")
+    _commit(repo, "later commit")
+    assert lifecycle.checkpoint_status(**common)["status"] == "stale"
+
+    path.write_text("{not json", encoding="utf-8")
+    assert lifecycle.checkpoint_status(**common)["status"] == "invalid"
+
+
+def test_malformed_checkpoint_types_return_invalid_instead_of_crashing(tmp_path: Path) -> None:
+    repo = _simple_repo(tmp_path)
+    state = tmp_path / "state"
+    common = {"repo_path": str(repo), "state_dir": str(state), "assignment": "0031"}
+    result = lifecycle.write_checkpoint(**common, phase="preflight_ok")
+    path = Path(result["checkpoint_path"])
+    payload = json.loads(path.read_text(encoding="utf-8"))
+    payload["phase"] = []
+    path.write_text(json.dumps(payload), encoding="utf-8")
+
+    assert lifecycle.checkpoint_status(**common)["status"] == "invalid"
+
+
+def test_checkpoint_directory_inside_repository_is_rejected(tmp_path: Path) -> None:
+    repo = _simple_repo(tmp_path)
+
+    with pytest.raises(lifecycle.LifecycleError, match="outside"):
+        lifecycle.write_checkpoint(
+            repo_path=str(repo),
+            state_dir=str(repo / ".state"),
+            assignment="0031",
+            phase="preflight_ok",
+        )
+
+
+def test_checkpoint_pr_metadata_and_merged_phase_are_consistent(tmp_path: Path) -> None:
+    repo = _simple_repo(tmp_path)
+    state = tmp_path / "state"
+    common = {"repo_path": str(repo), "state_dir": str(state), "assignment": "0031"}
+    head = _git(repo, "rev-parse", "HEAD")
+
+    for phase in (
+        "preflight_ok",
+        "seeded",
+        "implementation_ready",
+        "focused_green",
+        "canonical_green",
+        "review_written",
+    ):
+        lifecycle.write_checkpoint(**common, phase=phase)
+    lifecycle.write_checkpoint(
+        **common,
+        phase="pr_open",
+        pr_number=91,
+        pr_head_sha=head,
+    )
+    lifecycle.write_checkpoint(**common, phase="ci_green")
+    merged = lifecycle.write_checkpoint(
+        **common,
+        phase="merged",
+        merge_sha="b" * 40,
+    )["checkpoint"]
+
+    assert merged["pr_number"] == 91
+    assert merged["pr_head_sha"] == head
+    assert merged["merge_sha"] == "b" * 40
+    assert lifecycle.checkpoint_status(**common)["status"] == "current"
+    with pytest.raises(lifecycle.LifecycleError, match="terminal"):
+        lifecycle.write_checkpoint(**common, phase="ci_green")
+
+
+def test_checkpoint_loader_rejects_unrecorded_phase_regression(tmp_path: Path) -> None:
+    repo = _simple_repo(tmp_path)
+    state = tmp_path / "state"
+    common = {"repo_path": str(repo), "state_dir": str(state), "assignment": "0031"}
+    result = lifecycle.write_checkpoint(**common, phase="preflight_ok")
+    path = Path(result["checkpoint_path"])
+    payload = json.loads(path.read_text(encoding="utf-8"))
+    head = payload["head"]
+    timestamp = payload["updated_at"]
+    payload["phase"] = "seeded"
+    payload["highest_phase"] = "canonical_green"
+    payload["phase_history"] = [
+        {"phase": "preflight_ok", "correction_iteration": 0, "head": head, "timestamp": timestamp},
+        {"phase": "canonical_green", "correction_iteration": 0, "head": head, "timestamp": timestamp},
+        {"phase": "seeded", "correction_iteration": 0, "head": head, "timestamp": timestamp},
+    ]
+    path.write_text(json.dumps(payload), encoding="utf-8")
+
+    assert lifecycle.checkpoint_status(**common)["status"] == "invalid"
