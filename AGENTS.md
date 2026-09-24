@@ -95,7 +95,7 @@ Do not recursively read `agent-tasks/archive/`.
 
 ## Current status
 
-Product work through Stage 26 and assignments through 0040 are complete.
+Product work through Stage 26 and assignments through 0050 are complete.
 
 ## Next product gate
 
