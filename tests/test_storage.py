@@ -1390,9 +1390,8 @@ def test_portable_import_publication_race_preserves_concurrent_paths(
     source = tmp_path / "source.json"
     destination = tmp_path / "race.db"
     url = _migrate(active)
-    _seed_operational_state(url)
-    export_portable_inventory(url, source)
-    active_before = validate_database(active).sha256
+    ids = _seed_operational_state(url)
+    active_before = _semantic_portable(export_portable_inventory(url, source))
     source_before = source.read_bytes()
     original_publish = storage._publish_new_database
     raced = (
@@ -1412,7 +1411,19 @@ def test_portable_import_publication_race_preserves_concurrent_paths(
     if race_path != "main":
         assert not destination.exists()
     assert source.read_bytes() == source_before
-    assert validate_database(active).sha256 == active_before
+    active_after = export_portable_inventory(
+        url,
+        tmp_path / f"active-after-{race_path}.json",
+    )
+    assert _semantic_portable(active_after) == active_before
+    active_engine = create_db_engine(url)
+    try:
+        with Session(active_engine) as session:
+            assert session.scalar(select(func.count(Conversation.id))) == 1
+            assert session.scalar(select(func.count(ChatRequestRecord.id))) == 2
+            assert SearchService(session).search_items("CH341A")[0].id == ids["ch341a"]
+    finally:
+        active_engine.dispose()
     assert not list(tmp_path.glob(".race.db.portable-*.tmp"))
 
 
