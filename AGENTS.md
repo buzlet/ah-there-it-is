@@ -98,3 +98,12 @@ Product work through Stage 26 and assignments through 0034 are complete.
 Before partial quantity operations or Item split/merge, explicitly decide the physical-instance/quantity model.
 
 See `agent-tasks/designs/future-decision-gates.md`.
+
+
+## Direct-shell preflight cadence
+
+For direct U24 batches, verify user/HOME/exact Git toplevel once at batch startup.
+
+Do not repeat that full preflight before each mutation.
+
+Each later independent shell command only needs to `cd` to the launcher-issued workdir (failing if unavailable) and restore the repository-local venv PATH. Repeat the full preflight only after an actual session reset/reconnect or evidence that execution context was lost.
