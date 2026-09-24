@@ -57,6 +57,65 @@ Behavior:
 - Python must be native Windows Python, not an MSYS Python runtime;
 - launcher supplies the repository path in Git Bash form to avoid ad-hoc path guessing.
 
+## Deterministic command environment
+
+The Stage 26 batch completed successfully, but its reviews recorded repeated invocation retries caused by relying on venv/PATH state and by manually restating recipe arguments. v6 must remove this operational ambiguity.
+
+### Independent Remote Commander calls
+
+Assume every independent Remote Commander command execution starts with fresh shell state.
+
+Do not rely on:
+
+- a prior `source .venv/bin/activate`;
+- a prior `cd`;
+- environment exports from a previous call;
+- interactive terminal state.
+
+Every command batch must establish its own deterministic prelude before repository work.
+
+### U24 prelude
+
+For `u24-bash`, v6 must require the logical equivalent of:
+
+```bash
+cd /home/gpt/projects/ah-there-it-is
+export PATH="$PWD/.venv/bin:$PATH"
+```
+
+and verify that:
+
+```bash
+python -c 'import os,sys; print(sys.executable); assert os.name == "posix"'
+```
+
+uses the intended project environment.
+
+If the expected project venv is absent or unusable, stop rather than silently switching to a different Python.
+
+### Windows Git Bash prelude
+
+For `windows-git-bash`, v6 must require the logical equivalent of:
+
+```bash
+cd "$repo_path"
+export PATH="$PWD/.venv/Scripts:$PATH"
+export PYTHONUTF8=1
+export PYTHONIOENCODING=utf-8
+```
+
+Then verify native Windows Python:
+
+```bash
+python -c 'import os,sys; print(sys.executable); assert os.name == "nt"'
+```
+
+The repo-local Windows venv is expected at `.venv/Scripts`.
+
+If it is absent or does not resolve to native Windows Python, stop and report the preflight failure. Do not fall back to MSYS Python, WSL, PowerShell Python, U24, or another environment.
+
+The first Windows pilot may explicitly provision that venv before lifecycle start; v6 itself must not guess among multiple unrelated Python installations.
+
 ## Windows preflight required by v6
 
 Before touching a seeded branch under `windows-git-bash`, verify from Git Bash:
@@ -65,13 +124,12 @@ Before touching a seeded branch under `windows-git-bash`, verify from Git Bash:
 - `uname` is consistent with that environment;
 - `git --version` works;
 - `bash --version` works;
+- deterministic command prelude above is active;
 - `python --version` is project-supported;
 - native Python reports `os.name == "nt"`;
 - `just --version` works;
 - supplied `repo_path` exists and is the expected Git repository;
 - worktree is clean before lifecycle start.
-
-Set UTF-8-safe Python process behavior for agent command execution on Windows, for example through `PYTHONUTF8=1` / `PYTHONIOENCODING=utf-8`, without changing persisted application semantics.
 
 If preflight fails, stop. Do not silently fall back to PowerShell, cmd, WSL, U24 or another device.
 
@@ -104,6 +162,39 @@ v6 must preserve, without weakening:
 - no roadmap authority for implementation agents.
 
 Where v4/v5 shell examples are POSIX-specific, v6 should express the invariant semantically and may provide Bash commands because both supported profiles use Bash.
+
+## Canonical command contract
+
+v6 must define the current canonical project verification set explicitly as:
+
+```text
+just check
+just migration-check
+just corpus-check
+just scenario-check
+just scenario-eval
+just retrieval-eval
+just provider-contract
+```
+
+Run these commands exactly in their default Justfile form unless a future assignment explicitly changes an argument.
+
+Do not manually restate default `scenario-eval` corpus/scenario/output arguments on the command line. The Stage 26 reviews showed that this created avoidable invocation retries.
+
+Assignments may add focused checks, but they must not silently replace the canonical set.
+
+## Long-running command / CI waiting policy
+
+v6 must avoid command patterns that can look like an agent hang.
+
+- repository/test commands must be non-interactive;
+- do not use an unbounded interactive `gh ... --watch`/equivalent CI watcher;
+- prefer bounded status polling or finite blocking calls;
+- a CI wait loop must have an explicit overall bound (default 30 minutes per PR head);
+- if checks are still queued/running after that bound, refresh durable status once and report an infrastructure blocker rather than wait forever;
+- do not start duplicate CI runs merely because a poll timed out.
+
+This policy concerns agent orchestration only; it must not shorten application test semantics.
 
 ## Make canonical repository verification Git-Bash/Windows compatible
 
@@ -147,6 +238,8 @@ However, values passed to native Windows Python must not rely on ambiguous MSYS 
 - `lib/python*/site-packages`;
 - `bin/ah-there-it-is`.
 
+The current Stage 26 version of this test also verifies the new location-truth browser/templates. Preserve those assertions.
+
 Use a temporary Python virtual environment or another explicit platform-neutral installation boundary.
 
 Requirements:
@@ -156,6 +249,7 @@ Requirements:
 - verify the installed console entry point on each OS;
 - invoke the installed package from outside the source checkout;
 - preserve packaged migration/template/static/runtime coverage already provided by the test;
+- preserve current Stage 26 template/static assertions;
 - preserve no-network/provider-independent behavior;
 - do not weaken the test into import-only smoke.
 
@@ -174,12 +268,15 @@ Do not add fake tests that merely monkeypatch `sys.platform` when a behavior act
 
 ## SQLite / filesystem portability policy
 
-U24 cannot prove Windows locking semantics.
+Assignment 0028's CI correction exposed a delayed SQLite WAL checkpoint in a runtime-gate byte-integrity assertion even on Linux CI.
+
+Treat this as additional evidence that Windows file/locking behavior must be observed, not guessed.
 
 Therefore:
 
 - do not add broad Windows skips/xfails speculatively;
 - do not weaken backup/restore/WAL assertions merely because Windows may behave differently;
+- preserve the corrected checkpoint-aware runtime-gate semantics from 0028;
 - document backup/restore/WAL/file-replacement/process-cleanup areas as mandatory checks for the first native Windows pilot;
 - any actual Windows-specific bug discovered later must be fixed based on observed native behavior.
 
@@ -236,15 +333,16 @@ Do not call Windows first-class/validated until that pilot succeeds.
 At minimum cover:
 
 - Justfile parsing/execution;
+- deterministic U24 command prelude;
 - platform-neutral temporary verification helpers;
 - migration-check;
 - retrieval-eval;
-- refactored installed-wheel smoke;
+- refactored installed-wheel smoke including Stage 26 assertions;
 - pure Windows data-path tests;
 - host-preflight helper tests if introduced;
 - protocol/launcher consistency.
 
-Then run the complete canonical verification set on U24.
+Then run the complete canonical verification set on U24 exactly as defined above.
 
 ## Self-review emphasis
 
@@ -253,6 +351,9 @@ Explicitly inspect for remaining implementation-workflow assumptions involving:
 - hard-coded `/tmp`;
 - `bin/` vs `Scripts/`;
 - `lib/python*/site-packages`;
+- persistent-shell/venv activation assumptions;
+- ad-hoc canonical recipe arguments;
+- unbounded CI watchers;
 - PowerShell/cmd requirements;
 - POSIX-only host selection rather than Bash syntax;
 - accidental Windows CI duplication.
