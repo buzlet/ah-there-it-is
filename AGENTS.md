@@ -464,3 +464,10 @@ v7 preserves v6 lifecycle semantics and separates:
 - execution channel.
 
 Initial supported channels are Remote Commander on existing v6 hosts and SSH-supervised Codex CLI on U24. The launcher selects the pair explicitly; implementation agents cannot switch channels or hosts on their own.
+
+### Agent execution reliability — Assignment 0030
+
+- Added a stdlib-only detached Codex session runner at `tools/agent/codex_session.py`, with start/status/tail/terminate commands, external durable run state, prompt SHA-256, separate JSONL/stderr logs, process-group checks, bounded tail reads, and bounded termination escalation. No application console script, third-party runtime dependency, or inventory behavior change.
+- Fake-Codex focused tests passed: 11. Final v7 canonical verification passed: 372 tests, migration check, 58 corpus cases, 58 scenarios with all postconditions, 86 retrieval cases, and 23 provider-contract tests. No live provider/model call was used.
+- The batch task was executed with local commands as `gpt` on U24 by explicit user instruction; Remote Commander and SSH were not used. The helper itself remains U24/POSIX tooling intended for v7 SSH-Codex controllers.
+- Review: `agent-tasks/reviews/0030-r1.md`.
