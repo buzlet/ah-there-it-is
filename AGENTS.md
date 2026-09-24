@@ -427,3 +427,10 @@ Assignment 0012 proposed a read-only browser Activity timeline. External archite
 - Full conversation history and persisted messages are unchanged. Agent run logs preserve the exact initial system, bounded prior context, and current user messages sent to the LLM; failed turns remain excluded from later context.
 - Structural coverage seeds 1000 messages and verifies the bounded query, sent context, run log, and intact full history. No schema migration or summarization policy was added.
 - Focused and canonical verification passed: 324 tests, migration/corpus/scenario checks, 42 completed scenarios with 98 state checks and zero failures, and 23 provider-contract tests. Review: `agent-tasks/reviews/0021-r1.md`.
+
+### Post-Stage-25 hardening — Assignment 0022 complete
+
+- Installed `ah-there-it-is serve` keeps its `127.0.0.1` default and rejects non-loopback hosts unless each start explicitly supplies `--allow-nonlocal`. The guard recognizes IPv4 `127.0.0.0/8`, IPv6 `::1`, and case-insensitive `localhost`.
+- Explicit non-loopback opt-in emits an unauthenticated-exposure warning to stderr. The check runs before schema validation and Uvicorn; no environment bypass, schema changes, or `just serve` override were added.
+- Runtime and installed-wheel coverage exercises loopback classification, wildcard/LAN/public hosts, refusal ordering, warning and opt-in behavior. Focused and canonical verification passed: 339 tests, migration-check, 42-case corpus and scenarios, 42/42 scenario completion with 98 checks and zero failures, and 23 provider-contract tests.
+- Review: `agent-tasks/reviews/0022-r1.md`.

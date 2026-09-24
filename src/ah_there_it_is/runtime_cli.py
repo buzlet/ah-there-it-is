@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import argparse
+import ipaddress
 import json
 from dataclasses import asdict, dataclass
 from pathlib import Path
@@ -108,6 +109,11 @@ def build_parser() -> argparse.ArgumentParser:
     serve = subparsers.add_parser("serve", help="start the local web application")
     serve.add_argument("--host", type=_host, default="127.0.0.1")
     serve.add_argument("--port", type=_port, default=8000)
+    serve.add_argument(
+        "--allow-nonlocal",
+        action="store_true",
+        help="allow unauthenticated serving beyond loopback",
+    )
     return parser
 
 
@@ -116,6 +122,15 @@ def _host(value: str) -> str:
     if not host or any(character.isspace() for character in host):
         raise argparse.ArgumentTypeError("host must be a non-blank address or hostname")
     return host
+
+
+def _is_loopback_host(value: str) -> bool:
+    if value.casefold() == "localhost":
+        return True
+    try:
+        return ipaddress.ip_address(value).is_loopback
+    except ValueError:
+        return False
 
 
 def _port(value: str) -> int:
@@ -164,6 +179,20 @@ def main(argv: Sequence[str] | None = None) -> int:
         return 0 if report.ok else 2
 
     if args.command == "serve":
+        if not _is_loopback_host(args.host):
+            if not args.allow_nonlocal:
+                print(
+                    "error: non-loopback serving requires --allow-nonlocal; "
+                    "the application has no authentication",
+                    file=sys.stderr,
+                )
+                return 2
+            print(
+                "warning: application has no authentication and is being exposed "
+                f"beyond loopback (host={args.host!r})",
+                file=sys.stderr,
+            )
+
         try:
             runtime_schema_gate(settings.database_url)
         except RuntimeSchemaError as exc:

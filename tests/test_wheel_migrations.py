@@ -339,6 +339,55 @@ print(json.dumps({"revision": CURRENT_SCHEMA_REVISION}))
     assert "python -m ah_there_it_is.storage_cli upgrade" in missing_result.stderr
     assert not missing.exists()
 
+    nonlocal_result = subprocess.run(
+        [
+            str(console_script),
+            "serve",
+            "--host",
+            "0.0.0.0",
+            "--port",
+            str(_free_local_port()),
+        ],
+        cwd=outside,
+        env=missing_env,
+        capture_output=True,
+        text=True,
+        timeout=10,
+    )
+    assert nonlocal_result.returncode == 2
+    assert (
+        "non-loopback serving requires --allow-nonlocal"
+        in nonlocal_result.stderr
+    )
+    assert "configured database does not exist" not in nonlocal_result.stderr
+    assert not missing.exists()
+
+    allowed_nonlocal_result = subprocess.run(
+        [
+            str(console_script),
+            "serve",
+            "--host",
+            "0.0.0.0",
+            "--port",
+            str(_free_local_port()),
+            "--allow-nonlocal",
+        ],
+        cwd=outside,
+        env=missing_env,
+        capture_output=True,
+        text=True,
+        timeout=10,
+    )
+    assert allowed_nonlocal_result.returncode == 2
+    assert (
+        "warning: application has no authentication"
+        in allowed_nonlocal_result.stderr
+    )
+    assert (
+        "configured database does not exist" in allowed_nonlocal_result.stderr
+    )
+    assert not missing.exists()
+
     outdated = outside / "outdated.db"
     shutil.copy2(fresh, outdated)
     connection = sqlite3.connect(outdated)
