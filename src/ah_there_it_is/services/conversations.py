@@ -10,6 +10,8 @@ from ah_there_it_is.domain.exceptions import EntityNotFoundError
 
 
 class ConversationService:
+    AGENT_CONTEXT_MESSAGE_LIMIT = 40
+
     def __init__(self, session: Session) -> None:
         self.session = session
 
@@ -52,6 +54,19 @@ class ConversationService:
             .order_by(Message.id.asc())
         )
         return list(self.session.scalars(stmt))
+
+    def list_agent_context_messages(self, conversation_id: int) -> list[Message]:
+        self.get(conversation_id)
+        newest_first = list(self.session.scalars(
+            select(Message)
+            .where(Message.conversation_id == conversation_id)
+            .order_by(Message.id.desc())
+            .limit(self.AGENT_CONTEXT_MESSAGE_LIMIT)
+        ))
+        newest_first.reverse()
+        if newest_first and newest_first[0].role == "assistant":
+            newest_first.pop(0)
+        return newest_first
 
     def _commit(self, entity: object) -> None:
         self._persist(entity, commit=True)

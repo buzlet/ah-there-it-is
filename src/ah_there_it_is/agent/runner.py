@@ -70,7 +70,7 @@ class AgentRunner:
         else:
             self.conversations.get(conversation_id)
 
-        prior = self.conversations.list_messages(conversation_id)
+        prior = self.conversations.list_agent_context_messages(conversation_id)
         messages = [AgentMessage(role="system", content=self.system_prompt)]
         messages.extend(
             AgentMessage(role=message.role, content=message.content)  # type: ignore[arg-type]
