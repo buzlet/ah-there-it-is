@@ -722,30 +722,48 @@ def restore_backup(
         safety,
         overwrite=False,
     )
+    validate_database(safety)
 
     replacement = _temporary_sibling(target, "restore")
     try:
-        _copy_sqlite_snapshot(source, replacement)
-        validate_database(replacement)
+        try:
+            _copy_sqlite_snapshot(source, replacement)
+        except Exception as exc:
+            raise StorageError(
+                f"restore candidate staging copy failed: {exc}"
+            ) from exc
+        try:
+            validate_database(replacement)
+        except Exception as exc:
+            raise StorageError(
+                f"restore candidate staging validation failed: {exc}"
+            ) from exc
         _checkpoint_for_restore(target)
         _unlink_sidecars(target)
-        os.replace(replacement, target)
-        _fsync_path(target)
-        _fsync_directory(target.parent)
         try:
+            os.replace(replacement, target)
+        except OSError as exc:
+            raise StorageError(f"restore publication failed: {exc}") from exc
+        try:
+            _fsync_path(target)
+            _fsync_directory(target.parent)
             restored = validate_database(target)
-        except Exception:
-            rollback = _temporary_sibling(target, "rollback")
+        except Exception as restore_error:
             try:
-                _copy_sqlite_snapshot(safety, rollback)
-                validate_database(rollback)
-                _unlink_sidecars(target)
-                os.replace(rollback, target)
-                _fsync_path(target)
-                _fsync_directory(target.parent)
-            finally:
-                _unlink_sqlite_files(rollback)
-            raise
+                _rollback_restore(target, safety)
+            except Exception as rollback_error:
+                raise StorageError(
+                    "restore failed after active database publication: "
+                    f"{type(restore_error).__name__}: {restore_error}; "
+                    "rollback failed: "
+                    f"{type(rollback_error).__name__}: {rollback_error}; "
+                    f"safety backup retained at {safety}"
+                ) from rollback_error
+            raise StorageError(
+                "restore failed after active database publication: "
+                f"{type(restore_error).__name__}: {restore_error}; "
+                f"rollback succeeded from safety backup {safety}"
+            ) from restore_error
         return RestoreResult(
             restored_path=str(target),
             safety_backup_path=str(safety),
@@ -754,6 +772,23 @@ def restore_backup(
         )
     finally:
         _unlink_sqlite_files(replacement)
+
+
+def _rollback_restore(target: Path, safety: Path) -> DatabaseValidation:
+    rollback = _temporary_sibling(target, "rollback")
+    try:
+        _copy_sqlite_snapshot(safety, rollback)
+        validate_database(rollback)
+        _unlink_sidecars(target)
+        try:
+            os.replace(rollback, target)
+        except OSError as exc:
+            raise StorageError(f"rollback publication failed: {exc}") from exc
+        _fsync_path(target)
+        _fsync_directory(target.parent)
+        return validate_database(target)
+    finally:
+        _unlink_sqlite_files(rollback)
 
 
 def rehearse_restore(database_url: str, candidate: str | Path) -> dict[str, Any]:

@@ -267,6 +267,135 @@ def test_invalid_restore_candidate_never_replaces_active_database(
         engine.dispose()
 
 
+@pytest.mark.parametrize(
+    "failure_stage",
+    [
+        "candidate_copy",
+        "staging_validation",
+        "checkpoint",
+        "replace",
+        "post_validation",
+        "rollback_copy",
+        "rollback_replace",
+        "rollback_validation",
+    ],
+)
+def test_restore_failure_and_rollback_outcomes_are_explicit(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    failure_stage: str,
+) -> None:
+    import ah_there_it_is.storage as storage
+
+    active = tmp_path / f"restore-{failure_stage}.db"
+    candidate = tmp_path / f"candidate-{failure_stage}.db"
+    safety = tmp_path / f"safety-{failure_stage}.db"
+    url = _migrate(active)
+    _seed_operational_state(url)
+    create_backup(url, candidate)
+    engine = create_db_engine(url)
+    try:
+        with Session(engine) as session:
+            InventoryService(session).create_item("Active newer item")
+    finally:
+        engine.dispose()
+
+    original_copy = storage._copy_sqlite_snapshot
+    original_validate = storage.validate_database
+    original_replace = storage.os.replace
+    replace_state = {"restore_published": False, "active_validations": 0}
+
+    if failure_stage in {"candidate_copy", "rollback_copy"}:
+        def injected_copy(source: Path, destination: Path) -> None:
+            name = destination.name
+            if failure_stage == "candidate_copy" and ".restore." in name:
+                raise OSError("candidate copy fault")
+            if failure_stage == "rollback_copy" and ".rollback." in name:
+                raise OSError("rollback copy fault")
+            original_copy(source, destination)
+
+        monkeypatch.setattr(storage, "_copy_sqlite_snapshot", injected_copy)
+
+    if failure_stage == "checkpoint":
+        monkeypatch.setattr(
+            storage,
+            "_checkpoint_for_restore",
+            lambda _target: (_ for _ in ()).throw(StorageError("checkpoint fault")),
+        )
+
+    if failure_stage in {"replace", "rollback_replace"}:
+        def injected_replace(source: Path, target: Path) -> None:
+            if failure_stage == "replace" and ".restore." in source.name:
+                raise OSError("restore replace fault")
+            if failure_stage == "rollback_replace" and ".rollback." in source.name:
+                raise OSError("rollback replace fault")
+            original_replace(source, target)
+            if target == active and ".restore." in source.name:
+                replace_state["restore_published"] = True
+
+        monkeypatch.setattr(storage.os, "replace", injected_replace)
+    else:
+        def observed_replace(source: Path, target: Path) -> None:
+            original_replace(source, target)
+            if target == active and ".restore." in source.name:
+                replace_state["restore_published"] = True
+
+        monkeypatch.setattr(storage.os, "replace", observed_replace)
+
+    if failure_stage in {
+        "staging_validation", "post_validation", "rollback_copy",
+        "rollback_replace", "rollback_validation",
+    }:
+        def injected_validate(path, **kwargs):
+            candidate_path = Path(path)
+            if failure_stage == "staging_validation" and ".restore." in candidate_path.name:
+                raise DatabaseValidationError("staging validation fault")
+            if (
+                failure_stage in {
+                    "post_validation", "rollback_copy",
+                    "rollback_replace", "rollback_validation",
+                }
+                and candidate_path == active
+                and replace_state["restore_published"]
+                and replace_state["active_validations"] == 0
+            ):
+                replace_state["active_validations"] += 1
+                raise DatabaseValidationError("post-replace validation fault")
+            if failure_stage == "rollback_validation" and ".rollback." in candidate_path.name:
+                raise DatabaseValidationError("rollback validation fault")
+            return original_validate(path, **kwargs)
+
+        monkeypatch.setattr(storage, "validate_database", injected_validate)
+
+    with pytest.raises(Exception) as raised:
+        restore_backup(url, candidate, safety_backup=safety)
+
+    assert safety.is_file()
+    original_validate(safety)
+    original_validate(active)
+    assert not list(tmp_path.glob(f".{active.name}.restore.*.tmp"))
+    assert not list(tmp_path.glob(f".{active.name}.rollback.*.tmp"))
+
+    active_connection = __import__("sqlite3").connect(str(active))
+    try:
+        newer_count = active_connection.execute(
+            "SELECT count(*) FROM items WHERE name = 'Active newer item'"
+        ).fetchone()[0]
+    finally:
+        active_connection.close()
+
+    if failure_stage in {
+        "candidate_copy", "staging_validation", "checkpoint", "replace",
+        "post_validation",
+    }:
+        assert newer_count == 1
+    else:
+        assert newer_count == 0
+        assert "rollback failed" in str(raised.value)
+    if failure_stage == "post_validation":
+        assert "rollback succeeded" in str(raised.value)
+
+
 def test_backup_refuses_overwrite_and_active_path(tmp_path: Path) -> None:
     active = tmp_path / "active.db"
     backup = tmp_path / "backup.db"
