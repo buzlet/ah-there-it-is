@@ -261,6 +261,13 @@ def _validate_bootstrap_semantics(manifest: BootstrapManifest) -> None:
             raise BootstrapValidationError(
                 f"{label}.state {item.state!r} is not a valid ItemState"
             )
+        if (
+            item.state in {ItemState.DISCARDED.value, ItemState.SOLD.value}
+            and item.location_path is not None
+        ):
+            raise BootstrapValidationError(
+                f"{label}.location_path must be null for terminal items"
+            )
 
         category_key = _optional_path_key(item.category_path, f"{label}.category_path")
         location_key = _optional_path_key(item.location_path, f"{label}.location_path")

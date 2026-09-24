@@ -29,11 +29,12 @@ from ah_there_it_is.db.models import (
 )
 from ah_there_it_is.db.session import create_db_engine, create_session_factory
 from ah_there_it_is.domain.names import normalize_name
-from ah_there_it_is.domain.states import ItemState
+from ah_there_it_is.domain.states import ItemState, LocationStatus
 
 
-PORTABLE_EXPORT_VERSION = "inventory-portable-v1"
-CURRENT_SCHEMA_REVISION = "d24a8f1c3e90"
+PORTABLE_V1_VERSION = "inventory-portable-v1"
+PORTABLE_EXPORT_VERSION = "inventory-portable-v2"
+CURRENT_SCHEMA_REVISION = "a4b7c9d2e610"
 
 
 class StorageError(RuntimeError):
@@ -110,6 +111,29 @@ class PortableInventoryDocument(_PortableModel):
     excluded: list[str]
 
 
+
+class PortableItemV2(PortableItem):
+    location_status: str
+
+
+class PortableInventoryV2(_PortableModel):
+    categories: list[PortableTreeNode]
+    locations: list[PortableTreeNode]
+    items: list[PortableItemV2]
+
+
+class PortableInventoryDocumentV2(_PortableModel):
+    format: str
+    exported_at: str
+    source: PortableSource
+    inventory: PortableInventoryV2
+    history: PortableHistory
+    excluded: list[str]
+
+
+PortableDocument = PortableInventoryDocument | PortableInventoryDocumentV2
+
+
 @dataclass(frozen=True)
 class DatabaseValidation:
     path: str
@@ -163,7 +187,7 @@ class PortableImportResult:
         }
 
 
-def parse_portable_inventory(data: Any) -> PortableInventoryDocument:
+def parse_portable_inventory(data: Any) -> PortableDocument:
     """Dispatch an already-decoded portable inventory document by format."""
     if not isinstance(data, dict):
         raise PortableInventoryValidationError("portable document must be a JSON object")
@@ -176,7 +200,7 @@ def parse_portable_inventory(data: Any) -> PortableInventoryDocument:
     if parser is None:
         raise PortableInventoryValidationError(
             f"unsupported portable format {data['format']!r}; "
-            f"expected {PORTABLE_EXPORT_VERSION!r}"
+            f"expected {PORTABLE_V1_VERSION!r} or {PORTABLE_EXPORT_VERSION!r}"
         )
     return parser(data)
 
@@ -200,12 +224,32 @@ def _parse_portable_inventory_v1(
     return document
 
 
+def _parse_portable_inventory_v2(
+    data: dict[str, Any],
+) -> PortableInventoryDocumentV2:
+    """Validate the current inventory-portable-v2 contract."""
+    try:
+        document = PortableInventoryDocumentV2.model_validate(data)
+    except ValidationError as exc:
+        details = []
+        for error in exc.errors():
+            location = ".".join(str(part) for part in error["loc"]) or "<document>"
+            details.append(f"{location}: {error['msg']}")
+        raise PortableInventoryValidationError(
+            "invalid portable document structure: " + "; ".join(details)
+        ) from exc
+
+    _validate_portable_semantics(document)
+    return document
+
+
 _PORTABLE_FORMAT_PARSERS = {
-    PORTABLE_EXPORT_VERSION: _parse_portable_inventory_v1,
+    PORTABLE_V1_VERSION: _parse_portable_inventory_v1,
+    PORTABLE_EXPORT_VERSION: _parse_portable_inventory_v2,
 }
 
 
-def load_portable_inventory(path: str | Path) -> PortableInventoryDocument:
+def load_portable_inventory(path: str | Path) -> PortableDocument:
     """Read and purely validate portable JSON without touching any database."""
     source = Path(path).expanduser().resolve()
     try:
@@ -223,7 +267,7 @@ def load_portable_inventory(path: str | Path) -> PortableInventoryDocument:
     return parse_portable_inventory(data)
 
 
-def validate_portable_inventory(path: str | Path) -> PortableInventoryDocument:
+def validate_portable_inventory(path: str | Path) -> PortableDocument:
     """Validate a portable JSON file without creating or mutating a database."""
     return load_portable_inventory(path)
 
@@ -251,7 +295,13 @@ def validate_portable_import_target(
     return target
 
 
-def _validate_portable_semantics(document: PortableInventoryDocument) -> None:
+def _validate_portable_semantics(document: PortableDocument) -> None:
+    is_v2 = document.format == PORTABLE_EXPORT_VERSION
+    allowed_states = {state.value for state in ItemState}
+    if not is_v2:
+        allowed_states.discard(ItemState.SOLD.value)
+    terminal_states = {ItemState.DISCARDED.value, ItemState.SOLD.value}
+    allowed_location_statuses = {status.value for status in LocationStatus}
     _portable_datetime(document.exported_at, "exported_at")
     if not document.source.alembic_revision.strip():
         raise PortableInventoryValidationError(
@@ -273,13 +323,29 @@ def _validate_portable_semantics(document: PortableInventoryDocument) -> None:
         path = f"inventory.items.{index}"
         _portable_name(item.name, f"{path}.name")
         _portable_created_updated(item.created_at, item.updated_at, path)
-        try:
-            ItemState(item.state)
-        except ValueError as exc:
-            allowed = ", ".join(state.value for state in ItemState)
+        if item.state not in allowed_states:
+            allowed = ", ".join(sorted(allowed_states))
             raise PortableInventoryValidationError(
                 f"{path}.state has invalid value {item.state!r}; allowed: {allowed}"
-            ) from exc
+            )
+        location_status = (
+            item.location_status
+            if is_v2
+            else _legacy_location_status(item.state, item.location_id)
+        )
+        if location_status not in allowed_location_statuses:
+            raise PortableInventoryValidationError(
+                f"{path}.location_status has invalid value {location_status!r}"
+            )
+        if (
+            (location_status == LocationStatus.KNOWN.value)
+            != (item.location_id is not None)
+            or (item.state in terminal_states)
+            != (location_status == LocationStatus.NOT_APPLICABLE.value)
+        ):
+            raise PortableInventoryValidationError(
+                f"{path} has contradictory state, location_id, and location_status"
+            )
         if item.category_id is not None and item.category_id not in categories:
             raise PortableInventoryValidationError(
                 f"{path}.category_id references missing category id={item.category_id}"
@@ -315,6 +381,14 @@ def _validate_portable_semantics(document: PortableInventoryDocument) -> None:
                 raise PortableInventoryValidationError(
                     f"{path}.{field_name} references missing location id={location_id}"
                 )
+
+
+def _legacy_location_status(state: str, location_id: int | None) -> str:
+    if location_id is not None:
+        return LocationStatus.KNOWN.value
+    if state == ItemState.DISCARDED.value:
+        return LocationStatus.NOT_APPLICABLE.value
+    return LocationStatus.UNKNOWN.value
 
 
 def _portable_ids(entries: list[Any], label: str) -> dict[int, Any]:
@@ -784,7 +858,7 @@ def _migrate_new_database(path: Path) -> None:
 
 def _write_portable_inventory(
     session: Session,
-    document: PortableInventoryDocument,
+    document: PortableDocument,
 ) -> None:
     for node in _portable_tree_order(document.inventory.categories):
         session.add(
@@ -825,6 +899,11 @@ def _write_portable_inventory(
                 state=item.state,
                 category_id=item.category_id,
                 current_location_id=item.location_id,
+                location_status=(
+                    item.location_status
+                    if isinstance(item, PortableItemV2)
+                    else _legacy_location_status(item.state, item.location_id)
+                ),
                 quantity=item.quantity,
                 attributes=item.attributes,
                 created_at=_portable_datetime(item.created_at, "item.created_at"),
@@ -953,6 +1032,7 @@ def _portable_document(session: Session, alembic_revision: str) -> dict[str, Any
                     "state": item.state,
                     "category_id": item.category_id,
                     "location_id": item.current_location_id,
+                    "location_status": item.location_status,
                     "quantity": item.quantity,
                     "attributes": item.attributes,
                     "aliases": [alias.name for alias in sorted(item.aliases, key=lambda a: a.id)],

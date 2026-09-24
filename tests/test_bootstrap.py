@@ -112,6 +112,12 @@ def test_hand_authored_fixture_is_valid() -> None:
             "not a valid ItemState",
         ),
         (
+            lambda raw: raw["items"][0].update(
+                state="discarded", location_path=raw["locations"][0]["path"]
+            ),
+            "location_path must be null for terminal items",
+        ),
+        (
             lambda raw: raw["items"][0].update(quantity=0),
             "greater than or equal to 1",
         ),
@@ -323,10 +329,41 @@ def test_successful_bootstrap_uses_domain_services_search_and_portable_export(
         engine.dispose()
 
     portable = export_portable_inventory(url, exported)
-    assert portable["format"] == "inventory-portable-v1"
+    assert portable["format"] == "inventory-portable-v2"
     loaded = load_portable_inventory(exported)
     assert len(loaded.inventory.items) == 3
     assert len(loaded.history.events) == 3
+
+
+
+def test_bootstrap_applies_conservative_location_statuses(
+    tmp_path: Path,
+) -> None:
+    database = tmp_path / "bootstrap-location-truth.db"
+    source = tmp_path / "bootstrap-location-truth.json"
+    url = _migrate(database)
+    raw = _fixture_document()
+    raw["items"][0]["state"] = "discarded"
+    raw["items"][0]["location_path"] = None
+    raw["items"][1]["location_path"] = None
+    raw["items"][2]["location_path"] = raw["locations"][0]["path"]
+    source.write_text(json.dumps(raw), encoding="utf-8")
+
+    apply_bootstrap_import(url, source)
+
+    engine = create_db_engine(url)
+    try:
+        with Session(engine) as session:
+            items = list(session.scalars(select(Item).order_by(Item.id)))
+            assert items[0].location_status == "not_applicable"
+            assert items[0].current_location_id is None
+            assert items[1].location_status == "unknown"
+            assert items[1].current_location_id is None
+            assert all(item.location_status != "in_use" for item in items)
+            assert items[2].location_status == "known"
+            assert items[2].current_location_id is not None
+    finally:
+        engine.dispose()
 
 
 def test_bootstrap_apply_rolls_back_complete_transaction_on_mid_apply_failure(

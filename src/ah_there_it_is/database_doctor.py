@@ -13,7 +13,7 @@ from ah_there_it_is.db.migrations import migration_heads
 from ah_there_it_is.db.search_consistency import expected_fts_objects, search_consistency
 from ah_there_it_is.db.search_schema import drop_fts_schema, install_fts_schema, rebuild_fts_index
 from ah_there_it_is.domain.names import normalize_name
-from ah_there_it_is.domain.states import ItemState
+from ah_there_it_is.domain.states import ItemState, LocationStatus
 from ah_there_it_is.storage import sqlite_path_from_url
 
 _SAMPLE_LIMIT = 20
@@ -157,15 +157,29 @@ def _inspect_identity(connection: sqlite3.Connection, report: DoctorReport) -> N
 
 def _inspect_scalars(connection: sqlite3.Connection, report: DoctorReport) -> None:
     allowed = {state.value for state in ItemState}
+    allowed_locations = {status.value for status in LocationStatus}
+    terminal_states = {ItemState.DISCARDED.value, ItemState.SOLD.value}
     invalid_states: list[str] = []
     invalid_quantities: list[str] = []
-    for item_id, state, quantity in connection.execute('SELECT id, state, quantity FROM items ORDER BY id'):
+    invalid_locations: list[str] = []
+    for item_id, state, quantity, location_id, location_status in connection.execute(
+        'SELECT id, state, quantity, current_location_id, location_status '
+        'FROM items ORDER BY id'
+    ):
         if state not in allowed:
             invalid_states.append(str(item_id))
         if not isinstance(quantity, int) or quantity < 1:
             invalid_quantities.append(str(item_id))
+        if (
+            location_status not in allowed_locations
+            or (location_status == LocationStatus.KNOWN.value) != (location_id is not None)
+            or (state in terminal_states)
+            != (location_status == LocationStatus.NOT_APPLICABLE.value)
+        ):
+            invalid_locations.append(str(item_id))
     _check(report, 'item_states', invalid_states)
     _check(report, 'item_quantities', invalid_quantities)
+    _check(report, 'item_location_truth', invalid_locations)
 
 
 def _inspect_fts(connection: sqlite3.Connection, report: DoctorReport) -> None:

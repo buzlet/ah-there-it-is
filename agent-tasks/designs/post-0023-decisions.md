@@ -31,3 +31,16 @@ Approved:
 - user-facing labels distinguish condition/state unknown from location unknown.
 
 With these decisions encoded, Stage 26 implementation no longer requires a product-policy pause.
+
+
+## Assignment 0025 delivery status
+
+The approved location-truth storage and format slice is implemented:
+
+- Item.location_status is persisted and constrained at the SQLite write boundary; old rows are backfilled conservatively, and ambiguous terminal rows with a stored Location stop migration before DDL.
+- New creation and the existing location mutation path persist location truth atomically with the current Location.
+- inventory-portable-v2 is the current export; frozen v1 remains importable with conservative status derivation and no new required v1 fields.
+- Bootstrap-v1 structure is unchanged and applies known/unknown/not-applicable semantics without synthesizing in_use.
+- Database doctor checks location truth.
+
+Assignment 0025 did not change the closed Stage 26 product decisions and did not add take/unknown/sold/reactivation operations, agent tools, browser behavior, or suggestion policy.

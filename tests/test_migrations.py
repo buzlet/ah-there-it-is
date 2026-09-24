@@ -84,9 +84,10 @@ def test_initial_migration_round_trip(tmp_path: Path) -> None:
 
 
 def test_search_migration_backfills_existing_stage1_items(tmp_path: Path) -> None:
+    from sqlalchemy import text
     from sqlalchemy.orm import Session
 
-    from ah_there_it_is.services import InventoryService, SearchService
+    from ah_there_it_is.services import SearchService
 
     database = tmp_path / "stage1_upgrade.db"
     url = f"sqlite:///{database}"
@@ -94,16 +95,29 @@ def test_search_migration_backfills_existing_stage1_items(tmp_path: Path) -> Non
 
     engine = create_db_engine(url)
     try:
-        with Session(engine) as session:
-            inventory = InventoryService(session)
-            item = inventory.create_item(
-                "CH341A programmer",
-                description="USB программатор для SPI flash и BIOS",
-                aliases=["чёрный программатор"],
-                tags=["BIOS"],
-                attributes={"interface": "USB"},
-            )
-            item_id = item.id
+        with engine.begin() as connection:
+            connection.execute(text("""
+                INSERT INTO items (
+                    id, name, normalized_name, description, state, category_id,
+                    current_location_id, quantity, attributes, created_at, updated_at
+                ) VALUES (
+                    1, 'CH341A programmer', 'ch341a programmer',
+                    'USB программатор для SPI flash и BIOS', 'unknown', NULL,
+                    NULL, 1, '{}', '2026-09-24', '2026-09-24'
+                )
+            """))
+            connection.execute(text("""
+                INSERT INTO aliases (item_id, name, normalized_name)
+                VALUES (1, 'чёрный программатор', 'чёрный программатор')
+            """))
+            connection.execute(text("""
+                INSERT INTO events (
+                    event_type, item_id, from_location_id, to_location_id,
+                    payload, original_text, created_at
+                ) VALUES (
+                    'item_taken', 1, NULL, NULL, '{}', NULL, '2026-09-24'
+                )
+            """))
     finally:
         engine.dispose()
 
@@ -111,13 +125,126 @@ def test_search_migration_backfills_existing_stage1_items(tmp_path: Path) -> Non
 
     engine = create_db_engine(url)
     try:
+        with engine.connect() as connection:
+            assert connection.scalar(text(
+                "SELECT location_status FROM items WHERE id = 1"
+            )) == "unknown"
         with Session(engine) as session:
             search = SearchService(session)
-            assert search.search_items("SPI flash")[0].id == item_id
-            assert search.search_items("чёрный программатор")[0].id == item_id
-            assert search.search_items("BIOS")[0].id == item_id
+            assert search.search_items("SPI flash")[0].id == 1
+            assert search.search_items("чёрный программатор")[0].id == 1
+            assert search.search_items("BIOS")[0].id == 1
     finally:
         engine.dispose()
+
+
+
+def test_location_truth_migration_backfill_and_database_invariants(
+    tmp_path: Path,
+) -> None:
+    import sqlite3
+
+    import pytest
+
+    database = tmp_path / "location-truth.db"
+    url = f"sqlite:///{database}"
+    upgrade_database(url, "d24a8f1c3e90")
+
+    with sqlite3.connect(database) as connection:
+        connection.execute("""
+            INSERT INTO locations (
+                id, parent_id, name, normalized_name, description, created_at, updated_at
+            ) VALUES (1, NULL, 'Shelf', 'shelf', NULL, '2026-09-24', '2026-09-24')
+        """)
+        base = """
+            INSERT INTO items (
+                id, name, normalized_name, description, state, category_id,
+                current_location_id, quantity, attributes, created_at, updated_at
+            ) VALUES (?, ?, ?, NULL, ?, NULL, ?, 1, '{}', '2026-09-24', '2026-09-24')
+        """
+        connection.execute(base, (1, "Located", "located", "used", 1))
+        connection.execute(base, (2, "Discarded", "discarded", "discarded", None))
+        connection.execute(base, (3, "Taken", "taken", "for_sale", None))
+        connection.execute("""
+            INSERT INTO events (
+                event_type, item_id, from_location_id, to_location_id,
+                payload, original_text, created_at
+            ) VALUES ('item_taken', 3, NULL, NULL, '{}', NULL, '2026-09-24')
+        """)
+
+    upgrade_database(url)
+    with sqlite3.connect(database) as connection:
+        assert connection.execute(
+            "SELECT id, location_status FROM items ORDER BY id"
+        ).fetchall() == [
+            (1, "known"),
+            (2, "not_applicable"),
+            (3, "unknown"),
+        ]
+
+        invalid_rows = [
+            (10, "known-null", "known-null", "used", None, "known"),
+            (11, "unknown-located", "unknown-located", "used", 1, "unknown"),
+            (12, "terminal-unknown", "terminal-unknown", "sold", None, "unknown"),
+            (13, "active-not-applicable", "active-not-applicable", "used", None, "not_applicable"),
+        ]
+        statement = """
+            INSERT INTO items (
+                id, name, normalized_name, description, state, category_id,
+                current_location_id, location_status, quantity, attributes,
+                created_at, updated_at
+            ) VALUES (?, ?, ?, NULL, ?, NULL, ?, ?, 1, '{}', '2026-09-24', '2026-09-24')
+        """
+        for row in invalid_rows:
+            with pytest.raises(sqlite3.IntegrityError, match="location truth invariant"):
+                connection.execute(statement, row)
+            connection.rollback()
+
+        connection.execute(statement, (14, "In use", "in use", "used", None, "in_use"))
+        connection.commit()
+        assert connection.execute(
+            "SELECT location_status FROM items WHERE id = 14"
+        ).fetchone() == ("in_use",)
+
+
+
+def test_location_truth_migration_stops_on_terminal_item_with_location(
+    tmp_path: Path,
+) -> None:
+    import sqlite3
+
+    import pytest
+
+    database = tmp_path / "location-truth-conflict.db"
+    url = f"sqlite:///{database}"
+    upgrade_database(url, "d24a8f1c3e90")
+    with sqlite3.connect(database) as connection:
+        connection.execute("""
+            INSERT INTO locations (
+                id, parent_id, name, normalized_name, description, created_at, updated_at
+            ) VALUES (1, NULL, 'Shelf', 'shelf', NULL, '2026-09-24', '2026-09-24')
+        """)
+        connection.execute("""
+            INSERT INTO items (
+                id, name, normalized_name, description, state, category_id,
+                current_location_id, quantity, attributes, created_at, updated_at
+            ) VALUES (
+                1, 'Discarded', 'discarded', NULL, 'discarded', NULL,
+                1, 1, '{}', '2026-09-24', '2026-09-24'
+            )
+        """)
+
+    with pytest.raises(RuntimeError, match="legacy terminal item id=1"):
+        upgrade_database(url)
+
+    with sqlite3.connect(database) as connection:
+        assert connection.execute(
+            "SELECT version_num FROM alembic_version"
+        ).fetchone() == ("d24a8f1c3e90",)
+        columns = {
+            row[1] for row in connection.execute("PRAGMA table_info(items)")
+        }
+        assert "location_status" not in columns
 
 
 def test_packaged_upgrade_is_cwd_independent_and_ignores_ambient_url(

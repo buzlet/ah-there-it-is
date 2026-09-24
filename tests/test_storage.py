@@ -289,6 +289,7 @@ def test_portable_export_contains_core_inventory_not_provider_traces(
         item for item in loaded["inventory"]["items"]
         if item["id"] == ids["ch341a"]
     )
+    assert ch341a["location_status"] == "known"
     assert ch341a["attributes"]["model"] == "CH341A"
     assert "CH341A" in ch341a["aliases"]
     assert {"BIOS", "SPI", "flash"} <= set(ch341a["tags"])
@@ -343,6 +344,7 @@ def _minimal_portable_document() -> dict:
                     "state": "unknown",
                     "category_id": 1,
                     "location_id": 2,
+                    "location_status": "known",
                     "quantity": 1,
                     "attributes": {"model": "CH341A"},
                     "aliases": ["CH341A"],
@@ -381,12 +383,13 @@ def test_portable_parser_accepts_valid_document() -> None:
 
     assert document.format == PORTABLE_EXPORT_VERSION
     assert document.inventory.items[0].id == 3
+    assert document.inventory.items[0].location_status == "known"
     assert document.history.events[0].to_location_id == 2
 
 
 @pytest.mark.parametrize(
     "value",
-    [None, "inventory-portable-v2", 12],
+    [None, "inventory-portable-v3", 12],
 )
 def test_portable_parser_rejects_unknown_or_invalid_format(value: object) -> None:
     raw = _minimal_portable_document()

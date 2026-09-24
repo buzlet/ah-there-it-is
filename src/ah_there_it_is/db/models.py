@@ -18,7 +18,7 @@ from sqlalchemy import (
 )
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, relationship
 
-from ah_there_it_is.domain.states import ItemState
+from ah_there_it_is.domain.states import ItemState, LocationStatus
 
 
 def utc_now() -> datetime:
@@ -99,6 +99,9 @@ class Item(Base):
     )
     current_location_id: Mapped[int | None] = mapped_column(
         ForeignKey("locations.id", ondelete="RESTRICT"), nullable=True, index=True
+    )
+    location_status: Mapped[str] = mapped_column(
+        String(32), nullable=False, server_default=LocationStatus.UNKNOWN.value
     )
     quantity: Mapped[int] = mapped_column(Integer, default=1, nullable=False)
     attributes: Mapped[dict[str, Any]] = mapped_column(JSON, default=dict, nullable=False)
