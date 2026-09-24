@@ -10,6 +10,7 @@ from sqlalchemy.orm import Session, selectinload
 
 from ah_there_it_is.db.models import Event, Item, ItemTag, Location
 from ah_there_it_is.domain.exceptions import EntityNotFoundError
+from ah_there_it_is.domain.states import LocationStatus
 
 
 SuggestionReason = Literal["last_known", "same_category", "shared_tag"]
@@ -60,7 +61,7 @@ class LocationSuggestionService:
         )
         if item is None:
             raise EntityNotFoundError(f"item id={item_id} does not exist")
-        if item.current_location_id is not None or limit < 1:
+        if item.location_status != LocationStatus.UNKNOWN.value or limit < 1:
             return []
 
         evidence_by_location: dict[int, _Evidence] = {}
