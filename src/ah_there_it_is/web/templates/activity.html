@@ -1,0 +1,45 @@
+<!-- activity.html -->
+{% extends "base.html" %}
+{% block title %}Activity · {{ app_name }}{% endblock %}
+{% block content %}
+<div class="section-head"><div><h1>Activity</h1><p class="muted">Read-only Item Event history.</p></div></div>
+<section class="card">
+  <form action="/activity" method="get">
+    <label>Event type
+      <input type="text" name="event_type" value="{{ event_type }}" placeholder="item_moved">
+    </label>
+    <label>Item ID
+      <input type="number" name="item_id" min="1" value="{{ item_id if item_id is not none else '' }}">
+    </label>
+    <input type="hidden" name="page_size" value="{{ activity_page.page_size }}">
+    <button type="submit">Filter</button>
+    {% if has_filters %}<a href="/activity">Clear filters</a>{% endif %}
+  </form>
+  <p class="muted">Total: {{ activity_page.total }} · Page {{ activity_page.page }}{% if activity_page.pages %} of {{ activity_page.pages }}{% endif %}</p>
+  {% if activity_page.items %}
+  <ol class="history">
+    {% for event in activity_page.items %}
+    <li>
+      <strong><a href="/activity/{{ event.id }}">{{ event.event_type }}</a></strong>
+      · {{ event.created_at }} · Event #{{ event.id }}<br>
+      <span class="muted">Item:
+        {% if event.item_id is not none and event.item_name %}
+          <a href="/items/{{ event.item_id }}">{{ event.item_name }}</a> (Item #{{ event.item_id }})
+        {% elif event.item_id is not none %}
+          Item #{{ event.item_id }} unavailable
+        {% else %}No linked Item{% endif %}
+      </span>
+    </li>
+    {% endfor %}
+  </ol>
+  {% else %}
+  <p class="muted">No matching Events.</p>
+  {% endif %}
+  {% if previous_url or next_url %}
+  <nav aria-label="Activity pages">
+    {% if previous_url %}<a href="{{ previous_url }}">Previous</a>{% endif %}
+    {% if next_url %}<a href="{{ next_url }}">Next</a>{% endif %}
+  </nav>
+  {% endif %}
+</section>
+{% endblock %}

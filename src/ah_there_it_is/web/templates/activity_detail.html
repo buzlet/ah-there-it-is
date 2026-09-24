@@ -1,0 +1,66 @@
+<!-- activity_detail.html -->
+{% extends "base.html" %}
+{% block title %}Event #{{ event.id }} · {{ app_name }}{% endblock %}
+{% block content %}
+<div class="section-head">
+  <div><a href="/activity">← Activity</a><h1>Event #{{ event.id }}</h1></div>
+</div>
+<section class="card">
+  <h2>Event details</h2>
+  <dl>
+    <dt>Event ID</dt><dd>{{ event.id }}</dd>
+    <dt>Event type</dt><dd>{{ event.event_type }}</dd>
+    <dt>Time</dt><dd>{{ event.created_at }}</dd>
+    <dt>Item</dt>
+    <dd>
+      {% if event.item_id is not none and event.item_name %}
+        <a href="/items/{{ event.item_id }}">{{ event.item_name }}</a> (Item #{{ event.item_id }})
+      {% elif event.item_id is not none %}
+        Item #{{ event.item_id }} unavailable
+      {% else %}No linked Item{% endif %}
+    </dd>
+    <dt>From Location</dt>
+    <dd>
+      {% if event.from_location_id is not none %}
+        <a href="/locations/{{ event.from_location_id }}">Location #{{ event.from_location_id }}</a>
+        {% if event.from_path %}
+        <div><strong>{{ event.from_path.label }}:</strong> {{ event.from_path.text or "current path unavailable" }}</div>
+        {% endif %}
+      {% else %}—{% endif %}
+    </dd>
+    <dt>To Location</dt>
+    <dd>
+      {% if event.to_location_id is not none %}
+        <a href="/locations/{{ event.to_location_id }}">Location #{{ event.to_location_id }}</a>
+        {% if event.to_path %}
+        <div><strong>{{ event.to_path.label }}:</strong> {{ event.to_path.text or "current path unavailable" }}</div>
+        {% endif %}
+      {% else %}—{% endif %}
+    </dd>
+  </dl>
+</section>
+<section class="card">
+  <h2>Historical Category paths</h2>
+  {% if event.category_paths %}
+  <ul>
+    {% for path in event.category_paths %}
+    <li>
+      {{ "From" if path.direction == "from" else "To" }} Category ·
+      <strong>Historical snapshot:</strong> {{ path.text }}
+      <span class="muted">(
+      {% for component in path.components %}
+        Category #{{ component.id }}{% if not loop.last %}, {% endif %}
+      {% endfor %}
+      )</span>
+    </li>
+    {% endfor %}
+  </ul>
+  {% else %}<p class="muted">No historical Category path snapshot.</p>{% endif %}
+</section>
+<section class="card">
+  <h2>Payload</h2>
+  <pre>{{ event.payload|tojson(indent=2) }}</pre>
+  <h2>Original text</h2>
+  {% if event.original_text %}<q>{{ event.original_text }}</q>{% else %}<p class="muted">No original text.</p>{% endif %}
+</section>
+{% endblock %}
