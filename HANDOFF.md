@@ -4,7 +4,7 @@
 
 Repository: `buzlet/ah-there-it-is`.
 
-Product stages through Stage 26 and assignments through 0034 are complete.
+Product stages through Stage 26 and assignments through 0040 are complete.
 
 Active implementation protocol:
 
@@ -25,6 +25,8 @@ The agent must stay inside that checkout for Git, edits, Python, Just and tests.
 The direct-shell environment is already connected to U24.
 
 Remote Commander on U24 remains available when explicitly selected.
+
+Python 3.12 is the only required CI/test compatibility target. Do not add Python 3.13+ verification lanes without an explicit future decision.
 
 ## Verification model
 
