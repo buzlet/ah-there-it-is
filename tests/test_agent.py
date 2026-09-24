@@ -194,6 +194,57 @@ def test_tool_schema_mutations_are_id_based(session: Session) -> None:
     assert set(move_props) == {"item_id", "location_id"}
     assert "item" not in move_props
     assert "location" not in move_props
+    assert move_props["location_id"]["type"] == "integer"
+    assert set(definitions["move_item"].input_schema["required"]) == {
+        "item_id", "location_id"
+    }
+    for name in (
+        "take_item", "mark_item_location_unknown", "discard_item",
+        "mark_item_sold",
+    ):
+        assert definitions[name].input_schema["required"] == ["item_id"]
+    reactivate = definitions["reactivate_item"].input_schema
+    assert set(reactivate["required"]) == {"item_id", "state", "location_id"}
+    assert {option["type"] for option in reactivate["properties"]["location_id"]["anyOf"]} == {
+        "integer", "null"
+    }
+    assert set(reactivate["properties"]["state"]["enum"]).isdisjoint(
+        {"discarded", "sold"}
+    )
+    update_state = definitions["update_item"].input_schema["properties"]["state"]
+    assert set(update_state["anyOf"][0]["enum"]).isdisjoint({"discarded", "sold"})
+
+
+def test_location_truth_fields_are_exposed_in_item_projections(session: Session) -> None:
+    from ah_there_it_is.services.catalog import CatalogService
+    from ah_there_it_is.services.search import SearchService
+    from ah_there_it_is.web.schemas import ItemResponse
+
+    inventory = InventoryService(session)
+    location = inventory.create_location("Desk")
+    item = inventory.create_item("Meter", location_id=location.id)
+
+    candidate = SearchService(session).search_items("Meter")[0]
+    assert candidate.current_location_id == location.id
+    assert candidate.location_status == "known"
+
+    dispatcher = ToolDispatcher(session)
+    search = dispatcher.execute("search_items", {"query": "Meter"})
+    search_item = search["result"][0]
+    assert search_item["current_location_id"] == location.id
+    assert search_item["location_status"] == "known"
+
+    read = dispatcher.execute("get_item", {"id": item.id})["result"]
+    assert read["current_location_id"] == location.id
+    assert read["location_status"] == "known"
+
+    response = ItemResponse.model_validate(CatalogService(session).item_dict(item))
+    assert response.current_location_id == location.id
+    assert response.location_status == "known"
+
+    taken = dispatcher.execute("take_item", {"item_id": item.id})["result"]
+    assert taken["current_location_id"] is None
+    assert taken["location_status"] == "in_use"
 
 
 def test_tool_definitions_expand_from_backend_capabilities(session: Session) -> None:
@@ -212,7 +263,12 @@ def test_tool_definitions_expand_from_backend_capabilities(session: Session) -> 
 
     dispatcher.execute("search_items", {"query": "Adapter"})
     after_item = {tool.name for tool in dispatcher.definitions()}
-    assert {"get_item", "get_item_history", "update_item", "move_item"} <= after_item
+    assert {
+        "get_item", "get_item_history", "update_item", "take_item",
+        "mark_item_location_unknown", "discard_item", "mark_item_sold",
+        "reactivate_item",
+    } <= after_item
+    assert "move_item" not in after_item
     assert "create_item" not in after_item
     assert "get_location" not in after_item
 
@@ -236,7 +292,7 @@ def test_ambiguous_location_search_hides_move_until_refined(session: Session) ->
     dispatcher = ToolDispatcher(session)
 
     dispatcher.execute("search_items", {"query": "Adapter"})
-    assert "move_item" in {tool.name for tool in dispatcher.definitions()}
+    assert "move_item" not in {tool.name for tool in dispatcher.definitions()}
 
     dispatcher.execute("search_locations", {"query": "Шкаф"})
     ambiguous = {tool.name for tool in dispatcher.definitions()}
@@ -277,7 +333,12 @@ def test_agent_refreshes_tool_definitions_after_search(session: Session) -> None
         "search_categories",
         "search_tags",
     }
-    assert {"get_item", "get_item_history", "update_item", "move_item"} <= second_tools
+    assert {
+        "get_item", "get_item_history", "update_item", "take_item",
+        "mark_item_location_unknown", "discard_item", "mark_item_sold",
+        "reactivate_item",
+    } <= second_tools
+    assert "move_item" not in second_tools
 
 
 def test_agent_loop_has_hard_round_limit(session: Session) -> None:

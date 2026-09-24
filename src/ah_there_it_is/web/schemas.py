@@ -187,6 +187,8 @@ class ItemResponse(BaseModel):
     category_id: int | None
     category_path: str | None
     location_id: int | None
+    current_location_id: int | None
+    location_status: str
     location_path: str | None
 
 

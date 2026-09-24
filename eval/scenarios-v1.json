@@ -376,8 +376,7 @@
         },
         {
           "expect_tools": [
-            "search_locations",
-            "move_item"
+            "search_locations"
           ],
           "tool_calls": [
             {
@@ -432,8 +431,7 @@
         },
         {
           "expect_tools": [
-            "search_locations",
-            "move_item"
+            "search_locations"
           ],
           "tool_calls": [
             {
@@ -481,8 +479,7 @@
         },
         {
           "expect_tools": [
-            "search_locations",
-            "move_item"
+            "search_locations"
           ],
           "tool_calls": [
             {
@@ -530,8 +527,7 @@
         },
         {
           "expect_tools": [
-            "search_locations",
-            "move_item"
+            "search_locations"
           ],
           "tool_calls": [
             {
@@ -579,14 +575,13 @@
         },
         {
           "expect_tools": [
-            "move_item"
+            "take_item"
           ],
           "tool_calls": [
             {
-              "name": "move_item",
+              "name": "take_item",
               "arguments": {
-                "item_id": "${tool:search_items:result.0.id}",
-                "location_id": null
+                "item_id": "${tool:search_items:result.0.id}"
               }
             }
           ]
@@ -594,9 +589,14 @@
         {
           "expect_results": [
             {
-              "tool_name": "move_item",
+              "tool_name": "take_item",
               "path": "result.location_id",
               "equals": null
+            },
+            {
+              "tool_name": "take_item",
+              "path": "result.location_status",
+              "equals": "in_use"
             }
           ],
           "final": "Красный мультиметр отмечен как взятый из хранения."
@@ -995,8 +995,7 @@
         },
         {
           "expect_tools": [
-            "search_locations",
-            "move_item"
+            "search_locations"
           ],
           "tool_calls": [
             {
@@ -1076,8 +1075,7 @@
         },
         {
           "expect_tools": [
-            "search_locations",
-            "move_item"
+            "search_locations"
           ],
           "tool_calls": [
             {
@@ -1406,8 +1404,7 @@
         },
         {
           "expect_tools": [
-            "search_locations",
-            "move_item"
+            "search_locations"
           ],
           "tool_calls": [
             {
@@ -1808,8 +1805,7 @@
         },
         {
           "expect_tools": [
-            "search_locations",
-            "move_item"
+            "search_locations"
           ],
           "tool_calls": [
             {
@@ -1860,15 +1856,13 @@
         },
         {
           "expect_tools": [
-            "move_item",
-            "suggest_item_locations"
+            "take_item"
           ],
           "tool_calls": [
             {
-              "name": "move_item",
+              "name": "take_item",
               "arguments": {
-                "item_id": "${tool:search_items:result.0.id}",
-                "location_id": null
+                "item_id": "${tool:search_items:result.0.id}"
               }
             }
           ]
@@ -1939,15 +1933,13 @@
         },
         {
           "expect_tools": [
-            "move_item",
-            "suggest_item_locations"
+            "take_item"
           ],
           "tool_calls": [
             {
-              "name": "move_item",
+              "name": "take_item",
               "arguments": {
-                "item_id": "${tool:search_items:result.0.id}",
-                "location_id": null
+                "item_id": "${tool:search_items:result.0.id}"
               }
             }
           ]
@@ -1994,6 +1986,1047 @@
             }
           ],
           "final": "Предположения о месте хранения не показываю, пока предмет отмечен как используемый."
+        }
+      ]
+    },
+    {
+      "case_id": "loc-truth-in-use-known",
+      "steps": [
+        {
+          "expect_tools": [
+            "search_items"
+          ],
+          "tool_calls": [
+            {
+              "name": "search_items",
+              "arguments": {
+                "query": "CH341A"
+              }
+            }
+          ]
+        },
+        {
+          "expect_tools": [
+            "take_item"
+          ],
+          "tool_calls": [
+            {
+              "name": "take_item",
+              "arguments": {
+                "item_id": "${tool:search_items:result.0.id}"
+              }
+            }
+          ]
+        },
+        {
+          "expect_tools": [
+            "search_locations"
+          ],
+          "tool_calls": [
+            {
+              "name": "search_locations",
+              "arguments": {
+                "query": "Средний ящик"
+              }
+            }
+          ],
+          "expect_results": [
+            {
+              "tool_name": "take_item",
+              "path": "result.location_status",
+              "equals": "in_use"
+            }
+          ]
+        },
+        {
+          "expect_tools": [
+            "move_item"
+          ],
+          "tool_calls": [
+            {
+              "name": "move_item",
+              "arguments": {
+                "item_id": "${tool:search_items:result.0.id}",
+                "location_id": "${tool:search_locations:result.0.id}"
+              }
+            }
+          ]
+        },
+        {
+          "expect_results": [
+            {
+              "tool_name": "move_item",
+              "path": "result.location_status",
+              "equals": "known"
+            }
+          ],
+          "final": "CH341A отмечен как находящийся в среднем ящике."
+        }
+      ]
+    },
+    {
+      "case_id": "loc-truth-unknown-known",
+      "steps": [
+        {
+          "expect_tools": [
+            "search_items"
+          ],
+          "tool_calls": [
+            {
+              "name": "search_items",
+              "arguments": {
+                "query": "DT-830B"
+              }
+            }
+          ]
+        },
+        {
+          "expect_tools": [
+            "mark_item_location_unknown"
+          ],
+          "tool_calls": [
+            {
+              "name": "mark_item_location_unknown",
+              "arguments": {
+                "item_id": "${tool:search_items:result.0.id}"
+              }
+            }
+          ]
+        },
+        {
+          "expect_tools": [
+            "search_locations"
+          ],
+          "tool_calls": [
+            {
+              "name": "search_locations",
+              "arguments": {
+                "query": "Правый ящик"
+              }
+            }
+          ],
+          "expect_results": [
+            {
+              "tool_name": "mark_item_location_unknown",
+              "path": "result.location_status",
+              "equals": "unknown"
+            }
+          ]
+        },
+        {
+          "expect_tools": [
+            "move_item"
+          ],
+          "tool_calls": [
+            {
+              "name": "move_item",
+              "arguments": {
+                "item_id": "${tool:search_items:result.0.id}",
+                "location_id": "${tool:search_locations:result.0.id}"
+              }
+            }
+          ]
+        },
+        {
+          "expect_results": [
+            {
+              "tool_name": "move_item",
+              "path": "result.location_status",
+              "equals": "known"
+            }
+          ],
+          "final": "DT-830B отмечен в правом ящике."
+        }
+      ]
+    },
+    {
+      "case_id": "loc-truth-suggest-move",
+      "steps": [
+        {
+          "expect_tools": [
+            "search_items"
+          ],
+          "tool_calls": [
+            {
+              "name": "search_items",
+              "arguments": {
+                "query": "CH341A"
+              }
+            }
+          ]
+        },
+        {
+          "expect_tools": [
+            "mark_item_location_unknown"
+          ],
+          "tool_calls": [
+            {
+              "name": "mark_item_location_unknown",
+              "arguments": {
+                "item_id": "${tool:search_items:result.0.id}"
+              }
+            }
+          ]
+        },
+        {
+          "expect_tools": [
+            "suggest_item_locations"
+          ],
+          "tool_calls": [
+            {
+              "name": "suggest_item_locations",
+              "arguments": {
+                "item_id": "${tool:search_items:result.0.id}",
+                "limit": 5
+              }
+            }
+          ],
+          "expect_results": [
+            {
+              "tool_name": "mark_item_location_unknown",
+              "path": "result.location_status",
+              "equals": "unknown"
+            }
+          ],
+          "forbid_tools": [
+            "move_item"
+          ]
+        },
+        {
+          "expect_tools": [
+            "search_locations"
+          ],
+          "tool_calls": [
+            {
+              "name": "search_locations",
+              "arguments": {
+                "query": "Правый ящик"
+              }
+            }
+          ],
+          "expect_results": [
+            {
+              "tool_name": "suggest_item_locations",
+              "path": "result.suggestions",
+              "min_items": 1
+            }
+          ],
+          "forbid_tools": [
+            "move_item"
+          ]
+        },
+        {
+          "expect_tools": [
+            "move_item"
+          ],
+          "tool_calls": [
+            {
+              "name": "move_item",
+              "arguments": {
+                "item_id": "${tool:search_items:result.0.id}",
+                "location_id": "${tool:search_locations:result.0.id}"
+              }
+            }
+          ]
+        },
+        {
+          "expect_results": [
+            {
+              "tool_name": "move_item",
+              "path": "result.location_status",
+              "equals": "known"
+            }
+          ],
+          "final": "CH341A перемещён в разрешённое место."
+        }
+      ]
+    },
+    {
+      "case_id": "loc-truth-discard",
+      "steps": [
+        {
+          "expect_tools": [
+            "search_items"
+          ],
+          "tool_calls": [
+            {
+              "name": "search_items",
+              "arguments": {
+                "query": "CH341A"
+              }
+            }
+          ]
+        },
+        {
+          "expect_tools": [
+            "discard_item"
+          ],
+          "tool_calls": [
+            {
+              "name": "discard_item",
+              "arguments": {
+                "item_id": "${tool:search_items:result.0.id}"
+              }
+            }
+          ]
+        },
+        {
+          "expect_results": [
+            {
+              "tool_name": "discard_item",
+              "path": "result.state",
+              "equals": "discarded"
+            },
+            {
+              "tool_name": "discard_item",
+              "path": "result.location_status",
+              "equals": "not_applicable"
+            }
+          ],
+          "final": "CH341A утилизирован."
+        }
+      ]
+    },
+    {
+      "case_id": "loc-truth-sold",
+      "steps": [
+        {
+          "expect_tools": [
+            "search_items"
+          ],
+          "tool_calls": [
+            {
+              "name": "search_items",
+              "arguments": {
+                "query": "CH341A"
+              }
+            }
+          ]
+        },
+        {
+          "expect_tools": [
+            "mark_item_sold"
+          ],
+          "tool_calls": [
+            {
+              "name": "mark_item_sold",
+              "arguments": {
+                "item_id": "${tool:search_items:result.0.id}"
+              }
+            }
+          ]
+        },
+        {
+          "expect_results": [
+            {
+              "tool_name": "mark_item_sold",
+              "path": "result.state",
+              "equals": "sold"
+            },
+            {
+              "tool_name": "mark_item_sold",
+              "path": "result.location_status",
+              "equals": "not_applicable"
+            }
+          ],
+          "final": "CH341A продан."
+        }
+      ]
+    },
+    {
+      "case_id": "loc-truth-discard-unknown",
+      "steps": [
+        {
+          "expect_tools": [
+            "search_items"
+          ],
+          "tool_calls": [
+            {
+              "name": "search_items",
+              "arguments": {
+                "query": "CH341A"
+              }
+            }
+          ]
+        },
+        {
+          "expect_tools": [
+            "discard_item"
+          ],
+          "tool_calls": [
+            {
+              "name": "discard_item",
+              "arguments": {
+                "item_id": "${tool:search_items:result.0.id}"
+              }
+            }
+          ]
+        },
+        {
+          "expect_tools": [
+            "reactivate_item"
+          ],
+          "tool_calls": [
+            {
+              "name": "reactivate_item",
+              "arguments": {
+                "item_id": "${tool:search_items:result.0.id}",
+                "state": "working",
+                "location_id": null
+              }
+            }
+          ]
+        },
+        {
+          "expect_results": [
+            {
+              "tool_name": "reactivate_item",
+              "path": "result.location_status",
+              "equals": "unknown"
+            }
+          ],
+          "final": "CH341A активирован с неизвестным местом."
+        }
+      ]
+    },
+    {
+      "case_id": "loc-truth-sold-unknown",
+      "steps": [
+        {
+          "expect_tools": [
+            "search_items"
+          ],
+          "tool_calls": [
+            {
+              "name": "search_items",
+              "arguments": {
+                "query": "CH341A"
+              }
+            }
+          ]
+        },
+        {
+          "expect_tools": [
+            "mark_item_sold"
+          ],
+          "tool_calls": [
+            {
+              "name": "mark_item_sold",
+              "arguments": {
+                "item_id": "${tool:search_items:result.0.id}"
+              }
+            }
+          ]
+        },
+        {
+          "expect_tools": [
+            "reactivate_item"
+          ],
+          "tool_calls": [
+            {
+              "name": "reactivate_item",
+              "arguments": {
+                "item_id": "${tool:search_items:result.0.id}",
+                "state": "needs_test",
+                "location_id": null
+              }
+            }
+          ]
+        },
+        {
+          "expect_results": [
+            {
+              "tool_name": "reactivate_item",
+              "path": "result.location_status",
+              "equals": "unknown"
+            }
+          ],
+          "final": "CH341A активирован с неизвестным местом."
+        }
+      ]
+    },
+    {
+      "case_id": "loc-truth-discard-known",
+      "steps": [
+        {
+          "expect_tools": [
+            "search_items"
+          ],
+          "tool_calls": [
+            {
+              "name": "search_items",
+              "arguments": {
+                "query": "CH341A"
+              }
+            }
+          ]
+        },
+        {
+          "expect_tools": [
+            "discard_item"
+          ],
+          "tool_calls": [
+            {
+              "name": "discard_item",
+              "arguments": {
+                "item_id": "${tool:search_items:result.0.id}"
+              }
+            }
+          ]
+        },
+        {
+          "expect_tools": [
+            "search_locations"
+          ],
+          "tool_calls": [
+            {
+              "name": "search_locations",
+              "arguments": {
+                "query": "Средний ящик"
+              }
+            }
+          ],
+          "expect_results": [
+            {
+              "tool_name": "discard_item",
+              "path": "result.location_status",
+              "equals": "not_applicable"
+            }
+          ]
+        },
+        {
+          "expect_tools": [
+            "reactivate_item"
+          ],
+          "tool_calls": [
+            {
+              "name": "reactivate_item",
+              "arguments": {
+                "item_id": "${tool:search_items:result.0.id}",
+                "state": "working",
+                "location_id": "${tool:search_locations:result.0.id}"
+              }
+            }
+          ]
+        },
+        {
+          "expect_results": [
+            {
+              "tool_name": "reactivate_item",
+              "path": "result.location_status",
+              "equals": "known"
+            }
+          ],
+          "final": "CH341A активирован в разрешённом месте."
+        }
+      ]
+    },
+    {
+      "case_id": "loc-truth-sold-known",
+      "steps": [
+        {
+          "expect_tools": [
+            "search_items"
+          ],
+          "tool_calls": [
+            {
+              "name": "search_items",
+              "arguments": {
+                "query": "CH341A"
+              }
+            }
+          ]
+        },
+        {
+          "expect_tools": [
+            "mark_item_sold"
+          ],
+          "tool_calls": [
+            {
+              "name": "mark_item_sold",
+              "arguments": {
+                "item_id": "${tool:search_items:result.0.id}"
+              }
+            }
+          ]
+        },
+        {
+          "expect_tools": [
+            "search_locations"
+          ],
+          "tool_calls": [
+            {
+              "name": "search_locations",
+              "arguments": {
+                "query": "Правый ящик"
+              }
+            }
+          ],
+          "expect_results": [
+            {
+              "tool_name": "mark_item_sold",
+              "path": "result.location_status",
+              "equals": "not_applicable"
+            }
+          ]
+        },
+        {
+          "expect_tools": [
+            "reactivate_item"
+          ],
+          "tool_calls": [
+            {
+              "name": "reactivate_item",
+              "arguments": {
+                "item_id": "${tool:search_items:result.0.id}",
+                "state": "used",
+                "location_id": "${tool:search_locations:result.0.id}"
+              }
+            }
+          ]
+        },
+        {
+          "expect_results": [
+            {
+              "tool_name": "reactivate_item",
+              "path": "result.location_status",
+              "equals": "known"
+            }
+          ],
+          "final": "CH341A активирован в разрешённом месте."
+        }
+      ]
+    },
+    {
+      "case_id": "loc-truth-terminal-rejects",
+      "steps": [
+        {
+          "expect_tools": [
+            "search_items"
+          ],
+          "tool_calls": [
+            {
+              "name": "search_items",
+              "arguments": {
+                "query": "CH341A"
+              }
+            }
+          ]
+        },
+        {
+          "expect_tools": [
+            "discard_item"
+          ],
+          "tool_calls": [
+            {
+              "name": "discard_item",
+              "arguments": {
+                "item_id": "${tool:search_items:result.0.id}"
+              }
+            }
+          ]
+        },
+        {
+          "expect_results": [
+            {
+              "tool_name": "discard_item",
+              "path": "result.state",
+              "equals": "discarded"
+            }
+          ],
+          "final": "CH341A утилизирован."
+        },
+        {
+          "expect_tools": [
+            "search_items"
+          ],
+          "tool_calls": [
+            {
+              "name": "search_items",
+              "arguments": {
+                "query": "CH341A"
+              }
+            }
+          ]
+        },
+        {
+          "expect_tools": [
+            "take_item"
+          ],
+          "tool_calls": [
+            {
+              "name": "take_item",
+              "arguments": {
+                "item_id": "${tool:search_items:result.0.id}"
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "case_id": "loc-truth-move-null",
+      "steps": [
+        {
+          "expect_tools": [
+            "search_items"
+          ],
+          "tool_calls": [
+            {
+              "name": "search_items",
+              "arguments": {
+                "query": "CH341A"
+              }
+            }
+          ]
+        },
+        {
+          "expect_tools": [
+            "search_locations"
+          ],
+          "tool_calls": [
+            {
+              "name": "search_locations",
+              "arguments": {
+                "query": "Правый ящик"
+              }
+            }
+          ]
+        },
+        {
+          "expect_tools": [
+            "move_item"
+          ],
+          "tool_calls": [
+            {
+              "name": "move_item",
+              "arguments": {
+                "item_id": "${tool:search_items:result.0.id}",
+                "location_id": null
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "case_id": "loc-truth-move-omitted",
+      "steps": [
+        {
+          "expect_tools": [
+            "search_items"
+          ],
+          "tool_calls": [
+            {
+              "name": "search_items",
+              "arguments": {
+                "query": "DT-830B"
+              }
+            }
+          ]
+        },
+        {
+          "expect_tools": [
+            "search_locations"
+          ],
+          "tool_calls": [
+            {
+              "name": "search_locations",
+              "arguments": {
+                "query": "Квартира / Балкон / Шкаф"
+              }
+            }
+          ]
+        },
+        {
+          "expect_tools": [
+            "move_item"
+          ],
+          "tool_calls": [
+            {
+              "name": "move_item",
+              "arguments": {
+                "item_id": "${tool:search_items:result.0.id}"
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "case_id": "loc-truth-reactivate-omitted",
+      "steps": [
+        {
+          "expect_tools": [
+            "search_items"
+          ],
+          "tool_calls": [
+            {
+              "name": "search_items",
+              "arguments": {
+                "query": "CH341A"
+              }
+            }
+          ]
+        },
+        {
+          "expect_tools": [
+            "discard_item"
+          ],
+          "tool_calls": [
+            {
+              "name": "discard_item",
+              "arguments": {
+                "item_id": "${tool:search_items:result.0.id}"
+              }
+            }
+          ]
+        },
+        {
+          "expect_results": [
+            {
+              "tool_name": "discard_item",
+              "path": "result.state",
+              "equals": "discarded"
+            }
+          ],
+          "final": "CH341A утилизирован."
+        },
+        {
+          "expect_tools": [
+            "search_items"
+          ],
+          "tool_calls": [
+            {
+              "name": "search_items",
+              "arguments": {
+                "query": "CH341A"
+              }
+            }
+          ]
+        },
+        {
+          "expect_tools": [
+            "reactivate_item"
+          ],
+          "tool_calls": [
+            {
+              "name": "reactivate_item",
+              "arguments": {
+                "item_id": "${tool:search_items:result.0.id}",
+                "state": "working"
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "case_id": "loc-truth-noop-receipt",
+      "steps": [
+        {
+          "expect_tools": [
+            "search_items"
+          ],
+          "tool_calls": [
+            {
+              "name": "search_items",
+              "arguments": {
+                "query": "CH341A"
+              }
+            }
+          ]
+        },
+        {
+          "expect_tools": [
+            "take_item"
+          ],
+          "tool_calls": [
+            {
+              "name": "take_item",
+              "arguments": {
+                "item_id": "${tool:search_items:result.0.id}"
+              }
+            }
+          ]
+        },
+        {
+          "expect_tools": [
+            "take_item"
+          ],
+          "tool_calls": [
+            {
+              "name": "take_item",
+              "arguments": {
+                "item_id": "${tool:search_items:result.0.id}"
+              }
+            }
+          ],
+          "expect_results": [
+            {
+              "tool_name": "take_item",
+              "path": "changed",
+              "equals": true
+            }
+          ]
+        },
+        {
+          "expect_results": [
+            {
+              "tool_name": "take_item",
+              "path": "changed",
+              "equals": false
+            }
+          ],
+          "final": "Второе взятие подтверждено как no-op без нового события."
+        }
+      ]
+    },
+    {
+      "case_id": "loc-truth-terminal-reject-move",
+      "steps": [
+        {
+          "expect_tools": [
+            "search_items"
+          ],
+          "tool_calls": [
+            {
+              "name": "search_items",
+              "arguments": {
+                "query": "CH341A"
+              }
+            }
+          ]
+        },
+        {
+          "expect_tools": [
+            "discard_item"
+          ],
+          "tool_calls": [
+            {
+              "name": "discard_item",
+              "arguments": {
+                "item_id": "${tool:search_items:result.0.id}"
+              }
+            }
+          ]
+        },
+        {
+          "expect_results": [
+            {
+              "tool_name": "discard_item",
+              "path": "result.state",
+              "equals": "discarded"
+            }
+          ],
+          "final": "CH341A утилизирован."
+        },
+        {
+          "expect_tools": [
+            "search_items"
+          ],
+          "tool_calls": [
+            {
+              "name": "search_items",
+              "arguments": {
+                "query": "CH341A"
+              }
+            }
+          ]
+        },
+        {
+          "expect_tools": [
+            "search_locations"
+          ],
+          "tool_calls": [
+            {
+              "name": "search_locations",
+              "arguments": {
+                "query": "Средний ящик"
+              }
+            }
+          ]
+        },
+        {
+          "expect_tools": [
+            "move_item"
+          ],
+          "tool_calls": [
+            {
+              "name": "move_item",
+              "arguments": {
+                "item_id": "${tool:search_items:result.0.id}",
+                "location_id": "${tool:search_locations:result.0.id}"
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "case_id": "loc-truth-terminal-reject-unknown",
+      "steps": [
+        {
+          "expect_tools": [
+            "search_items"
+          ],
+          "tool_calls": [
+            {
+              "name": "search_items",
+              "arguments": {
+                "query": "CH341A"
+              }
+            }
+          ]
+        },
+        {
+          "expect_tools": [
+            "discard_item"
+          ],
+          "tool_calls": [
+            {
+              "name": "discard_item",
+              "arguments": {
+                "item_id": "${tool:search_items:result.0.id}"
+              }
+            }
+          ]
+        },
+        {
+          "expect_results": [
+            {
+              "tool_name": "discard_item",
+              "path": "result.state",
+              "equals": "discarded"
+            }
+          ],
+          "final": "CH341A утилизирован."
+        },
+        {
+          "expect_tools": [
+            "search_items"
+          ],
+          "tool_calls": [
+            {
+              "name": "search_items",
+              "arguments": {
+                "query": "CH341A"
+              }
+            }
+          ]
+        },
+        {
+          "expect_tools": [
+            "mark_item_location_unknown"
+          ],
+          "tool_calls": [
+            {
+              "name": "mark_item_location_unknown",
+              "arguments": {
+                "item_id": "${tool:search_items:result.0.id}"
+              }
+            }
+          ]
         }
       ]
     }

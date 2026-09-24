@@ -650,27 +650,74 @@ def test_openai_compatible_adapter_reports_provider_and_client_timing() -> None:
     assert client.info.config["transport"] == "httpx-persistent"
 
 
-def test_move_target_is_required_nullable_in_exported_provider_schemas(session) -> None:
+def test_location_truth_tools_export_safe_provider_schemas(session) -> None:
     from ah_there_it_is.agent.gemini import GeminiConfig, GeminiLLMClient
     from ah_there_it_is.agent.tools import ToolDispatcher
     from ah_there_it_is.services.inventory import InventoryService
 
     inventory = InventoryService(session)
     inventory.create_item("Meter")
+    inventory.create_location("Shelf")
     dispatcher = ToolDispatcher(session)
     dispatcher.execute("search_items", {"query": "Meter"})
-    move = next(tool for tool in dispatcher.definitions() if tool.name == "move_item")
-    schema = move.input_schema
-    assert set(schema["required"]) == {"item_id", "location_id"}
-    assert {option["type"] for option in schema["properties"]["location_id"]["anyOf"]} == {"integer", "null"}
+    dispatcher.execute("search_locations", {"query": "Shelf"})
+    definitions = {tool.name: tool for tool in dispatcher.definitions()}
 
-    openai_payload = OpenAICompatibleLLMClient._tool_payload(move)
-    openai_schema = openai_payload["function"]["parameters"]
-    assert "location_id" in openai_schema["required"]
-    assert {option["type"] for option in openai_schema["properties"]["location_id"]["anyOf"]} == {"integer", "null"}
+    explicit = {
+        "take_item",
+        "mark_item_location_unknown",
+        "discard_item",
+        "mark_item_sold",
+        "reactivate_item",
+    }
+    assert explicit <= definitions.keys()
+    for name in explicit - {"reactivate_item"}:
+        assert definitions[name].input_schema["required"] == ["item_id"]
+
+    move_schema = definitions["move_item"].input_schema
+    assert set(move_schema["required"]) == {"item_id", "location_id"}
+    assert move_schema["properties"]["location_id"]["type"] == "integer"
+
+    reactivate_schema = definitions["reactivate_item"].input_schema
+    assert set(reactivate_schema["required"]) == {"item_id", "state", "location_id"}
+    assert {option["type"] for option in reactivate_schema["properties"]["location_id"]["anyOf"]} == {
+        "integer", "null"
+    }
+    assert set(reactivate_schema["properties"]["state"]["enum"]).isdisjoint(
+        {"discarded", "sold"}
+    )
+
+    update_state = definitions["update_item"].input_schema["properties"]["state"]["anyOf"][0]
+    assert set(update_state["enum"]).isdisjoint({"discarded", "sold"})
+
+    openai = {
+        name: OpenAICompatibleLLMClient._tool_payload(definitions[name])["function"]["parameters"]
+        for name in {"move_item", "reactivate_item", *explicit}
+    }
+    for name in explicit:
+        assert name in openai
+        assert "item_id" in openai[name]["required"]
+    assert openai["move_item"]["properties"]["location_id"]["type"] == "integer"
+    assert "location_id" in openai["move_item"]["required"]
+    assert {option["type"] for option in openai["reactivate_item"]["properties"]["location_id"]["anyOf"]} == {
+        "integer", "null"
+    }
 
     gemini = GeminiLLMClient(GeminiConfig(model="test-model"))
-    request = gemini._request_body([AgentMessage(role="user", content="Take Meter")], [move])
-    gemini_schema = request["tools"][0]["functionDeclarations"][0]["parametersJsonSchema"]
-    assert "location_id" in gemini_schema["required"]
-    assert gemini_schema["properties"]["location_id"]["type"] == ["integer", "null"]
+    request = gemini._request_body(
+        [AgentMessage(role="user", content="Update Meter")],
+        list(definitions.values()),
+    )
+    gemini_schemas = {
+        tool["name"]: tool["parametersJsonSchema"]
+        for tool in request["tools"][0]["functionDeclarations"]
+    }
+    for name in explicit:
+        assert name in gemini_schemas
+        assert "item_id" in gemini_schemas[name]["required"]
+    assert gemini_schemas["move_item"]["properties"]["location_id"]["type"] == "integer"
+    assert "location_id" in gemini_schemas["move_item"]["required"]
+    assert gemini_schemas["reactivate_item"]["properties"]["location_id"]["type"] == [
+        "integer", "null"
+    ]
+    assert "location_id" in gemini_schemas["reactivate_item"]["required"]

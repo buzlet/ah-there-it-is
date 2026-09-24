@@ -264,6 +264,8 @@ class CatalogService:
             "category_id": item.category_id,
             "category_path": self.path(item.category),
             "location_id": item.current_location_id,
+            "current_location_id": item.current_location_id,
+            "location_status": item.location_status,
             "location_path": self.path(item.current_location),
             "created_at": item.created_at,
             "updated_at": item.updated_at,

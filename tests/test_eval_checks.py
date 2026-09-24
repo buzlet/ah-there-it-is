@@ -16,6 +16,8 @@ def test_extended_check_schema_requires_kind_specific_fields() -> None:
         ExpectedCheck(kind="event_count_delta")
     with pytest.raises(ValidationError):
         ExpectedCheck(kind="item_event", item_query="GTX 1070")
+    with pytest.raises(ValidationError):
+        ExpectedCheck(kind="item_location_status", item_query="GTX 1070")
 
 
 def test_shared_oracle_reads_item_state_fields(session) -> None:
@@ -82,6 +84,27 @@ def test_shared_oracle_checks_move_event_and_event_delta(session) -> None:
 
     assert all(result["ok"] for result in results)
     assert results[2]["detail"]["matching"][0]["original_text"] == "test move"
+
+
+def test_shared_oracle_checks_persisted_location_status(session) -> None:
+    ids = seed_inventory_fixture(session)
+    inventory = InventoryService(session)
+    before = event_count(session)
+
+    inventory.mark_item_location_unknown(ids.items["dt830b"], original_text="unknown")
+
+    result = evaluate_expected_check(
+        session,
+        ExpectedCheck(
+            kind="item_location_status",
+            item_query="DT-830B",
+            location_status="unknown",
+        ),
+        events_before=before,
+    )
+
+    assert result["ok"] is True
+    assert result["detail"]["actual"] == "unknown"
 
 
 def test_shared_oracle_checks_taken_location_and_category_none(session) -> None:

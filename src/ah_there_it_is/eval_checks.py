@@ -126,6 +126,17 @@ def evaluate_expected_check(
             },
         }
 
+    if check.kind == "item_location_status":
+        return {
+            "kind": check.kind,
+            "ok": item.location_status == check.location_status,
+            "detail": {
+                "item_id": item.id,
+                "actual": item.location_status,
+                "expected": check.location_status,
+            },
+        }
+
     if check.kind == "item_state":
         return {
             "kind": check.kind,

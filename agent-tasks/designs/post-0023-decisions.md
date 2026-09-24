@@ -55,4 +55,14 @@ The domain-transition and suggestion-eligibility slice is implemented:
 - Location suggestions are available only for `unknown`; `known`, `in_use`, and `not_applicable` follow their approved eligibility rules.
 - The delivered slice adds domain and receipt support without adding agent tool schemas or browser UX.
 
+## Assignment 0027 delivery status
+
+The provider-neutral agent contract now exposes Stage 26 location truth:
+
+- `move_item` requires a resolved positive Location ID; `take_item`, `mark_item_location_unknown`, discard, sold, and reactivation are separate tools.
+- Reactivation requires an explicit non-terminal state and required-nullable Location field; generic `update_item` schema excludes terminal states.
+- Search, agent read/mutation, and catalog API item projections expose `state`, `current_location_id`, and `location_status`; terminal Items remain searchable.
+- Deterministic corpus/scenarios cover the approved transitions, resolver gates, terminal rejection, malformed targets, reactivation, and truthful no-op receipts.
+- No browser UX, duplicate/quantity, authentication/multi-user, or new search algorithm scope was added.
+
 The broader Stage 26 remains in progress.

@@ -106,10 +106,40 @@ def _run_case(case: EvaluationCase, scenario: ScenarioCase) -> dict[str, Any]:
                             "tool_trace": latest.tool_trace,
                         }
                     )
+                observed_error = f"{type(exc).__name__}: {exc}"
+                if case.expected_error and case.expected_error in observed_error:
+                    try:
+                        llm.assert_exhausted()
+                    except Exception as scenario_exc:
+                        observed_error = (
+                            f"{type(scenario_exc).__name__}: {scenario_exc}"
+                        )
+                    else:
+                        checks = [
+                            evaluate_expected_check(
+                                session,
+                                check,
+                                events_before=events_before,
+                            )
+                            for check in case.checks
+                        ]
+                        return {
+                            "case_id": case.id,
+                            "status": "completed",
+                            "expected_error": case.expected_error,
+                            "observed_error": observed_error,
+                            "turns": turns,
+                            "checks": checks,
+                            "checks_passed": (
+                                all(check["ok"] for check in checks)
+                                if checks
+                                else None
+                            ),
+                        }
                 return {
                     "case_id": case.id,
                     "status": "failed",
-                    "error": f"{type(exc).__name__}: {exc}",
+                    "error": observed_error,
                     "turns": turns,
                     "checks": [],
                     "checks_passed": False,

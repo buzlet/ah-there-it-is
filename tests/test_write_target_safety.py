@@ -45,13 +45,17 @@ def test_cross_item_identity_collision_is_ambiguous(session: Session, collision:
         inventory.create_item("Shared")
     else:
         inventory.create_item("Other", aliases=["Shared"])
+    location = inventory.create_location("Desk")
     dispatcher = ToolDispatcher(session)
 
     result = dispatcher.execute("search_items", {"query": "Shared", "limit": 1})
     assert result["result"]
     assert not dispatcher.state.resolved["item"]
+    dispatcher.execute("search_locations", {"query": "Desk"})
     before = _events(session)
-    rejected = dispatcher.execute("move_item", {"item_id": first.id, "location_id": None})
+    rejected = dispatcher.execute(
+        "move_item", {"item_id": first.id, "location_id": location.id}
+    )
     assert rejected["error"]["type"] == "ToolPreconditionError"
     assert _events(session) == before
 
@@ -90,7 +94,7 @@ def test_duplicate_tree_leaves_require_exact_full_path(session: Session, entity:
     assert leaf.id in dispatcher.state.resolved[entity]
 
 
-def test_omitted_move_target_is_invalid_and_explicit_null_takes(session: Session) -> None:
+def test_move_requires_location_and_take_is_explicit(session: Session) -> None:
     inventory = InventoryService(session)
     location = inventory.create_location("Desk")
     item = inventory.create_item("Meter", location_id=location.id)
@@ -100,10 +104,16 @@ def test_omitted_move_target_is_invalid_and_explicit_null_takes(session: Session
 
     omitted = dispatcher.execute("move_item", {"item_id": item.id})
     assert omitted["error"]["type"] == "invalid_arguments"
+    null_target = dispatcher.execute(
+        "move_item", {"item_id": item.id, "location_id": None}
+    )
+    assert null_target["error"]["type"] == "invalid_arguments"
     assert inventory.get_item(item.id).current_location_id == location.id
     assert _events(session) == before
-    taken = dispatcher.execute("move_item", {"item_id": item.id, "location_id": None})
+
+    taken = dispatcher.execute("take_item", {"item_id": item.id})
     assert taken["ok"] is True
+    assert taken["result"]["location_status"] == "in_use"
     assert inventory.get_item(item.id).current_location_id is None
     assert _events(session) == before + 1
 
@@ -111,6 +121,7 @@ def test_omitted_move_target_is_invalid_and_explicit_null_takes(session: Session
 def test_item_identity_change_and_new_collision_reject_stale_write(session: Session) -> None:
     inventory = InventoryService(session)
     item = inventory.create_item("Meter")
+    location = inventory.create_location("Desk")
     dispatcher = ToolDispatcher(session)
     dispatcher.execute("search_items", {"query": "Meter"})
     inventory.update_item(item.id, name="Renamed")
@@ -122,8 +133,11 @@ def test_item_identity_change_and_new_collision_reject_stale_write(session: Sess
 
     dispatcher.execute("search_items", {"query": "Renamed"})
     inventory.create_item("Other", aliases=["Renamed"])
+    dispatcher.execute("search_locations", {"query": "Desk"})
     before = _events(session)
-    result = dispatcher.execute("move_item", {"item_id": item.id, "location_id": None})
+    result = dispatcher.execute(
+        "move_item", {"item_id": item.id, "location_id": location.id}
+    )
     assert result["error"]["type"] == "ToolPreconditionError"
     assert _events(session) == before
 
