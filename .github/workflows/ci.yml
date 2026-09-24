@@ -22,7 +22,13 @@ jobs:
           cache: pip
       - uses: extractions/setup-just@v4
       - run: python -m pip install -e '.[test]'
-      - run: just check
+      - name: Install CI-only coverage tooling
+        run: python -m pip install 'coverage>=7,<8'
+      - run: just compile
+      - name: Tests with coverage
+        run: |
+          python -m coverage run --branch --source=ah_there_it_is -m pytest
+          python -m coverage report --show-missing
       - run: just migration-check
       - run: just corpus-check
       - run: just scenario-check
