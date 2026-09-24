@@ -18,19 +18,22 @@ Assignment 0029 itself runs on the existing trusted U24 execution path. Its outp
 
 ## Start prerequisite
 
-Do not start this batch until Assignment 0028 from control SHA
-`29bfba2e372207c8f71b6cbe783fa388689cca0f`
-has successfully merged.
+The prior Stage 26 batch is complete.
 
-At start:
+Start Assignment 0029 only when current `origin/main` is exactly:
 
-- current `origin/main` must contain `agent-tasks/reviews/0028-r1.md`;
-- Stage 26 must be factually complete in current strategy/status docs;
-- local `main` must be clean and equal `origin/main`.
+`f5a05fa4b723ed1bca37b8137f445594f58fdebd`
 
-The exact post-0028 main SHA is intentionally not pre-issued.
+This is merge PR #53 / completed Assignment 0028.
 
-If 0028 did not merge successfully, stop.
+Also verify:
+
+- `agent-tasks/reviews/0028-r1.md` exists on current main;
+- Stage 26 is factually complete in current strategy/status docs;
+- PR #53 final implementation head had successful application CI;
+- local `main` is clean and equals `origin/main`.
+
+If main has advanced before 0029 starts, stop and report the new SHA rather than guessing whether the issued enablement assignment remains current.
 
 ## Task
 
@@ -40,7 +43,20 @@ Branch: `feat/windows-git-bash-implementation-host`
 Spec source: `agent-tasks/batches/windows-git-bash-enablement/0029-windows-git-bash-host.md`  
 Assignment destination: `agent-tasks/assignments/0029-windows-git-bash-host.md`
 
-Create the just-in-time seed from the then-current post-0028 `main` and execute normal v5/v4 lifecycle on U24.
+Create the just-in-time seed from the exact start main above and execute normal v5/v4 lifecycle on U24.
+
+## Execution reliability for this enabling task
+
+The Stage 26 reviews showed repeated verification invocation retries caused by shell-state/environment assumptions, especially venv/PATH selection and ad-hoc canonical command arguments.
+
+For Assignment 0029 itself:
+
+- do not rely on shell activation persisting across Remote Commander calls;
+- each independent command batch must explicitly enter the repo and prepend the project venv to PATH;
+- invoke canonical Just recipes exactly by recipe name/defaults unless this assignment explicitly requires a non-default argument;
+- do not use an indefinite interactive CI watcher.
+
+These rules are also requirements for the resulting v6 protocol.
 
 ## End boundary
 
