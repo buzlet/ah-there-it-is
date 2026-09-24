@@ -1,6 +1,6 @@
 # Future decision gates
 
-Status: planning map while autonomous batch 0019–0023 is running.  
+Status: planning map while autonomous batch 0019–0023 is running.
 This document identifies places where implementation should stop for an explicit product/architecture decision rather than allowing an agent to infer policy.
 
 ## Executive map
