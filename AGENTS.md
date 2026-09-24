@@ -403,3 +403,45 @@ Assignment 0012 proposed a read-only browser Activity timeline. External archite
 - Machine-readable mechanics, physical integrity/FK/schema and application doctor outcomes distinguish invalid, wrong-revision and semantically unhealthy candidates. Exit status is successful only when all three pass; temporary replacement, sidecar and safety files are removed on all paths.
 - Healthy, corrupt, wrong-revision, doctor-unhealthy, WAL candidate, active-byte-preservation, cleanup and installed-wheel CLI tests passed.
 - Focused and canonical verification passed: 317 tests, 42/42 deterministic scenarios, migration/corpus/scenario/provider checks. Review: `agent-tasks/reviews/0018-r1.md`.
+
+### Post-Stage-25 hardening — Assignment 0019 complete
+
+- Newly-created Item Events store versioned `_history_evidence` snapshots for relevant Location and Category paths at the mutation boundary, while retaining stable foreign keys and existing payload fields.
+- Tree rename/reparent leaves prior snapshots unchanged; legacy Events without snapshots remain readable. Bootstrap Events use the same service behavior, and portable-v1 preserves the snapshot payload exactly.
+- No schema migration or backfill was added. Focused and canonical verification passed: 319 tests, 42/42 scenarios with 98 persisted-state checks, and 23 provider-contract tests.
+- Review: `agent-tasks/reviews/0019-r1.md`.
+
+### Post-Stage-25 hardening — Assignment 0020 complete
+
+- Added read-only `/activity` and `/activity/{event_id}` pages with exact Event-type/Item-ID filters, deterministic newest-first paging, filter-preserving navigation, detail links, payload and original text.
+- `ActivityService` owns bounded Event queries and projections; each Activity page selects at most 100 Event rows and joins surviving Item names without hydrating an unbounded history.
+- Event-time Location/Category snapshot paths are rendered as historical evidence. Legacy Location paths are labeled current with historical path unavailable; null/deleted Item links are handled without replacement identity.
+- Item-detail history links to Activity detail and retains its existing bounded ordering and pagination.
+- Structural coverage includes 1000+ Events, tied timestamps, combined filters, unknown IDs, snapshot/legacy rendering, navigation, and installed-wheel Activity templates/route.
+- Focused Activity/target-scale checks and final canonical verification passed: 322 tests, migration-check, 42-case corpus/scenario checks, 42 completed scenarios with 98 persisted-state checks and zero failures, provider-contract (23 tests).
+- Review: `agent-tasks/reviews/0020-r1.md`.
+
+### Post-Stage-25 hardening — Assignment 0021 complete
+
+- Agent context now loads at most the newest 40 persisted messages using a descending SQL `LIMIT`, restores chronological order, and drops a leading assistant message when the retained boundary splits a turn. System and current user messages remain outside the cap.
+- Full conversation history and persisted messages are unchanged. Agent run logs preserve the exact initial system, bounded prior context, and current user messages sent to the LLM; failed turns remain excluded from later context.
+- Structural coverage seeds 1000 messages and verifies the bounded query, sent context, run log, and intact full history. No schema migration or summarization policy was added.
+- Focused and canonical verification passed: 324 tests, migration/corpus/scenario checks, 42 completed scenarios with 98 state checks and zero failures, and 23 provider-contract tests. Review: `agent-tasks/reviews/0021-r1.md`.
+
+### Post-Stage-25 hardening — Assignment 0022 complete
+
+- Installed `ah-there-it-is serve` keeps its `127.0.0.1` default and rejects non-loopback hosts unless each start explicitly supplies `--allow-nonlocal`. The guard recognizes IPv4 `127.0.0.0/8`, IPv6 `::1`, and case-insensitive `localhost`.
+- Explicit non-loopback opt-in emits an unauthenticated-exposure warning to stderr. The check runs before schema validation and Uvicorn; no environment bypass, schema changes, or `just serve` override were added.
+- Runtime and installed-wheel coverage exercises loopback classification, wildcard/LAN/public hosts, refusal ordering, warning and opt-in behavior. Focused and canonical verification passed: 339 tests, migration-check, 42-case corpus and scenarios, 42/42 scenario completion with 98 checks and zero failures, and 23 provider-contract tests.
+- Review: `agent-tasks/reviews/0022-r1.md`.
+
+### Post-Stage-25 hardening — Assignment 0023 complete
+
+- Added an offline retrieval evaluator and versioned semantic-label corpus with 86 cases: 28 English, 27 Russian, and 31 Ukrainian. The cases cover names, aliases, separators and apostrophes, mixed tokens, tags, attributes, duplicate names, and no-match queries.
+- Current SearchService passes all 86 gating cases. The JSON report records per-language totals and each case's result IDs, match types, scores, and failure reasons.
+- A separate non-gating candidate-starvation diagnostic uses 35 distractors. For `blue box`, the target is at FTS rank 36, beyond the bounded candidate pool of 20, and is absent from the top five.
+- Non-gating observations record an English typo, Russian transliteration, Ukrainian inflection, and a Ukrainian U+02BC apostrophe variant. The first three targets are not returned; the U+02BC target is surfaced through FTS on this fixture.
+- Added the `retrieval-eval` Just recipe and invoked it in the existing application CI job. No search policy, database schema, or dependency changes.
+- Focused and canonical verification passed: 39 focused SearchService/evaluation tests, 342 total tests, migration-check, corpus/scenario checks, 42/42 scenarios with 98/98 state checks, retrieval 86/86, and provider-contract (23 tests).
+- PR #47 passed its single `verify` check on implementation head `da110105b138f45e8e86b965235da74a1abfa7b5`; CI correction iterations: 0.
+- Review: `agent-tasks/reviews/0023-r1.md`.

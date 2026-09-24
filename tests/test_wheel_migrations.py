@@ -85,6 +85,12 @@ def test_wheel_contains_and_runs_packaged_migrations_and_runtime(
         item_detail_template = archive.read(
             "ah_there_it_is/web/templates/item_detail.html"
         ).decode("utf-8")
+        activity_template = archive.read(
+            "ah_there_it_is/web/templates/activity.html"
+        ).decode("utf-8")
+        activity_detail_template = archive.read(
+            "ah_there_it_is/web/templates/activity_detail.html"
+        ).decode("utf-8")
 
     assert migration_prefix + "env.py" in names
     assert migration_prefix + "script.py.mako" in names
@@ -93,6 +99,11 @@ def test_wheel_contains_and_runs_packaged_migrations_and_runtime(
     } <= names
     assert "ah_there_it_is/web/templates/item_new.html" in names
     assert "ah_there_it_is/web/templates/item_detail.html" in names
+    assert "ah_there_it_is/web/templates/activity.html" in names
+    assert "ah_there_it_is/web/templates/activity_detail.html" in names
+    assert "/activity" in activity_template
+    assert "event.from_path.label" in activity_detail_template
+    assert "Historical Category paths" in activity_detail_template
     assert "Next history page" in item_detail_template
     assert "ah_there_it_is/web/templates/tree_edit.html" in names
     assert "ah_there_it_is/web/templates/tree_detail.html" in names
@@ -328,6 +339,55 @@ print(json.dumps({"revision": CURRENT_SCHEMA_REVISION}))
     assert "python -m ah_there_it_is.storage_cli upgrade" in missing_result.stderr
     assert not missing.exists()
 
+    nonlocal_result = subprocess.run(
+        [
+            str(console_script),
+            "serve",
+            "--host",
+            "0.0.0.0",
+            "--port",
+            str(_free_local_port()),
+        ],
+        cwd=outside,
+        env=missing_env,
+        capture_output=True,
+        text=True,
+        timeout=10,
+    )
+    assert nonlocal_result.returncode == 2
+    assert (
+        "non-loopback serving requires --allow-nonlocal"
+        in nonlocal_result.stderr
+    )
+    assert "configured database does not exist" not in nonlocal_result.stderr
+    assert not missing.exists()
+
+    allowed_nonlocal_result = subprocess.run(
+        [
+            str(console_script),
+            "serve",
+            "--host",
+            "0.0.0.0",
+            "--port",
+            str(_free_local_port()),
+            "--allow-nonlocal",
+        ],
+        cwd=outside,
+        env=missing_env,
+        capture_output=True,
+        text=True,
+        timeout=10,
+    )
+    assert allowed_nonlocal_result.returncode == 2
+    assert (
+        "warning: application has no authentication"
+        in allowed_nonlocal_result.stderr
+    )
+    assert (
+        "configured database does not exist" in allowed_nonlocal_result.stderr
+    )
+    assert not missing.exists()
+
     outdated = outside / "outdated.db"
     shutil.copy2(fresh, outdated)
     connection = sqlite3.connect(outdated)
@@ -420,6 +480,12 @@ print(json.dumps({"revision": CURRENT_SCHEMA_REVISION}))
         assert items_status == 200
         assert "Search items" in items_body
         assert "No matching items." in items_body
+        activity_status, activity_body = _http_text(
+            f"http://127.0.0.1:{port}/activity"
+        )
+        assert activity_status == 200
+        assert "Activity" in activity_body
+        assert "Total: 0" in activity_body
         tree_asset_status, tree_asset_body = _http_text(f"http://127.0.0.1:{port}/static/tree.js")
         assert tree_asset_status == 200
         assert "data-tree-form" in tree_asset_body

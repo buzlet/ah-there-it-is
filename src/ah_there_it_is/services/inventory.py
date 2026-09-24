@@ -218,7 +218,14 @@ class InventoryService:
                 event_type="item_created",
                 item=item,
                 to_location=location,
-                payload={"name": item.name, "quantity": quantity},
+                payload={
+                    "name": item.name,
+                    "quantity": quantity,
+                    "_history_evidence": self._history_evidence(
+                        to_location_path=self._history_path(location, "location_id"),
+                        to_category_path=self._history_path(category, "category_id"),
+                    ),
+                },
                 original_text=original_text,
             )
         )
@@ -264,6 +271,14 @@ class InventoryService:
                 target_normalized_name, target_category_id, exclude_item_id=item.id
             )
 
+        category_evidence = (
+            self._history_evidence(
+                from_category_path=self._history_path(item.category, "category_id"),
+                to_category_path=self._history_path(target_category, "category_id"),
+            )
+            if target_category_id != item.category_id
+            else None
+        )
         changes: dict[str, Any] = {}
         if target_name != item.name:
             changes["name"] = {"from": item.name, "to": target_name}
@@ -306,7 +321,14 @@ class InventoryService:
                 Event(
                     event_type="item_updated",
                     item=item,
-                    payload=changes,
+                    payload={
+                        **changes,
+                        **(
+                            {"_history_evidence": category_evidence}
+                            if category_evidence is not None
+                            else {}
+                        ),
+                    },
                     original_text=original_text,
                 )
             )
@@ -326,6 +348,10 @@ class InventoryService:
             return item
 
         old_location = item.current_location
+        history_evidence = self._history_evidence(
+            from_location_path=self._history_path(old_location, "location_id"),
+            to_location_path=self._history_path(destination, "location_id"),
+        )
         item.current_location = destination
         self.session.add(
             Event(
@@ -333,12 +359,39 @@ class InventoryService:
                 item=item,
                 from_location=old_location,
                 to_location=destination,
-                payload={},
+                payload={"_history_evidence": history_evidence},
                 original_text=original_text,
             )
         )
         self._commit(item)
         return item
+
+    @staticmethod
+    def _history_path(
+        node: Category | Location | None, entity_id_key: str
+    ) -> list[dict[str, Any]] | None:
+        if node is None:
+            return None
+        components: list[dict[str, Any]] = []
+        seen: set[int] = set()
+        current = node
+        while current is not None:
+            if current.id in seen:
+                raise ValueError("tree hierarchy contains a cycle")
+            seen.add(current.id)
+            components.append({entity_id_key: current.id, "name": current.name})
+            current = current.parent
+        components.reverse()
+        return components
+
+    @staticmethod
+    def _history_evidence(
+        **paths: list[dict[str, Any]] | None,
+    ) -> dict[str, Any]:
+        return {
+            "version": 1,
+            **{name: path for name, path in paths.items() if path is not None},
+        }
 
     def get_item(self, item_id: int) -> Item:
         return self._get_required(Item, item_id, "item")

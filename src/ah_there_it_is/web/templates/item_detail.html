@@ -21,7 +21,23 @@
 <section class="card">
   <h2>History</h2>
   <p class="muted">Total: {{ item.history_page.total }} · Page {{ item.history_page.page }}{% if item.history_page.pages %} of {{ item.history_page.pages }}{% endif %}</p>
-  {% if item.history %}<ol class="history">{% for event in item.history %}<li><strong>{{ event.event_type }}</strong> · {{ event.created_at }}<br>{% if event.from_location or event.to_location %}<span class="muted">{{ event.from_location or "—" }} → {{ event.to_location or "—" }}</span><br>{% endif %}{% if event.original_text %}<q>{{ event.original_text }}</q>{% endif %}</li>{% endfor %}</ol>{% else %}<p class="muted">No history.</p>{% endif %}
+  {% if item.history %}
+  <ol class="history">
+    {% for event in item.history %}
+    <li>
+      <strong><a href="{{ event.event_url }}">{{ event.event_type }}</a></strong> · {{ event.created_at }}
+      {% if event.from_path or event.to_path %}
+      <br><span class="muted">
+        {% if event.from_path %}{{ event.from_path.label }}: {{ event.from_path.text or "path unavailable" }}{% else %}—{% endif %}
+        →
+        {% if event.to_path %}{{ event.to_path.label }}: {{ event.to_path.text or "path unavailable" }}{% else %}—{% endif %}
+      </span>
+      {% endif %}
+      {% if event.original_text %}<br><q>{{ event.original_text }}</q>{% endif %}
+    </li>
+    {% endfor %}
+  </ol>
+  {% else %}<p class="muted">No history.</p>{% endif %}
   {% if item.history_page.has_previous or item.history_page.has_next %}
   <nav aria-label="History pages">
     {% if item.history_page.has_previous %}<a href="/items/{{ item.id }}?page={{ item.history_page.previous_page }}&amp;page_size={{ item.history_page.page_size }}">Previous history page</a>{% endif %}

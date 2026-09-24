@@ -280,14 +280,31 @@ def test_successful_bootstrap_uses_domain_services_search_and_portable_export(
             assert [event.item_id for event in events] == [item.id for item in items]
             assert all(event.from_location_id is None for event in events)
             by_item = {item.id: item for item in items}
-            assert all(
-                event.to_location_id == by_item[event.item_id].current_location_id
-                and event.payload == {
-                    "name": by_item[event.item_id].name,
-                    "quantity": by_item[event.item_id].quantity,
+
+            def event_path(node, id_key):
+                components = []
+                while node is not None:
+                    components.append({id_key: node.id, "name": node.name})
+                    node = node.parent
+                return list(reversed(components))
+
+            for event in events:
+                item = by_item[event.item_id]
+                assert event.to_location_id == item.current_location_id
+                evidence = {"version": 1}
+                if item.current_location is not None:
+                    evidence["to_location_path"] = event_path(
+                        item.current_location, "location_id"
+                    )
+                if item.category is not None:
+                    evidence["to_category_path"] = event_path(
+                        item.category, "category_id"
+                    )
+                assert event.payload == {
+                    "name": item.name,
+                    "quantity": item.quantity,
+                    "_history_evidence": evidence,
                 }
-                for event in events
-            )
 
             operational_models = (
                 Conversation,
