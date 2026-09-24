@@ -488,3 +488,12 @@ Initial supported channels are Remote Commander on existing v6 hosts and SSH-sup
 - Focused tests passed: 13 canonical-verifier tests. Full canonical verification passed on implementation commit `e68b7a9d24cb146f437b34fca62b38af43080b21`: 397 tests, migration check, 58 corpus cases, 58 scenarios with 58/58 completed checks and none unchecked, retrieval 86/86, and 23 provider-contract tests. One existing Starlette deprecation warning was reported.
 - Scope is limited to agent tooling, its tests, and documentation. No Just recipe, CI workflow, third-party dependency, or inventory behavior changed.
 - Review: `agent-tasks/reviews/0032-r1.md`.
+
+### Agent execution reliability — Assignment 0033
+
+- Added a stdlib-only bounded GitHub CI waiter under `tools/agent/`. It observes checks for an exact PR head through read-only `gh api` calls, rechecks the PR head around each observation cycle, handles delayed check registration, and returns distinct machine-readable terminal states. It never reruns/cancels workflows, pushes, or merges.
+- Optional external state records credential-free JSONL snapshots and an atomic final summary. The default timeout is 30 minutes with bounded polling and registration grace.
+- Added fake-GitHub subprocess tests for delayed registration, queued/success transitions, success/neutral/skipped results, terminal failure categories, head changes, timeout, malformed responses, authentication failures, read-only calls, and durable state.
+- Focused checks passed: 24 new waiter tests and 12 lifecycle-checkpoint regression tests. Full canonical verification passed on implementation commit `190f4db21b3dbe67550aa6063203bafe7edb4530`: 421 tests, migration check, 58 corpus cases, 58/58 scenarios with no failures/unchecked cases, retrieval 86/86, and 23 provider-contract tests. One existing Starlette deprecation warning was reported.
+- Scope is limited to agent tooling, its tests, and execution tooling documentation. No workflow, dependency, or application/inventory behavior changed.
+- Review: `agent-tasks/reviews/0033-r1.md`.
