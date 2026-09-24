@@ -13,7 +13,7 @@ from sqlalchemy.orm import Session, selectinload
 from ah_there_it_is.db.models import Alias, Category, Event, Item, ItemTag, Location, Tag, utc_now
 from ah_there_it_is.domain.exceptions import DuplicateEntityError, EntityNotFoundError
 from ah_there_it_is.domain.names import normalize_name
-from ah_there_it_is.domain.states import ItemState
+from ah_there_it_is.domain.states import ItemState, LocationStatus
 
 
 _Row = TypeVar("_Row")
@@ -198,13 +198,24 @@ class InventoryService:
         if not allow_duplicate:
             self._ensure_item_name_available(normalized, category_id)
 
+        item_state = self._coerce_state(state)
+        terminal_states = {ItemState.DISCARDED.value, ItemState.SOLD.value}
+        if item_state in terminal_states and location is not None:
+            raise ValueError("terminal items cannot have a current location")
+        if item_state in terminal_states:
+            location_status = LocationStatus.NOT_APPLICABLE
+        elif location is not None:
+            location_status = LocationStatus.KNOWN
+        else:
+            location_status = LocationStatus.UNKNOWN
         item = Item(
             name=name.strip(),
             normalized_name=normalized,
             description=description,
-            state=self._coerce_state(state),
+            state=item_state,
             category=category,
             current_location=location,
+            location_status=location_status.value,
             quantity=quantity,
             attributes=dict(attributes or {}),
         )
@@ -261,6 +272,11 @@ class InventoryService:
             else self._get_optional(Category, category_id, "category")
         )
         target_state = self._coerce_state(state) if state is not None else item.state
+        terminal_states = {ItemState.DISCARDED.value, ItemState.SOLD.value}
+        if item.state in terminal_states and target_state != item.state:
+            raise ValueError("terminal state changes are not supported yet")
+        if target_state == ItemState.SOLD.value and target_state != item.state:
+            raise ValueError("sold transitions are not supported yet")
         if quantity is not None and quantity < 1:
             raise ValueError("quantity must be >= 1")
         if not allow_duplicate and (
@@ -290,6 +306,14 @@ class InventoryService:
         if target_state != item.state:
             changes["state"] = {"from": item.state, "to": target_state}
             item.state = target_state
+            if target_state in terminal_states:
+                if item.current_location_id is not None:
+                    changes["current_location_id"] = {
+                        "from": item.current_location_id,
+                        "to": None,
+                    }
+                    item.current_location = None
+                item.location_status = LocationStatus.NOT_APPLICABLE.value
         if target_category_id != item.category_id:
             changes["category_id"] = {
                 "from": item.category_id,
@@ -346,6 +370,8 @@ class InventoryService:
         destination = self._get_optional(Location, location_id, "location")
         if item.current_location_id == location_id:
             return item
+        if item.state in {ItemState.DISCARDED.value, ItemState.SOLD.value}:
+            raise ValueError("terminal items cannot be moved")
 
         old_location = item.current_location
         history_evidence = self._history_evidence(
@@ -353,6 +379,11 @@ class InventoryService:
             to_location_path=self._history_path(destination, "location_id"),
         )
         item.current_location = destination
+        item.location_status = (
+            LocationStatus.KNOWN.value
+            if destination is not None
+            else LocationStatus.IN_USE.value
+        )
         self.session.add(
             Event(
                 event_type="item_moved" if destination is not None else "item_taken",

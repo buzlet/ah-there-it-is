@@ -15,3 +15,11 @@ class ItemState(StrEnum):
     FOR_PARTS = "for_parts"
     FOR_SALE = "for_sale"
     DISCARDED = "discarded"
+    SOLD = "sold"
+
+
+class LocationStatus(StrEnum):
+    KNOWN = "known"
+    UNKNOWN = "unknown"
+    IN_USE = "in_use"
+    NOT_APPLICABLE = "not_applicable"

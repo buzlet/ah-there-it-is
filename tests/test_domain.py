@@ -7,7 +7,7 @@ from sqlalchemy.orm import Session
 from ah_there_it_is.db.models import Event
 from ah_there_it_is.domain.exceptions import DuplicateEntityError, EntityNotFoundError
 from ah_there_it_is.domain.names import normalize_name
-from ah_there_it_is.domain.states import ItemState
+from ah_there_it_is.domain.states import ItemState, LocationStatus
 from ah_there_it_is.services import InventoryService
 
 
@@ -323,3 +323,29 @@ def test_event_history_evidence_omits_null_paths_and_keeps_legacy_events(
         event for event in service.get_item_history(item.id) if event.id == legacy.id
     )
     assert legacy_event.payload == legacy_payload
+
+
+
+def test_location_truth_is_set_on_creation_and_existing_writes(session: Session) -> None:
+    service = InventoryService(session)
+    shelf = service.create_location("Shelf")
+    unknown = service.create_item("Unknown item")
+    known = service.create_item("Known item", location_id=shelf.id)
+    discarded = service.create_item(
+        "Discarded item", state=ItemState.DISCARDED
+    )
+    sold = service.create_item("Imported sold item", state=ItemState.SOLD)
+
+    assert unknown.location_status == LocationStatus.UNKNOWN.value
+    assert known.location_status == LocationStatus.KNOWN.value
+    assert discarded.location_status == LocationStatus.NOT_APPLICABLE.value
+    assert sold.location_status == LocationStatus.NOT_APPLICABLE.value
+
+    service.move_item(known.id, None)
+    assert known.location_status == LocationStatus.IN_USE.value
+    with pytest.raises(ValueError, match="terminal items cannot be moved"):
+        service.move_item(discarded.id, shelf.id)
+    with pytest.raises(ValueError, match="terminal state changes"):
+        service.update_item(discarded.id, state=ItemState.WORKING)
+    with pytest.raises(ValueError, match="sold transitions"):
+        service.update_item(unknown.id, state=ItemState.SOLD)
