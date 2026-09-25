@@ -37,6 +37,7 @@ class ChatRequestRecordResponse(BaseModel):
     request_key: str
     requested_conversation_id: int | None
     message: str
+    source_identity: str | None = None
     status: str
     agent_run_id: int | None
     error: str | None

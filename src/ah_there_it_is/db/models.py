@@ -347,6 +347,7 @@ class ChatRequestRecord(Base):
         Integer, nullable=True
     )
     message: Mapped[str] = mapped_column(Text, nullable=False)
+    source_identity: Mapped[str | None] = mapped_column(String(200), nullable=True)
     status: Mapped[str] = mapped_column(
         String(20), nullable=False, default="processing", index=True
     )

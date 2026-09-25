@@ -13,6 +13,7 @@ from .search import SearchService
 
 __all__ = [
     "CatalogService",
+    "ChatApplicationService",
     "ConversationService",
     "EvaluationService",
     "InventoryService",
@@ -21,3 +22,11 @@ __all__ = [
     "LocationSuggestionService",
     "SearchService",
 ]
+
+
+def __getattr__(name: str):
+    if name == "ChatApplicationService":
+        from .chat_application import ChatApplicationService
+
+        return ChatApplicationService
+    raise AttributeError(name)

@@ -40,7 +40,7 @@ def test_initial_migration_round_trip(tmp_path: Path) -> None:
         } <= tables
         inspector = inspect(engine)
         chat_columns = {column["name"] for column in inspector.get_columns("chat_requests")}
-        assert {"recovered_from_id", "recovery_note"} <= chat_columns
+        assert {"recovered_from_id", "recovery_note", "source_identity"} <= chat_columns
         chat_indexes = {index["name"] for index in inspector.get_indexes("chat_requests")}
         assert "ix_chat_requests_recovered_from_id" in chat_indexes
         chat_foreign_keys = inspector.get_foreign_keys("chat_requests")

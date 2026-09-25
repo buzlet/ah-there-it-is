@@ -13,12 +13,12 @@ from fastapi.templating import Jinja2Templates
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
-from ah_there_it_is.agent.runner import AgentRunner
 from ah_there_it_is.agent.errors import AgentTurnFailedError
 from ah_there_it_is.db.models import ItemMedia
 from ah_there_it_is.domain.exceptions import EntityNotFoundError, InventoryError
 from ah_there_it_is.services.activity import ActivityService
 from ah_there_it_is.services.catalog import CatalogService
+from ah_there_it_is.services.chat_application import ChatApplicationService
 from ah_there_it_is.services.chat_requests import (
     ChatRequestNotFoundError,
     ChatRequestService,
@@ -138,31 +138,18 @@ def build_router(templates: Jinja2Templates) -> APIRouter:
     ) -> ChatResponse:
         settings = request.app.state.settings
 
-        def execute_agent(commit_on_success: bool):
-            llm = request.app.state.llm_factory()
-            try:
-                return AgentRunner(
-                    session,
-                    llm,
-                    max_rounds=settings.agent_max_rounds,
-                    system_prompt=request.app.state.system_prompt,
-                    prompt_version=settings.prompt_version,
-                ).run(
-                    payload.message,
-                    conversation_id=payload.conversation_id,
-                    commit_on_success=commit_on_success,
-                )
-            finally:
-                close = getattr(llm, "close", None)
-                if callable(close):
-                    close()
-
         try:
-            execution = ChatRequestService(session).execute(
-                request_key=payload.request_key,
-                message=payload.message,
+            execution = ChatApplicationService(
+                session,
+                request.app.state.llm_factory,
+                max_rounds=settings.agent_max_rounds,
+                system_prompt=request.app.state.system_prompt,
+                prompt_version=settings.prompt_version,
+            ).execute_chat(
+                payload.message,
                 conversation_id=payload.conversation_id,
-                operation=execute_agent,
+                request_key=payload.request_key,
+                source_identity="web",
             )
         except IdempotencyInProgressError as exc:
             raise HTTPException(status_code=425, detail=str(exc)) from exc
@@ -203,6 +190,7 @@ def build_router(templates: Jinja2Templates) -> APIRouter:
             request_key=record.request_key,
             requested_conversation_id=record.requested_conversation_id,
             message=record.message,
+            source_identity=record.source_identity,
             status=record.status,
             agent_run_id=record.agent_run_id,
             error=record.error,
@@ -221,6 +209,7 @@ def build_router(templates: Jinja2Templates) -> APIRouter:
             request_key=record.request_key,
             requested_conversation_id=record.requested_conversation_id,
             message=record.message,
+            source_identity=record.source_identity,
             status=record.status,
             agent_run_id=record.agent_run_id,
             error=record.error,
@@ -304,31 +293,18 @@ def build_router(templates: Jinja2Templates) -> APIRouter:
             raise HTTPException(status_code=404, detail="chat request not found")
         settings = request.app.state.settings
 
-        def execute_agent(commit_on_success: bool):
-            llm = request.app.state.llm_factory()
-            try:
-                return AgentRunner(
-                    session,
-                    llm,
-                    max_rounds=settings.agent_max_rounds,
-                    system_prompt=request.app.state.system_prompt,
-                    prompt_version=settings.prompt_version,
-                ).run(
-                    source.message,
-                    conversation_id=source.requested_conversation_id,
-                    commit_on_success=commit_on_success,
-                )
-            finally:
-                close = getattr(llm, "close", None)
-                if callable(close):
-                    close()
-
         try:
-            execution = service.recover(
+            execution = ChatApplicationService(
+                session,
+                request.app.state.llm_factory,
+                max_rounds=settings.agent_max_rounds,
+                system_prompt=request.app.state.system_prompt,
+                prompt_version=settings.prompt_version,
+            ).recover_chat(
                 source_request_key=source_request_key,
                 new_request_key=payload.new_request_key,
                 recovery_note=payload.note,
-                operation=execute_agent,
+                source_identity="web",
             )
         except ChatRequestNotFoundError as exc:
             raise HTTPException(status_code=404, detail=str(exc)) from exc
