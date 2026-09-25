@@ -143,12 +143,30 @@ Product work through Stage 26 and assignments through 0060 are complete.
 
 Batch 0051–0060 closed bounded portable import/database validation and aligned lifecycle tooling with the integrated-batch v8 manifest/checkpoint model.
 
+### Correction / Undo
+
+Accepted correction/Undo semantics are defined in:
+
+`agent-tasks/designs/undo-correction-decision.md`
+
+Key rules:
+
+- normal corrections are compensating mutations/Events, not history rewrites;
+- one-level Undo is desirable only for the immediately preceding committed user mutation action;
+- no redo and no arbitrary older undo;
+- Undo is compensating and must fail closed if the expected post-state no longer matches;
+- split-created equivalent lots do not merge during Undo; the child may simply be moved/restored back and remain separate;
+- partial compensation is forbidden;
+- Undo does not introduce generic hard delete/purge.
+
 ## Next product step
 
-The quantity/physical-instance product-semantic gate is closed.
+All required product-semantic gates for core MVP are closed.
 
-Next: prepare and issue an implementation batch from:
+Next: prepare and issue implementation batches from the accepted design documents, beginning with:
 
 `agent-tasks/designs/quantity-physical-instance-decision.md`
 
-Do not reopen merge, Product/SKU, continuous-measurement, multi-user, multilingual, QR/barcode, built-in voice, backup-policy or trace-purge scope unless a new explicit product decision does so.
+and incorporating the narrow immediate-Undo contract where implementation ordering makes sense.
+
+Do not reopen merge, Product/SKU, continuous-measurement, multi-user, multilingual, QR/barcode, built-in voice, backup-policy, trace-purge or generic hard-delete scope unless a new explicit product decision does so.
