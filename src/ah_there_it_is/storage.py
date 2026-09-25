@@ -7,6 +7,7 @@ import json
 import os
 import sqlite3
 import tempfile
+from contextlib import contextmanager
 from dataclasses import asdict, dataclass
 from datetime import datetime, timezone
 from pathlib import Path
@@ -31,11 +32,18 @@ from ah_there_it_is.db.models import (
 from ah_there_it_is.db.session import create_db_engine, create_session_factory
 from ah_there_it_is.domain.names import normalize_name
 from ah_there_it_is.domain.states import ItemState, LocationStatus
+from ah_there_it_is.portable_stream import (
+    PortableInputError,
+    PortableInputWorkspace,
+    SpoolMarker,
+    read_portable_workspace,
+)
 
 
 PORTABLE_V1_VERSION = "inventory-portable-v1"
 PORTABLE_EXPORT_VERSION = "inventory-portable-v2"
 CURRENT_SCHEMA_REVISION = "a4b7c9d2e610"
+_VALIDATION_SAMPLE_LIMIT = 20
 
 
 class StorageError(RuntimeError):
@@ -203,6 +211,19 @@ class PortableExportResult:
 
 
 @dataclass(frozen=True)
+class PortableValidationSummary:
+    format: str
+    source_alembic_revision: str
+    categories: int
+    locations: int
+    items: int
+    events: int
+
+    def as_dict(self) -> dict[str, Any]:
+        return asdict(self)
+
+
+@dataclass(frozen=True)
 class _PortableTreeProjection:
     id: int
     parent_id: int | None
@@ -237,6 +258,15 @@ class _PortableEventProjection:
     payload: dict[str, Any]
     original_text: str | None
     created_at: datetime
+
+
+class _PortableStreamEnvelope(_PortableModel):
+    format: str
+    exported_at: str
+    source: PortableSource
+    inventory: dict[str, Any]
+    history: dict[str, Any]
+    excluded: list[str]
 
 
 def parse_portable_inventory(data: Any) -> PortableDocument:
@@ -345,6 +375,266 @@ def validate_portable_import_target(
             f"portable import destination already exists or has sidecars: {occupied[0]}"
         )
     return target
+
+
+def validate_portable_workspace(
+    workspace: PortableInputWorkspace,
+) -> PortableValidationSummary:
+    """Validate a bounded workspace without constructing a PortableDocument."""
+    envelope = _validate_portable_record(
+        _PortableStreamEnvelope,
+        workspace.structure,
+        "<document>",
+    )
+    if envelope.format not in (PORTABLE_V1_VERSION, PORTABLE_EXPORT_VERSION):
+        raise PortableInventoryValidationError(
+            f"unsupported portable format {envelope.format!r}; "
+            f"expected {PORTABLE_V1_VERSION!r} or {PORTABLE_EXPORT_VERSION!r}"
+        )
+    _require_spool_members(
+        envelope.inventory,
+        {"categories", "locations", "items"},
+        "inventory",
+    )
+    _require_spool_members(envelope.history, {"events"}, "history")
+    _portable_datetime(envelope.exported_at, "exported_at")
+    if not envelope.source.alembic_revision.strip():
+        raise PortableInventoryValidationError(
+            "source.alembic_revision must not be empty"
+        )
+    if len(envelope.excluded) != len(set(envelope.excluded)):
+        raise PortableInventoryValidationError("excluded contains duplicate entries")
+
+    category_ids, category_parents = _validate_stream_trees(
+        workspace, "categories", "category"
+    )
+    location_ids, location_parents = _validate_stream_trees(
+        workspace, "locations", "location"
+    )
+    _validate_stream_hierarchy(category_parents, "category")
+    _validate_stream_hierarchy(location_parents, "location")
+    item_ids = _validate_stream_items(
+        workspace,
+        is_v2=envelope.format == PORTABLE_EXPORT_VERSION,
+        category_ids=category_ids,
+        location_ids=location_ids,
+    )
+    _validate_stream_events(workspace, item_ids=item_ids, location_ids=location_ids)
+    return PortableValidationSummary(
+        format=envelope.format,
+        source_alembic_revision=envelope.source.alembic_revision,
+        categories=workspace.counts["categories"],
+        locations=workspace.counts["locations"],
+        items=workspace.counts["items"],
+        events=workspace.counts["events"],
+    )
+
+
+@contextmanager
+def _validated_portable_workspace(
+    source: str | Path,
+) -> Iterator[tuple[PortableInputWorkspace, PortableValidationSummary]]:
+    try:
+        with read_portable_workspace(source) as workspace:
+            yield workspace, validate_portable_workspace(workspace)
+    except PortableInputError as exc:
+        raise PortableInventoryValidationError(str(exc)) from exc
+
+
+def _validate_portable_record(model: type[_PortableModel], value: Any, path: str):
+    try:
+        return model.model_validate(value)
+    except ValidationError as exc:
+        details = []
+        for error in exc.errors():
+            suffix = ".".join(str(part) for part in error["loc"])
+            location = f"{path}.{suffix}" if suffix else path
+            details.append(f"{location}: {error['msg']}")
+        raise PortableInventoryValidationError(
+            "invalid portable document structure: " + "; ".join(details)
+        ) from exc
+
+
+def _require_spool_members(
+    section: dict[str, Any],
+    expected: set[str],
+    path: str,
+) -> None:
+    actual = set(section)
+    missing = sorted(expected - actual)
+    extra = sorted(actual - expected)
+    if missing:
+        raise PortableInventoryValidationError(
+            f"invalid portable document structure: {path} missing fields {missing!r}"
+        )
+    if extra:
+        raise PortableInventoryValidationError(
+            f"invalid portable document structure: {path} has extra fields {extra!r}"
+        )
+    for name in expected:
+        marker = section[name]
+        if not isinstance(marker, SpoolMarker) or marker.section != name:
+            raise PortableInventoryValidationError(
+                f"invalid portable document structure: {path}.{name} must be an array"
+            )
+
+
+def _validate_stream_trees(
+    workspace: PortableInputWorkspace,
+    section: str,
+    label: str,
+) -> tuple[set[int], dict[int, int | None]]:
+    ids: set[int] = set()
+    parents: dict[int, int | None] = {}
+    siblings: dict[tuple[int | None, str], int] = {}
+    for index, raw in enumerate(workspace.iter_records(section)):
+        node = _validate_portable_record(
+            PortableTreeNode, raw, f"inventory.{section}.{index}"
+        )
+        if node.id in ids:
+            raise PortableInventoryValidationError(f"duplicate {label} id={node.id}")
+        ids.add(node.id)
+        parents[node.id] = node.parent_id
+        normalized = _portable_name(node.name, f"{label} id={node.id} name")
+        _portable_created_updated(
+            node.created_at, node.updated_at, f"{label} id={node.id}"
+        )
+        if node.parent_id == node.id:
+            raise PortableInventoryValidationError(
+                f"{label} id={node.id} cannot be its own parent"
+            )
+        sibling = (node.parent_id, normalized)
+        previous = siblings.get(sibling)
+        if previous is not None:
+            raise PortableInventoryValidationError(
+                f"duplicate sibling {label} names under parent {node.parent_id}: "
+                f"ids {previous} and {node.id}"
+            )
+        siblings[sibling] = node.id
+    return ids, parents
+
+
+def _validate_stream_hierarchy(
+    parents: dict[int, int | None],
+    label: str,
+) -> None:
+    for node_id, parent_id in parents.items():
+        if parent_id is not None and parent_id not in parents:
+            raise PortableInventoryValidationError(
+                f"{label} id={node_id} references missing parent id={parent_id}"
+            )
+    done: set[int] = set()
+    for start_id in parents:
+        positions: dict[int, int] = {}
+        chain: list[int] = []
+        current_id: int | None = start_id
+        while current_id is not None and current_id not in done:
+            if current_id in positions:
+                cycle = chain[positions[current_id]:] + [current_id]
+                raise PortableInventoryValidationError(
+                    f"{label} hierarchy cycle: "
+                    + " -> ".join(str(value) for value in cycle)
+                )
+            positions[current_id] = len(chain)
+            chain.append(current_id)
+            current_id = parents[current_id]
+        done.update(chain)
+
+
+def _validate_stream_items(
+    workspace: PortableInputWorkspace,
+    *,
+    is_v2: bool,
+    category_ids: set[int],
+    location_ids: set[int],
+) -> set[int]:
+    model = PortableItemV2 if is_v2 else PortableItem
+    allowed_states = {state.value for state in ItemState}
+    if not is_v2:
+        allowed_states.discard(ItemState.SOLD.value)
+    terminal_states = {ItemState.DISCARDED.value, ItemState.SOLD.value}
+    allowed_location_statuses = {status.value for status in LocationStatus}
+    item_ids: set[int] = set()
+    known_tags: dict[str, str] = {}
+    for index, raw in enumerate(workspace.iter_records("items")):
+        path = f"inventory.items.{index}"
+        item = _validate_portable_record(model, raw, path)
+        if item.id in item_ids:
+            raise PortableInventoryValidationError(f"duplicate item id={item.id}")
+        item_ids.add(item.id)
+        _portable_name(item.name, f"{path}.name")
+        _portable_created_updated(item.created_at, item.updated_at, path)
+        if item.state not in allowed_states:
+            allowed = ", ".join(sorted(allowed_states))
+            raise PortableInventoryValidationError(
+                f"{path}.state has invalid value {item.state!r}; allowed: {allowed}"
+            )
+        location_status = (
+            item.location_status
+            if is_v2
+            else _legacy_location_status(item.state, item.location_id)
+        )
+        if location_status not in allowed_location_statuses:
+            raise PortableInventoryValidationError(
+                f"{path}.location_status has invalid value {location_status!r}"
+            )
+        if (
+            (location_status == LocationStatus.KNOWN.value)
+            != (item.location_id is not None)
+            or (item.state in terminal_states)
+            != (location_status == LocationStatus.NOT_APPLICABLE.value)
+        ):
+            raise PortableInventoryValidationError(
+                f"{path} has contradictory state, location_id, and location_status"
+            )
+        if item.category_id is not None and item.category_id not in category_ids:
+            raise PortableInventoryValidationError(
+                f"{path}.category_id references missing category id={item.category_id}"
+            )
+        if item.location_id is not None and item.location_id not in location_ids:
+            raise PortableInventoryValidationError(
+                f"{path}.location_id references missing location id={item.location_id}"
+            )
+        _validate_portable_names(item.aliases, f"{path}.aliases")
+        _validate_portable_names(item.tags, f"{path}.tags")
+        for tag in item.tags:
+            normalized = normalize_name(tag)
+            previous = known_tags.setdefault(normalized, tag)
+            if previous != tag:
+                raise PortableInventoryValidationError(
+                    f"tag {tag!r} conflicts with existing spelling {previous!r} "
+                    f"for normalized name {normalized!r}"
+                )
+    return item_ids
+
+
+def _validate_stream_events(
+    workspace: PortableInputWorkspace,
+    *,
+    item_ids: set[int],
+    location_ids: set[int],
+) -> None:
+    event_ids: set[int] = set()
+    for index, raw in enumerate(workspace.iter_records("events")):
+        path = f"history.events.{index}"
+        event = _validate_portable_record(PortableEvent, raw, path)
+        if event.id in event_ids:
+            raise PortableInventoryValidationError(f"duplicate event id={event.id}")
+        event_ids.add(event.id)
+        _portable_name(event.event_type, f"{path}.event_type")
+        _portable_datetime(event.created_at, f"{path}.created_at")
+        if event.item_id is not None and event.item_id not in item_ids:
+            raise PortableInventoryValidationError(
+                f"{path}.item_id references missing item id={event.item_id}"
+            )
+        for field_name, location_id in (
+            ("from_location_id", event.from_location_id),
+            ("to_location_id", event.to_location_id),
+        ):
+            if location_id is not None and location_id not in location_ids:
+                raise PortableInventoryValidationError(
+                    f"{path}.{field_name} references missing location id={location_id}"
+                )
 
 
 def _validate_portable_semantics(document: PortableDocument) -> None:
@@ -591,17 +881,16 @@ def validate_database(
         try:
             integrity = tuple(
                 str(row[0])
-                for row in connection.execute("PRAGMA integrity_check").fetchall()
+                for row in connection.execute(
+                    f"PRAGMA integrity_check({_VALIDATION_SAMPLE_LIMIT})"
+                )
             )
-            foreign_keys = tuple(
-                tuple(row)
-                for row in connection.execute("PRAGMA foreign_key_check").fetchall()
-            )
+            foreign_key_count, foreign_keys = _foreign_key_summary(connection)
             versions = [
                 str(row[0])
                 for row in connection.execute(
                     "SELECT version_num FROM alembic_version"
-                ).fetchall()
+                )
             ]
         except sqlite3.Error as exc:
             raise DatabaseValidationError(
@@ -613,8 +902,10 @@ def validate_database(
     problems: list[str] = []
     if integrity != ("ok",):
         problems.append(f"integrity_check={integrity!r}")
-    if foreign_keys:
-        problems.append(f"foreign_key_check={foreign_keys!r}")
+    if foreign_key_count:
+        problems.append(
+            f"foreign_key_check count={foreign_key_count} samples={foreign_keys!r}"
+        )
     if versions != [revision]:
         problems.append(
             f"alembic revision {versions!r} does not match expected {revision!r}"
@@ -630,6 +921,25 @@ def validate_database(
         integrity_check=integrity,
         foreign_key_violations=foreign_keys,
     )
+
+
+def _foreign_key_summary(
+    connection: sqlite3.Connection,
+) -> tuple[int, tuple[tuple[Any, ...], ...]]:
+    count = int(
+        connection.execute(
+            "SELECT count(*) FROM pragma_foreign_key_check"
+        ).fetchone()[0]
+    )
+    samples = tuple(
+        tuple(row)
+        for row in connection.execute(
+            "SELECT * FROM pragma_foreign_key_check "
+            "ORDER BY \"table\", rowid, parent, fkid LIMIT ?",
+            (_VALIDATION_SAMPLE_LIMIT,),
+        )
+    )
+    return count, samples
 
 
 def create_backup(
@@ -1036,60 +1346,62 @@ def import_portable_inventory(
     destination: str | Path,
 ) -> PortableImportResult:
     """Reconstruct portable inventory/history into a brand-new migrated database."""
-    document = load_portable_inventory(source)
     target = validate_portable_import_target(database_url, destination)
-    target.parent.mkdir(parents=True, exist_ok=True)
-
-    working = _temporary_sibling(target, "portable-work")
-    publish = _temporary_sibling(target, "portable-final")
-    try:
-        _migrate_new_database(working)
-        working_url = f"sqlite:///{working}"
-        engine = create_db_engine(working_url)
-        factory = create_session_factory(engine)
+    with _validated_portable_workspace(source) as (workspace, summary):
+        target.parent.mkdir(parents=True, exist_ok=True)
+        working = _temporary_sibling(target, "portable-work")
+        publish = _temporary_sibling(target, "portable-final")
         try:
-            with factory() as session:
-                try:
-                    _write_portable_inventory(session, document)
-                    session.flush()
-                    _validate_imported_search_state(session)
-                    session.commit()
-                except Exception:
-                    session.rollback()
-                    raise
-        finally:
-            engine.dispose()
+            _migrate_new_database(working)
+            working_url = f"sqlite:///{working}"
+            engine = create_db_engine(working_url)
+            factory = create_session_factory(engine)
+            try:
+                with factory() as session:
+                    try:
+                        _write_portable_workspace_inventory(
+                            session, workspace, summary
+                        )
+                        _write_portable_workspace_events(session, workspace)
+                        session.flush()
+                        _validate_imported_search_state(session)
+                        session.commit()
+                    except Exception:
+                        session.rollback()
+                        raise
+            finally:
+                engine.dispose()
 
-        validate_database(working)
-        _copy_sqlite_snapshot(working, publish)
-        staged = validate_database(publish)
-        # Re-check immediately before publication so a path created during the
-        # longer migration/import work is never silently overwritten.
-        validate_portable_import_target(database_url, target)
-        _publish_new_database(publish, target)
-        _fsync_path(target)
-        _fsync_directory(target.parent)
-        database = DatabaseValidation(
-            path=str(target),
-            size_bytes=target.stat().st_size,
-            sha256=_sha256(target),
-            alembic_revision=staged.alembic_revision,
-            integrity_check=staged.integrity_check,
-            foreign_key_violations=staged.foreign_key_violations,
-        )
-        return PortableImportResult(
-            imported_path=str(target),
-            format=document.format,
-            source_alembic_revision=document.source.alembic_revision,
-            categories=len(document.inventory.categories),
-            locations=len(document.inventory.locations),
-            items=len(document.inventory.items),
-            events=len(document.history.events),
-            database=database,
-        )
-    finally:
-        _unlink_sqlite_files(working)
-        _unlink_sqlite_files(publish)
+            validate_database(working)
+            _copy_sqlite_snapshot(working, publish)
+            staged = validate_database(publish)
+            # Re-check immediately before publication so a path created during the
+            # longer migration/import work is never silently overwritten.
+            validate_portable_import_target(database_url, target)
+            _publish_new_database(publish, target)
+            _fsync_path(target)
+            _fsync_directory(target.parent)
+            database = DatabaseValidation(
+                path=str(target),
+                size_bytes=target.stat().st_size,
+                sha256=_sha256(target),
+                alembic_revision=staged.alembic_revision,
+                integrity_check=staged.integrity_check,
+                foreign_key_violations=staged.foreign_key_violations,
+            )
+            return PortableImportResult(
+                imported_path=str(target),
+                format=summary.format,
+                source_alembic_revision=summary.source_alembic_revision,
+                categories=summary.categories,
+                locations=summary.locations,
+                items=summary.items,
+                events=summary.events,
+                database=database,
+            )
+        finally:
+            _unlink_sqlite_files(working)
+            _unlink_sqlite_files(publish)
 
 
 def _migrate_new_database(path: Path) -> None:
@@ -1214,6 +1526,239 @@ def _write_portable_inventory(
         for event in sorted(document.history.events, key=lambda event: event.id)
     ])
     session.flush()
+
+
+def _write_portable_workspace_inventory(
+    session: Session,
+    workspace: PortableInputWorkspace,
+    summary: PortableValidationSummary,
+    *,
+    batch_size: int = 250,
+    _observe_batch: Any = None,
+) -> None:
+    """Replay validated inventory spools with bounded Core batches."""
+    if batch_size < 1:
+        raise ValueError("batch_size must be positive")
+    _write_workspace_tree(
+        session, workspace, "categories", Category, batch_size, _observe_batch
+    )
+    _write_workspace_tree(
+        session, workspace, "locations", Location, batch_size, _observe_batch
+    )
+    item_model = PortableItemV2 if summary.format == PORTABLE_EXPORT_VERSION else PortableItem
+    _execute_batched(
+        session,
+        Item.__table__,
+        (
+            {
+                "id": item.id,
+                "name": item.name,
+                "normalized_name": normalize_name(item.name),
+                "description": item.description,
+                "state": item.state,
+                "category_id": item.category_id,
+                "current_location_id": item.location_id,
+                "location_status": (
+                    item.location_status
+                    if isinstance(item, PortableItemV2)
+                    else _legacy_location_status(item.state, item.location_id)
+                ),
+                "quantity": item.quantity,
+                "attributes": item.attributes,
+                "created_at": _portable_datetime(item.created_at, "item.created_at"),
+                "updated_at": _portable_datetime(item.updated_at, "item.updated_at"),
+            }
+            for item in _workspace_records(workspace, "items", item_model)
+        ),
+        batch_size,
+        "items",
+        _observe_batch,
+    )
+    _execute_batched(
+        session,
+        Alias.__table__,
+        (
+            {
+                "item_id": item.id,
+                "name": alias,
+                "normalized_name": normalize_name(alias),
+            }
+            for item in _workspace_records(workspace, "items", item_model)
+            for alias in item.aliases
+        ),
+        batch_size,
+        "aliases",
+        _observe_batch,
+    )
+    tag_ids, tag_names = _workspace_tag_index(workspace, item_model)
+    _execute_batched(
+        session,
+        Tag.__table__,
+        (
+            {
+                "id": tag_id,
+                "name": tag_names[normalized],
+                "normalized_name": normalized,
+            }
+            for normalized, tag_id in tag_ids.items()
+        ),
+        batch_size,
+        "tags",
+        _observe_batch,
+    )
+    _execute_batched(
+        session,
+        ItemTag.__table__,
+        (
+            {
+                "item_id": item.id,
+                "tag_id": tag_ids[normalize_name(tag)],
+            }
+            for item in _workspace_records(workspace, "items", item_model)
+            for tag in item.tags
+        ),
+        batch_size,
+        "item_tags",
+        _observe_batch,
+    )
+
+
+def _write_portable_workspace_events(
+    session: Session,
+    workspace: PortableInputWorkspace,
+    *,
+    batch_size: int = 250,
+    _observe_batch: Any = None,
+) -> None:
+    """Replay validated history without retaining the complete Event stream."""
+    if batch_size < 1:
+        raise ValueError("batch_size must be positive")
+    _execute_batched(
+        session,
+        Event.__table__,
+        (
+            {
+                "id": event.id,
+                "event_type": event.event_type,
+                "item_id": event.item_id,
+                "from_location_id": event.from_location_id,
+                "to_location_id": event.to_location_id,
+                "payload": event.payload,
+                "original_text": event.original_text,
+                "created_at": _portable_datetime(event.created_at, "event.created_at"),
+            }
+            for event in _workspace_records(workspace, "events", PortableEvent)
+        ),
+        batch_size,
+        "events",
+        _observe_batch,
+    )
+
+
+def _workspace_records(
+    workspace: PortableInputWorkspace,
+    section: str,
+    model: type[_PortableModel],
+) -> Iterator[Any]:
+    for index, raw in enumerate(workspace.iter_records(section)):
+        yield _validate_portable_record(model, raw, f"{section}.{index}")
+
+
+def _write_workspace_tree(
+    session: Session,
+    workspace: PortableInputWorkspace,
+    section: str,
+    table_model: type[Category] | type[Location],
+    batch_size: int,
+    observer: Any,
+) -> None:
+    parents: dict[int, int | None] = {}
+    for node in _workspace_records(workspace, section, PortableTreeNode):
+        parents[node.id] = node.parent_id
+    depths: dict[int, int] = {}
+
+    def depth(node_id: int) -> int:
+        trail: list[int] = []
+        current = node_id
+        while current not in depths:
+            trail.append(current)
+            parent = parents[current]
+            if parent is None:
+                value = 0
+                break
+            current = parent
+        else:
+            value = depths[current] + 1
+        for candidate in reversed(trail):
+            depths[candidate] = value
+            value += 1
+        return depths[node_id]
+
+    for node_id in parents:
+        depth(node_id)
+    for level in range(max(depths.values(), default=-1) + 1):
+        _execute_batched(
+            session,
+            table_model.__table__,
+            (
+                {
+                    "id": node.id,
+                    "parent_id": node.parent_id,
+                    "name": node.name,
+                    "normalized_name": normalize_name(node.name),
+                    "description": node.description,
+                    "created_at": _portable_datetime(node.created_at, f"{section}.created_at"),
+                    "updated_at": _portable_datetime(node.updated_at, f"{section}.updated_at"),
+                }
+                for node in _workspace_records(workspace, section, PortableTreeNode)
+                if depths[node.id] == level
+            ),
+            batch_size,
+            section,
+            observer,
+        )
+
+
+def _workspace_tag_index(
+    workspace: PortableInputWorkspace,
+    item_model: type[PortableItem] | type[PortableItemV2],
+) -> tuple[dict[str, int], dict[str, str]]:
+    order: dict[str, tuple[int, int]] = {}
+    names: dict[str, str] = {}
+    for item in _workspace_records(workspace, "items", item_model):
+        for position, tag in enumerate(item.tags):
+            normalized = normalize_name(tag)
+            names.setdefault(normalized, tag)
+            candidate = (item.id, position)
+            if normalized not in order or candidate < order[normalized]:
+                order[normalized] = candidate
+    normalized_order = sorted(order, key=lambda name: (*order[name], name))
+    return (
+        {name: tag_id for tag_id, name in enumerate(normalized_order, start=1)},
+        names,
+    )
+
+
+def _execute_batched(
+    session: Session,
+    table: Any,
+    rows: Iterable[dict[str, Any]],
+    batch_size: int,
+    section: str,
+    observer: Any,
+) -> None:
+    batch: list[dict[str, Any]] = []
+    for row in rows:
+        batch.append(row)
+        if len(batch) == batch_size:
+            session.execute(table.insert(), batch)
+            if observer is not None:
+                observer(section, len(batch))
+            batch.clear()
+    if batch:
+        session.execute(table.insert(), batch)
+        if observer is not None:
+            observer(section, len(batch))
 
 
 def _portable_tree_order(nodes: list[PortableTreeNode]) -> list[PortableTreeNode]:

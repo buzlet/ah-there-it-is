@@ -267,6 +267,55 @@ def test_invalid_restore_candidate_never_replaces_active_database(
         engine.dispose()
 
 
+def test_validation_reports_exact_bounded_foreign_key_diagnostics(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    import sqlite3
+    import ah_there_it_is.storage as storage
+
+    database = tmp_path / "many-foreign-keys.db"
+    _migrate(database)
+    with sqlite3.connect(database) as connection:
+        connection.execute("PRAGMA foreign_keys=OFF")
+        connection.executemany(
+            "INSERT INTO aliases(item_id,name,normalized_name) VALUES (?, ?, ?)",
+            (
+                (10000 + index, f"Missing item {index}", f"missing item {index}")
+                for index in range(2500)
+            ),
+        )
+
+    statements: list[str] = []
+    original_connect = storage.sqlite3.connect
+
+    def traced_connect(*args, **kwargs):
+        connection = original_connect(*args, **kwargs)
+        connection.set_trace_callback(statements.append)
+        return connection
+
+    monkeypatch.setattr(storage.sqlite3, "connect", traced_connect)
+    before = database.read_bytes()
+    with pytest.raises(DatabaseValidationError) as failure:
+        validate_database(database)
+
+    detail = str(failure.value)
+    assert "foreign_key_check count=2500" in detail
+    assert detail.count("'aliases'") == 20
+    assert any(
+        "SELECT count(*) FROM pragma_foreign_key_check" in statement
+        for statement in statements
+    )
+    assert any(
+        "FROM pragma_foreign_key_check" in statement
+        and "ORDER BY" in statement
+        and "LIMIT 20" in statement
+        for statement in statements
+    )
+    assert "PRAGMA foreign_key_check" not in statements
+    assert database.read_bytes() == before
+
+
 @pytest.mark.parametrize(
     "failure_stage",
     [
@@ -1364,7 +1413,10 @@ def test_portable_import_batches_target_scale_and_rolls_back_before_publication(
     ]
     assert len(insert_statements) < 40
     assert sum("INTO tags" in statement for statement in insert_statements) <= 1
-    assert sum("INTO item_tags" in statement for statement in insert_statements) <= 1
+    item_tag_inserts = sum(
+        "INTO item_tags" in statement for statement in insert_statements
+    )
+    assert 1 < item_tag_inserts <= 8
 
     monkeypatch.setattr(
         storage,
