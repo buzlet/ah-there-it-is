@@ -18,7 +18,7 @@ from sqlalchemy import (
 )
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, relationship
 
-from ah_there_it_is.domain.states import ItemState, LocationStatus
+from ah_there_it_is.domain.states import ItemState, LocationStatus, QuantityMode
 
 
 def utc_now() -> datetime:
@@ -86,6 +86,12 @@ class Location(Base):
 class Item(Base):
     __tablename__ = "items"
     __table_args__ = (
+        CheckConstraint(
+            "(quantity_mode IN ('exact', 'approximate') "
+            "AND quantity IS NOT NULL AND quantity >= 1) OR "
+            "(quantity_mode = 'unknown' AND quantity IS NULL)",
+            name="ck_items_quantity_truth",
+        ),
         Index("ix_items_normalized_name_category", "normalized_name", "category_id"),
     )
 
@@ -103,7 +109,14 @@ class Item(Base):
     location_status: Mapped[str] = mapped_column(
         String(32), nullable=False, server_default=LocationStatus.UNKNOWN.value
     )
-    quantity: Mapped[int] = mapped_column(Integer, default=1, nullable=False)
+    quantity_mode: Mapped[str] = mapped_column(
+        String(32),
+        default=QuantityMode.EXACT.value,
+        server_default=QuantityMode.EXACT.value,
+        nullable=False,
+    )
+    quantity: Mapped[int | None] = mapped_column(Integer, default=1, nullable=True)
+    removal_reason: Mapped[str | None] = mapped_column(Text, nullable=True)
     attributes: Mapped[dict[str, Any]] = mapped_column(JSON, default=dict, nullable=False)
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), default=utc_now, nullable=False

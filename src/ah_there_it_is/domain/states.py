@@ -14,8 +14,15 @@ class ItemState(StrEnum):
     NEEDS_TEST = "needs_test"
     FOR_PARTS = "for_parts"
     FOR_SALE = "for_sale"
+    REMOVED = "removed"
     DISCARDED = "discarded"
     SOLD = "sold"
+
+
+class QuantityMode(StrEnum):
+    EXACT = "exact"
+    APPROXIMATE = "approximate"
+    UNKNOWN = "unknown"
 
 
 class LocationStatus(StrEnum):

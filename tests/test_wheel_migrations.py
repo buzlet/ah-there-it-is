@@ -21,6 +21,33 @@ import zipfile
 from ah_there_it_is.storage import CURRENT_SCHEMA_REVISION
 
 
+def test_quantity_removed_migration_is_packaged_in_wheel(tmp_path: Path) -> None:
+    repo = Path(__file__).resolve().parents[1]
+    wheelhouse = tmp_path / "wheelhouse"
+    wheelhouse.mkdir()
+    subprocess.run(
+        [
+            sys.executable,
+            "-m",
+            "pip",
+            "wheel",
+            "--no-deps",
+            "--wheel-dir",
+            str(wheelhouse),
+            str(repo),
+        ],
+        check=True,
+        capture_output=True,
+        text=True,
+    )
+    wheel = next(wheelhouse.glob("ah_there_it_is-*.whl"))
+    with zipfile.ZipFile(wheel) as archive:
+        assert (
+            "ah_there_it_is/db/migrations/versions/"
+            "6f2b1c9d4e80_add_quantity_removed_truth.py"
+        ) in archive.namelist()
+
+
 def _free_local_port() -> int:
     with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as sock:
         sock.bind(("127.0.0.1", 0))

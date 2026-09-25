@@ -323,3 +323,133 @@ def test_receipt_migration_defaults_existing_runs_to_empty(tmp_path: Path) -> No
     finally:
         engine.dispose()
     check_database_schema(url)
+
+
+def test_quantity_removed_migration_backfills_and_enforces_truth(tmp_path: Path) -> None:
+    import sqlite3
+
+    import pytest
+
+    database = tmp_path / "quantity-removed.db"
+    url = f"sqlite:///{database}"
+    upgrade_database(url, "a4b7c9d2e610")
+    with sqlite3.connect(database) as connection:
+        statement = """
+            INSERT INTO items (
+                id, name, normalized_name, description, state, category_id,
+                current_location_id, location_status, quantity, attributes,
+                created_at, updated_at
+            ) VALUES (?, ?, ?, NULL, ?, NULL, NULL, ?, ?, '{}', '2026-09-25', '2026-09-25')
+        """
+        connection.execute(statement, (1, "Active", "active", "used", "unknown", 3))
+        connection.execute(
+            statement, (2, "Sold", "sold", "sold", "not_applicable", 4)
+        )
+        connection.execute(
+            statement, (3, "Discarded", "discarded", "discarded", "not_applicable", 5)
+        )
+        connection.execute(
+            """
+            INSERT INTO events (
+                id, event_type, item_id, payload, created_at
+            ) VALUES (1, 'item_sold', 2, '{}', '2026-09-25'),
+                     (2, 'item_discarded', 3, '{}', '2026-09-25')
+            """
+        )
+
+    upgrade_database(url)
+    with sqlite3.connect(database) as connection:
+        assert connection.execute(
+            """
+            SELECT id, state, quantity_mode, quantity, removal_reason, location_status
+            FROM items ORDER BY id
+            """
+        ).fetchall() == [
+            (1, "used", "exact", 3, None, "unknown"),
+            (2, "removed", "exact", 4, "sold", "not_applicable"),
+            (3, "removed", "exact", 5, "discarded", "not_applicable"),
+        ]
+        assert connection.execute(
+            "SELECT event_type FROM events ORDER BY id"
+        ).fetchall() == [("item_sold",), ("item_discarded",)]
+
+        columns = {row[1]: row for row in connection.execute("PRAGMA table_info(items)")}
+        assert columns["quantity"][3] == 0
+        invalid = [
+            (10, "exact", None),
+            (11, "approximate", 0),
+            (12, "unknown", 1),
+            (13, "other", 1),
+        ]
+        for item_id, mode, quantity in invalid:
+            with pytest.raises(sqlite3.IntegrityError, match="CHECK constraint failed"):
+                connection.execute(
+                    """
+                    INSERT INTO items (
+                        id, name, normalized_name, state, location_status,
+                        quantity_mode, quantity, attributes, created_at, updated_at
+                    ) VALUES (?, 'Invalid', ?, 'used', 'unknown', ?, ?, '{}',
+                              '2026-09-25', '2026-09-25')
+                    """,
+                    (item_id, f"invalid-{item_id}", mode, quantity),
+                )
+            connection.rollback()
+
+        connection.execute(
+            """
+            INSERT INTO items (
+                id, name, normalized_name, state, location_status,
+                quantity_mode, quantity, attributes, created_at, updated_at
+            ) VALUES (14, 'Unknown', 'unknown-quantity', 'used', 'unknown',
+                      'unknown', NULL, '{}', '2026-09-25', '2026-09-25')
+            """
+        )
+        connection.commit()
+        with pytest.raises(sqlite3.IntegrityError, match="location truth invariant"):
+            connection.execute(
+                """
+                INSERT INTO items (
+                    id, name, normalized_name, state, location_status,
+                    quantity_mode, quantity, attributes, created_at, updated_at
+                ) VALUES (15, 'Legacy sold', 'legacy-sold', 'sold', 'unknown',
+                          'exact', 1, '{}', '2026-09-25', '2026-09-25')
+                """
+            )
+        connection.rollback()
+
+
+def test_quantity_removed_migration_roundtrip_and_guarded_downgrade(tmp_path: Path) -> None:
+    import sqlite3
+
+    import pytest
+
+    database = tmp_path / "quantity-roundtrip.db"
+    url = f"sqlite:///{database}"
+    upgrade_database(url, "a4b7c9d2e610")
+    with sqlite3.connect(database) as connection:
+        connection.execute(
+            """
+            INSERT INTO items (
+                id, name, normalized_name, state, location_status,
+                quantity, attributes, created_at, updated_at
+            ) VALUES (1, 'Sold', 'sold', 'sold', 'not_applicable', 2, '{}',
+                      '2026-09-25', '2026-09-25')
+            """
+        )
+    upgrade_database(url)
+    downgrade_database(url, "a4b7c9d2e610")
+    with sqlite3.connect(database) as connection:
+        assert connection.execute(
+            "SELECT state, quantity FROM items WHERE id = 1"
+        ).fetchone() == ("sold", 2)
+        columns = {row[1] for row in connection.execute("PRAGMA table_info(items)")}
+        assert "quantity_mode" not in columns
+        assert "removal_reason" not in columns
+
+    upgrade_database(url)
+    with sqlite3.connect(database) as connection:
+        connection.execute(
+            "UPDATE items SET quantity_mode = 'unknown', quantity = NULL WHERE id = 1"
+        )
+    with pytest.raises(RuntimeError, match="not representable"):
+        downgrade_database(url, "a4b7c9d2e610")

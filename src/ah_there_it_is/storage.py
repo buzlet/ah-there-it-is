@@ -42,7 +42,7 @@ from ah_there_it_is.portable_stream import (
 
 PORTABLE_V1_VERSION = "inventory-portable-v1"
 PORTABLE_EXPORT_VERSION = "inventory-portable-v2"
-CURRENT_SCHEMA_REVISION = "a4b7c9d2e610"
+CURRENT_SCHEMA_REVISION = "6f2b1c9d4e80"
 _VALIDATION_SAMPLE_LIMIT = 20
 
 
