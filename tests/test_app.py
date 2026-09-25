@@ -45,6 +45,28 @@ def test_health() -> None:
         engine.dispose()
 
 
+def test_oversized_inventory_numbers_rejected_before_sqlite() -> None:
+    app, factory, engine = build_test_app()
+    try:
+        with factory() as session:
+            item_id = InventoryService(session).create_item("Camera").id
+        with TestClient(app, raise_server_exceptions=False) as client:
+            quantity = client.post("/api/items", json={
+                "name": "Overflow", "quantity": 2**63,
+            })
+            position = client.post(f"/api/items/{item_id}/media", json={
+                "provider": "test", "media_reference": "photo", "position": 2**63,
+            })
+            path_id = client.get(f"/items/{2**63}")
+            page = client.get("/items", params={"page": 2**63})
+        assert quantity.status_code == 422
+        assert position.status_code == 422
+        assert path_id.status_code == 422
+        assert page.status_code == 422
+    finally:
+        engine.dispose()
+
+
 def test_index_renders_usable_chat_shell() -> None:
     app, _, engine = build_test_app()
     try:

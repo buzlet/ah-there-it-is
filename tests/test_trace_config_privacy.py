@@ -4,6 +4,9 @@
 from __future__ import annotations
 
 import json
+import traceback
+from io import BytesIO
+from urllib.error import HTTPError
 
 from fastapi.testclient import TestClient
 import httpx
@@ -12,7 +15,7 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from ah_there_it_is.agent import AgentRunner, LLMResponse, ScriptedLLMClient
-from ah_there_it_is.agent.errors import ProviderRequestError
+from ah_there_it_is.agent.errors import ProviderProtocolError, ProviderRequestError
 from ah_there_it_is.agent.gemini import GeminiConfig, GeminiLLMClient
 from ah_there_it_is.agent.openai_compatible import (
     OpenAICompatibleConfig, OpenAICompatibleLLMClient,
@@ -192,3 +195,78 @@ def test_provider_error_redacts_config_secrets_before_durable_failure_evidence(
     )
     assert not any(secret in evidence for secret in secrets)
     assert "[redacted]" in evidence
+
+
+def test_provider_trace_url_does_not_persist_configured_key_in_path() -> None:
+    secret = "TEST_PATH_API_SECRET_0087"
+    url = f"https://provider.example/v1/{secret}"
+    openai = OpenAICompatibleLLMClient(OpenAICompatibleConfig(
+        base_url=url, model="test", api_key=secret,
+    ))
+    gemini = GeminiLLMClient(GeminiConfig(
+        base_url=url, model="test", api_key=secret,
+    ))
+    assert secret not in json.dumps(openai.info.model_dump())
+    assert secret not in json.dumps(gemini.info.model_dump())
+
+
+def test_provider_request_error_traceback_does_not_expose_key() -> None:
+    secret = "TEST_TRACEBACK_API_SECRET_0087"
+
+    def fail(_request: httpx.Request) -> httpx.Response:
+        raise httpx.ConnectError(f"connection failed: {secret}")
+
+    with httpx.Client(transport=httpx.MockTransport(fail)) as transport:
+        adapter = OpenAICompatibleLLMClient(OpenAICompatibleConfig(
+            base_url="https://provider.example/v1", model="test",
+            api_key=secret, max_retries=0,
+        ), client=transport)
+        from ah_there_it_is.agent.protocol import AgentMessage
+        with pytest.raises(ProviderRequestError) as error:
+            adapter.complete([AgentMessage(role="user", content="Hello")], [])
+    assert secret not in "".join(traceback.format_exception(error.value))
+
+
+def test_gemini_http_error_traceback_does_not_expose_key(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    secret = "TEST_GEMINI_TRACEBACK_SECRET_0087"
+
+    def fail(*_args, **_kwargs):
+        raise HTTPError(
+            f"https://provider.example/{secret}", 400, secret, {},
+            BytesIO(f"denied {secret}".encode()),
+        )
+
+    monkeypatch.setattr("ah_there_it_is.agent.gemini.urlopen", fail)
+    adapter = GeminiLLMClient(GeminiConfig(
+        model="test", api_key=secret, max_retries=0,
+    ))
+    from ah_there_it_is.agent.protocol import AgentMessage
+    with pytest.raises(ProviderRequestError) as error:
+        adapter.complete([AgentMessage(role="user", content="Hello")], [])
+    assert secret not in "".join(traceback.format_exception(error.value))
+
+
+def test_malformed_provider_response_cannot_persist_echoed_key(session: Session) -> None:
+    secret = "TEST_MALFORMED_RESPONSE_SECRET_0087"
+
+    def respond(_request: httpx.Request) -> httpx.Response:
+        return httpx.Response(200, json={
+            "choices": [{"message": {"content": [secret]}}],
+        })
+
+    with httpx.Client(transport=httpx.MockTransport(respond)) as transport:
+        service = ChatApplicationService(session, lambda: OpenAICompatibleLLMClient(
+            OpenAICompatibleConfig(
+                base_url="https://provider.example/v1", model="test",
+                api_key=secret, max_retries=0,
+            ), client=transport,
+        ))
+        with pytest.raises(Exception) as error:
+            service.execute_chat("Hello", request_key="malformed-0087")
+    run = session.scalar(select(AgentRunLog).order_by(AgentRunLog.id.desc()).limit(1))
+    record = ChatRequestService(session).get("malformed-0087")
+    assert run is not None and record is not None
+    assert secret not in json.dumps({"run": run.error, "request": record.error})
+    assert isinstance(error.value, ProviderProtocolError)

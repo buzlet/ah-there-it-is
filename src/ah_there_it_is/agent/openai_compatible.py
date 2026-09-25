@@ -9,6 +9,7 @@ from dataclasses import dataclass
 from typing import Any
 
 import httpx
+from pydantic import ValidationError
 
 from ah_there_it_is.agent.errors import ProviderProtocolError, ProviderRequestError
 from ah_there_it_is.agent.metadata import (
@@ -74,7 +75,7 @@ class OpenAICompatibleLLMClient:
     @property
     def info(self) -> LLMClientInfo:
         logged_config: dict[str, Any] = {
-            "base_url": safe_trace_base_url(self.config.base_url),
+            "base_url": self._safe_error_detail(safe_trace_base_url(self.config.base_url)),
             "timeout_seconds": self.config.timeout_seconds,
             "max_retries": self.config.max_retries,
             "retry_backoff_seconds": self.config.retry_backoff_seconds,
@@ -141,8 +142,10 @@ class OpenAICompatibleLLMClient:
             data = json.loads(raw)
             choice = data["choices"][0]
             message = choice["message"]
-        except (json.JSONDecodeError, KeyError, IndexError, TypeError) as exc:
-            raise ProviderProtocolError("invalid chat-completions response") from exc
+            if not isinstance(message, dict):
+                raise TypeError("message must be an object")
+        except (json.JSONDecodeError, KeyError, IndexError, TypeError):
+            raise ProviderProtocolError("invalid chat-completions response") from None
 
         tool_calls: list[ToolCall] = []
         for raw_call in message.get("tool_calls") or []:
@@ -159,8 +162,8 @@ class OpenAICompatibleLLMClient:
                         arguments=arguments,
                     )
                 )
-            except (KeyError, TypeError, json.JSONDecodeError) as exc:
-                raise ProviderProtocolError("invalid provider tool call") from exc
+            except (KeyError, TypeError, json.JSONDecodeError, ValidationError):
+                raise ProviderProtocolError("invalid provider tool call") from None
 
         metadata: dict[str, Any] = {
             "response_id": data.get("id"),
@@ -177,11 +180,14 @@ class OpenAICompatibleLLMClient:
                     max(0.0, transport["client_wall_seconds"] - float(provider_seconds)),
                     6,
                 )
-        return LLMResponse(
-            content=message.get("content") or "",
-            tool_calls=tuple(tool_calls),
-            metadata=metadata,
-        )
+        try:
+            return LLMResponse(
+                content=message.get("content") or "",
+                tool_calls=tuple(tool_calls),
+                metadata=metadata,
+            )
+        except ValidationError:
+            raise ProviderProtocolError("invalid chat-completions response") from None
 
     def _post_with_retry(self, body: dict[str, Any]) -> tuple[str, dict[str, Any]]:
         transient_statuses = {429, 500, 502, 503, 504}
@@ -199,7 +205,7 @@ class OpenAICompatibleLLMClient:
                 )
             except httpx.TimeoutException as exc:
                 if attempt >= self.config.max_retries:
-                    raise ProviderRequestError("provider request timed out") from exc
+                    raise ProviderRequestError("provider request timed out") from None
                 delay = self._retry_sleep(attempt)
                 retry_events.append(
                     {"kind": "timeout", "delay_seconds": round(delay, 6)}
@@ -209,7 +215,7 @@ class OpenAICompatibleLLMClient:
                 if attempt >= self.config.max_retries:
                     raise ProviderRequestError(
                         f"provider request failed: {self._safe_error_detail(exc)}"
-                    ) from exc
+                    ) from None
                 delay = self._retry_sleep(attempt)
                 retry_events.append(
                     {
