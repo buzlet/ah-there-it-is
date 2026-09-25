@@ -31,7 +31,10 @@ def test_limit_one_hides_duplicate_identity_but_never_authorizes_write(session: 
     assert first.id in dispatcher.state.seen["item"]
     assert first.id not in dispatcher.state.resolved["item"]
     before = _events(session)
-    rejected = dispatcher.execute("update_item", {"item_id": first.id, "quantity": 2})
+    rejected = dispatcher.execute("change_item_quantity", {
+        "item_id": first.id, "quantity_mode": "exact", "quantity": 2,
+        "reason": "recount", "reason_source": "explicit",
+    })
     assert rejected["error"]["type"] == "ToolPreconditionError"
     assert inventory.get_item(first.id).quantity == 1
     assert _events(session) == before

@@ -377,26 +377,31 @@ class InventoryService:
         if before == after:
             return item
 
-        item.quantity_mode = after.mode.value
-        item.quantity = after.value
-        item.updated_at = utc_now()
-        self.session.add(
-            Event(
-                event_type="item_quantity_changed",
-                item=item,
-                payload={
-                    "quantity": {
-                        "before": before.as_dict(),
-                        "after": after.as_dict(),
+        try:
+            item.quantity_mode = after.mode.value
+            item.quantity = after.value
+            item.updated_at = utc_now()
+            self.session.add(
+                Event(
+                    event_type="item_quantity_changed",
+                    item=item,
+                    payload={
+                        "quantity": {
+                            "before": before.as_dict(),
+                            "after": after.as_dict(),
+                        },
+                        "reason": compact_reason,
+                        "reason_source": source.value,
                     },
-                    "reason": compact_reason,
-                    "reason_source": source.value,
-                },
-                original_text=original_text,
+                    original_text=original_text,
+                )
             )
-        )
-        self._commit(item)
-        return item
+            self._commit(item)
+            return item
+        except Exception:
+            if self.autocommit:
+                self.session.rollback()
+            raise
 
     def move_item(
         self,

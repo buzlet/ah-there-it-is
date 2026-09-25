@@ -197,7 +197,7 @@ def test_concurrent_same_key_cannot_execute_two_mutations(database_factory) -> N
         assert counts(durable) == (1, 1, 2, 1)
 
 
-def test_second_writer_is_blocked_after_model_turn_first_flushed_write(database_factory) -> None:
+def test_quantity_second_writer_is_blocked_after_model_turn_first_flushed_write(database_factory) -> None:
     path, factory = database_factory
     with factory() as setup:
         item = InventoryService(setup).create_item("Meter")
@@ -214,7 +214,11 @@ def test_second_writer_is_blocked_after_model_turn_first_flushed_write(database_
 
     llm = PausingLLM([
         LLMResponse(tool_calls=(call("1", "search_items", query="Meter"),)),
-        LLMResponse(tool_calls=(call("2", "update_item", item_id=item.id, quantity=2),)),
+        LLMResponse(tool_calls=(call(
+            "2", "change_item_quantity", item_id=item.id,
+            quantity_mode="exact", quantity=2,
+            reason="recount", reason_source="explicit",
+        ),)),
         LLMResponse(content="Done."),
     ])
     def keyed_turn() -> None:
