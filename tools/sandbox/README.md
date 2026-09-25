@@ -18,7 +18,7 @@ Not included:
 
 - Python 3.12 wheelhouse;
 - project documentation/process archives;
-- GitHub workflow sources except what the package tests need (currently none);
+- GitHub workflow sources;
 - AGENTS/HANDOFF;
 - existing build/pytest caches;
 - a prebuilt virtualenv;
@@ -30,5 +30,7 @@ because process-tool tests intentionally verify Git-worktree boundaries.
 Python 3.12 remains the project's authoritative CI target. This bundle is only an
 additional Python 3.13 sandbox verification surface.
 
-Artifact retention is one day and only the final bundle is uploaded; wheelhouse
-intermediates are not uploaded separately.
+Only the final bundle is uploaded. Its retention is one day. After a successful
+upload, the workflow deletes older artifacts created by this sandbox-bundle
+workflow naming scheme, including obsolete py312/py313 intermediate wheelhouses.
+It does not touch unrelated project artifacts.

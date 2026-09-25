@@ -2,6 +2,7 @@ name: sandbox-offline-bundle
 
 permissions:
   contents: read
+  actions: write
 
 'on':
   push:
@@ -99,10 +100,35 @@ jobs:
           du -sh sandbox-bundle/source sandbox-bundle/wheelhouse sandbox-bundle/bin
           find sandbox-bundle/wheelhouse -maxdepth 1 -type f -printf '%s %f\n'             | sort -nr
 
-      - uses: actions/upload-artifact@v4
+      - id: upload
+        uses: actions/upload-artifact@v4
         with:
           name: ah-there-it-is-sandbox-bundle
           path: sandbox-bundle/
           if-no-files-found: error
           retention-days: 1
           compression-level: 6
+
+      - name: Delete older sandbox artifacts
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          CURRENT_ARTIFACT_ID: ${{ steps.upload.outputs.artifact-id }}
+        run: |
+          set -euo pipefail
+          mapfile -t artifact_ids < <(
+            gh api --paginate               "repos/${GITHUB_REPOSITORY}/actions/artifacts?per_page=100"               --jq '.artifacts[]
+                | select(
+                    .name == "ah-there-it-is-sandbox-bundle"
+                    or .name == "wheelhouse-py3.12"
+                    or .name == "wheelhouse-py3.13"
+                  )
+                | .id'
+          )
+
+          for artifact_id in "${artifact_ids[@]}"; do
+            if [[ "$artifact_id" == "$CURRENT_ARTIFACT_ID" ]]; then
+              continue
+            fi
+            gh api               --method DELETE               "repos/${GITHUB_REPOSITORY}/actions/artifacts/$artifact_id"
+          done
