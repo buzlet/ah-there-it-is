@@ -87,6 +87,107 @@ def _batch_repo(tmp_path: Path) -> dict[str, str | Path]:
     }
 
 
+def _integrated_manifest(base: str, *, destinations: list[str] | None = None) -> str:
+    task_ids = [f"{number:04d}" for number in range(51, 61)]
+    specs = [f"agent-tasks/batches/integrated/{task_id}-task.md" for task_id in task_ids]
+    assignments = destinations or [
+        f"agent-tasks/assignments/{task_id}-task.md" for task_id in task_ids
+    ]
+    ordered = "\n".join(
+        f"{position}. {task_id} — task {task_id}"
+        for position, task_id in enumerate(task_ids, start=1)
+    )
+    spec_lines = "\n".join(f"- `{path}`" for path in specs)
+    assignment_lines = "\n".join(f"- `{path}`" for path in assignments)
+    return f"""# Integrated batch
+
+Batch ID: `integrated-test`
+
+Expected start main:
+
+`{base}`
+
+Implementation branch:
+
+`{TASK_BRANCH}`
+
+Execution user:
+
+`runner`
+
+Required work directory:
+
+`/canonical/checkout`
+
+Batch review destination:
+
+`agent-tasks/reviews/integrated-r1.md`
+
+Full local regression:
+
+`full_local_required: true`
+
+## Ordered tasks
+
+{ordered}
+
+Exact task specs:
+{spec_lines}
+
+Seed destinations:
+{assignment_lines}
+"""
+
+
+def _integrated_batch_repo(tmp_path: Path) -> dict[str, str | Path]:
+    repo = tmp_path / "integrated-repo"
+    repo.mkdir()
+    _git(repo, "init", "--initial-branch=main")
+    _configure(repo)
+    (repo / "README.md").write_text("base\n", encoding="utf-8")
+    base = _commit(repo, "base")
+    _git(repo, "remote", "add", "origin", REMOTE_URL)
+    _git(repo, "update-ref", "refs/remotes/origin/main", base)
+    _git(repo, "checkout", "-b", CONTROL_BRANCH)
+    manifest_path = "agent-tasks/batches/integrated/manifest.md"
+    manifest = _integrated_manifest(base)
+    (repo / manifest_path).parent.mkdir(parents=True)
+    (repo / manifest_path).write_text(manifest, encoding="utf-8")
+    for task_id in (f"{number:04d}" for number in range(51, 61)):
+        (repo / f"agent-tasks/batches/integrated/{task_id}-task.md").write_text(
+            f"# Task {task_id}\n", encoding="utf-8"
+        )
+    control = _commit(repo, "integrated control manifest")
+    _git(repo, "update-ref", f"refs/remotes/origin/{CONTROL_BRANCH}", control)
+    _git(repo, "checkout", "main")
+    return {
+        "repo": repo,
+        "base": base,
+        "control": control,
+        "manifest": manifest_path,
+        "spec": "agent-tasks/batches/integrated/0055-task.md",
+        "assignment": "agent-tasks/assignments/0055-task.md",
+    }
+
+
+def _integrated_preflight(repo: dict[str, str | Path], **overrides):
+    values = {
+        "repo_path": str(repo["repo"]),
+        "expected_repo_path": str(repo["repo"]),
+        "expected_origin": REMOTE_URL,
+        "control_branch": CONTROL_BRANCH,
+        "control_sha": str(repo["control"]),
+        "manifest_path": str(repo["manifest"]),
+        "task_id": "0055",
+        "expected_start_main_sha": str(repo["base"]),
+        "expected_task_order": [f"{number:04d}" for number in range(51, 61)],
+        "expected_task_spec_source": str(repo["spec"]),
+        "expected_assignment_destination": str(repo["assignment"]),
+    }
+    values.update(overrides)
+    return lifecycle.check_preflight(**values)
+
+
 def _preflight(repo: dict[str, str | Path], **overrides):
     values = {
         "repo_path": str(repo["repo"]),
@@ -130,6 +231,8 @@ def test_preflight_checks_manifest_control_identity_and_target_branch(tmp_path: 
     result = _preflight(repo)
 
     assert result["status"] == "ok"
+    assert result["manifest_format"] == "legacy"
+    assert result["manifest_mode"] == "per_task"
     assert result["selected_task"] == {
         "position": 2,
         "id": "0031",
@@ -140,6 +243,113 @@ def test_preflight_checks_manifest_control_identity_and_target_branch(tmp_path: 
         "depends_on": "0030 merged.",
     }
     assert all(check["ok"] for check in result["checks"])
+
+
+def test_manifest_parses_integrated_batch_metadata_and_shared_branch(tmp_path: Path) -> None:
+    repo = _integrated_batch_repo(tmp_path)
+    manifest = lifecycle.parse_manifest(
+        _git(Path(repo["repo"]), "show", f"{repo['control']}:{repo['manifest']}")
+    )
+
+    assert manifest["format"] == "integrated_v8"
+    assert manifest["mode"] == "integrated_batch"
+    assert manifest["expected_start_main_sha"] == repo["base"]
+    assert manifest["implementation_branch"] == TASK_BRANCH
+    assert manifest["execution_user"] == "runner"
+    assert manifest["workdir"] == "/canonical/checkout"
+    assert manifest["review_destination"] == "agent-tasks/reviews/integrated-r1.md"
+    assert manifest["full_local_required"] is True
+    assert [task["id"] for task in manifest["tasks"]] == [
+        f"{number:04d}" for number in range(51, 61)
+    ]
+    assert {task["branch"] for task in manifest["tasks"]} == {TASK_BRANCH}
+
+
+def test_preflight_accepts_integrated_manifest_without_binding_declared_workdir(
+    tmp_path: Path,
+) -> None:
+    repo = _integrated_batch_repo(tmp_path)
+
+    result = _integrated_preflight(repo)
+
+    assert result["status"] == "ok"
+    assert result["manifest_format"] == "integrated_v8"
+    assert result["manifest_mode"] == "integrated_batch"
+    assert result["selected_task"]["id"] == "0055"
+    assert all(check["ok"] for check in result["checks"])
+
+
+@pytest.mark.parametrize(
+    "manifest, message",
+    [
+        (
+            lambda base: _integrated_manifest(
+                base,
+                destinations=[
+                    "agent-tasks/assignments/0052-task.md",
+                    "agent-tasks/assignments/0051-task.md",
+                    *[
+                        f"agent-tasks/assignments/{number:04d}-task.md"
+                        for number in range(53, 61)
+                    ],
+                ],
+            ),
+            "align exactly",
+        ),
+        (
+            lambda base: _integrated_manifest(base).replace(
+                "agent-tasks/assignments/0052-task.md",
+                "agent-tasks/assignments/0051-second.md",
+            ),
+            "duplicate task paths",
+        ),
+        (
+            lambda base: _integrated_manifest(base).replace(
+                "agent-tasks/assignments/0055-task.md", "../0055-task.md"
+            ),
+            "safe repository-relative path",
+        ),
+        (
+            lambda base: _integrated_manifest(base).replace(base, "not-a-sha"),
+            "SHA is invalid",
+        ),
+        (
+            lambda base: _integrated_manifest(base).replace(
+                "2. 0052 — task 0052", "3. 0052 — task 0052"
+            ),
+            "positions are contradictory",
+        ),
+    ],
+)
+def test_manifest_rejects_malformed_integrated_alignment(manifest, message) -> None:
+    base = "a" * 40
+    with pytest.raises(lifecycle.LifecycleError, match=message):
+        lifecycle.parse_manifest(manifest(base))
+
+
+def test_preflight_rejects_integrated_wrong_start_control_and_dirty_checkout(
+    tmp_path: Path,
+) -> None:
+    repo = _integrated_batch_repo(tmp_path)
+    path = Path(repo["repo"])
+
+    wrong_start = _integrated_preflight(repo, expected_start_main_sha="1" * 40)
+    wrong_control = _integrated_preflight(repo, control_sha=str(repo["base"]))
+    (path / "untracked.txt").write_text("dirty\n", encoding="utf-8")
+    dirty = _integrated_preflight(repo)
+
+    assert wrong_start["status"] == "blocked"
+    assert not next(
+        check for check in wrong_start["checks"] if check["name"] == "manifest_start_main"
+    )["ok"]
+    assert wrong_control["status"] == "blocked"
+    assert not next(
+        check for check in wrong_control["checks"] if check["name"] == "control_branch_sha"
+    )["ok"]
+    assert dirty["status"] == "blocked"
+    assert not next(
+        check for check in dirty["checks"] if check["name"] == "worktree_clean"
+    )["ok"]
 
 
 def test_preflight_rejects_wrong_start_sha_and_wrong_control_sha(tmp_path: Path) -> None:

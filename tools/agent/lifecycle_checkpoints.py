@@ -31,6 +31,10 @@ _SAFE_NAME_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$")
 _TASK_HEADING_RE = re.compile(
     r"^###\s+([0-9]{4})\s+" + re.escape(chr(0x2014)) + r"\s*(.*?)\s*$"
 )
+_ORDERED_TASK_RE = re.compile(
+    r"^([0-9]+)\.\s+([0-9]{4})\s+" + re.escape(chr(0x2014)) + r"\s*(.*?)\s*$"
+)
+_TASK_PATH_RE = re.compile(r"^([0-9]{4})-[^/]+\.md$")
 
 
 class LifecycleError(Exception):
@@ -133,8 +137,158 @@ def _inline_field(lines: list[str], key: str) -> str | None:
     return None
 
 
-def parse_manifest(manifest_text: str) -> dict[str, Any]:
-    lines = manifest_text.splitlines()
+def _manifest_field(lines: list[str], key: str) -> str | None:
+    prefix = f"{key}:"
+    for index, line in enumerate(lines):
+        stripped = line.strip()
+        if not stripped.startswith(prefix):
+            continue
+        value = stripped[len(prefix) :].strip()
+        if not value:
+            for candidate in lines[index + 1 :]:
+                value = candidate.strip()
+                if value:
+                    break
+        if len(value) >= 2 and value[0] == chr(96) and value[-1] == chr(96):
+            value = value[1:-1]
+        return value or None
+    return None
+
+
+def _manifest_section(lines: list[str], heading: str) -> list[str]:
+    marker = f"## {heading}"
+    try:
+        start = next(index for index, line in enumerate(lines) if line.strip() == marker)
+    except StopIteration:
+        return []
+    end = next(
+        (index for index in range(start + 1, len(lines)) if lines[index].startswith("## ")),
+        len(lines),
+    )
+    return lines[start + 1 : end]
+
+
+def _backtick_bullets(lines: list[str], label: str) -> list[str]:
+    try:
+        start = next(index for index, line in enumerate(lines) if line.strip() == label)
+    except StopIteration:
+        return []
+    values: list[str] = []
+    for line in lines[start + 1 :]:
+        stripped = line.strip()
+        if not stripped:
+            continue
+        match = re.fullmatch(r"-\s+`([^`]+)`", stripped)
+        if not match:
+            break
+        values.append(match.group(1))
+    return values
+
+
+def _task_id_from_path(path: str, label: str) -> str:
+    name = PurePosixPath(path).name
+    match = _TASK_PATH_RE.fullmatch(name)
+    if not match:
+        raise LifecycleError(f"{label} must have a four-digit task ID filename prefix")
+    return match.group(1)
+
+
+def _parse_integrated_manifest(lines: list[str]) -> dict[str, Any]:
+    required_fields = {
+        "batch_id": _manifest_field(lines, "Batch ID"),
+        "expected_start_main_sha": _manifest_field(lines, "Expected start main"),
+        "implementation_branch": _manifest_field(lines, "Implementation branch"),
+        "execution_user": _manifest_field(lines, "Execution user"),
+        "workdir": _manifest_field(lines, "Required work directory"),
+        "review_destination": _manifest_field(lines, "Batch review destination"),
+        "full_local": _manifest_field(lines, "Full local regression"),
+    }
+    missing = [name for name, value in required_fields.items() if not value]
+    if missing:
+        raise LifecycleError(f"integrated manifest is missing required fields: {', '.join(missing)}")
+    start_sha = required_fields["expected_start_main_sha"]
+    assert start_sha is not None
+    if not _valid_sha(start_sha):
+        raise LifecycleError("integrated manifest expected start main SHA is invalid")
+    branch = required_fields["implementation_branch"]
+    assert branch is not None
+    if not branch.strip() or any(character.isspace() for character in branch):
+        raise LifecycleError("integrated manifest implementation branch is invalid")
+    workdir = required_fields["workdir"]
+    assert workdir is not None
+    if not PurePosixPath(workdir).is_absolute():
+        raise LifecycleError("integrated manifest workdir must be absolute")
+    review_destination = _safe_relative_path(
+        required_fields["review_destination"] or "", "batch review destination"
+    )
+    full_local_match = re.fullmatch(
+        r"full_local_required:\s*(true|false)", required_fields["full_local"] or ""
+    )
+    if not full_local_match:
+        raise LifecycleError("integrated manifest full local regression is malformed")
+
+    ordered_lines = _manifest_section(lines, "Ordered tasks")
+    ordered: list[tuple[int, str, str]] = []
+    for line in ordered_lines:
+        match = _ORDERED_TASK_RE.fullmatch(line.strip())
+        if match:
+            position, task_id, title = match.groups()
+            ordered.append((int(position), task_id, title))
+    specs = [
+        _safe_relative_path(path, "spec source")
+        for path in _backtick_bullets(ordered_lines, "Exact task specs:")
+    ]
+    destinations = [
+        _safe_relative_path(path, "assignment destination")
+        for path in _backtick_bullets(ordered_lines, "Seed destinations:")
+    ]
+    ordered_ids = [task_id for _position, task_id, _title in ordered]
+    spec_ids = [_task_id_from_path(path, "spec source") for path in specs]
+    destination_ids = [
+        _task_id_from_path(path, "assignment destination") for path in destinations
+    ]
+    if not ordered:
+        raise LifecycleError("integrated manifest has no ordered tasks")
+    if len(ordered_ids) != len(set(ordered_ids)):
+        raise LifecycleError("integrated manifest contains duplicate ordered task IDs")
+    if [position for position, _task_id, _title in ordered] != list(
+        range(1, len(ordered) + 1)
+    ):
+        raise LifecycleError("integrated manifest task positions are contradictory")
+    if any(not title for _position, _task_id, title in ordered):
+        raise LifecycleError("integrated manifest contains an empty task title")
+    if len(spec_ids) != len(set(spec_ids)) or len(destination_ids) != len(set(destination_ids)):
+        raise LifecycleError("integrated manifest contains duplicate task paths")
+    if not (ordered_ids == spec_ids == destination_ids):
+        raise LifecycleError(
+            "integrated manifest ordered tasks, specs, and seed destinations must align exactly"
+        )
+    tasks = [
+        {
+            "position": position,
+            "id": task_id,
+            "title": title,
+            "branch": branch,
+            "spec_source": specs[position - 1],
+            "assignment_destination": destinations[position - 1],
+        }
+        for position, (_declared_position, task_id, title) in enumerate(ordered, start=1)
+    ]
+    return {
+        "format": "integrated_v8",
+        "mode": "integrated_batch",
+        "batch_id": required_fields["batch_id"],
+        "expected_start_main_sha": start_sha,
+        "implementation_branch": branch,
+        "execution_user": required_fields["execution_user"],
+        "workdir": workdir,
+        "review_destination": review_destination,
+        "full_local_required": full_local_match.group(1) == "true",
+        "tasks": tasks,
+    }
+
+
+def _parse_legacy_manifest(lines: list[str]) -> dict[str, Any]:
     batch_id = _inline_field(lines, "Batch ID")
     tasks: list[dict[str, Any]] = []
     for index, line in enumerate(lines):
@@ -180,7 +334,17 @@ def parse_manifest(manifest_text: str) -> dict[str, Any]:
     branches = [task["branch"] for task in tasks]
     if len(branches) != len(set(branches)):
         raise LifecycleError("manifest contains duplicate task branches")
-    return {"batch_id": batch_id, "tasks": tasks}
+    return {"format": "legacy", "mode": "per_task", "batch_id": batch_id, "tasks": tasks}
+
+
+def parse_manifest(manifest_text: str) -> dict[str, Any]:
+    lines = manifest_text.splitlines()
+    if any(
+        line.strip() in {"## Ordered tasks", "Exact task specs:", "Seed destinations:"}
+        for line in lines
+    ):
+        return _parse_integrated_manifest(lines)
+    return _parse_legacy_manifest(lines)
 
 
 def _object_blob(repo: Path, commit: str, path: str) -> bytes:
@@ -340,7 +504,12 @@ def check_preflight(
             _check(
                 "manifest_at_control_sha",
                 True,
-                actual={"path": manifest_path, "batch_id": manifest_data["batch_id"]},
+                actual={
+                    "path": manifest_path,
+                    "batch_id": manifest_data["batch_id"],
+                    "format": manifest_data["format"],
+                    "mode": manifest_data["mode"],
+                },
             )
         )
         checks.append(
@@ -352,6 +521,65 @@ def check_preflight(
                 expected=expected_task_order,
             )
         )
+        if manifest_data["format"] == "integrated_v8":
+            manifest_start = manifest_data["expected_start_main_sha"]
+            checks.append(
+                _check(
+                    "manifest_start_main",
+                    main_sha == upstream_sha == manifest_start
+                    and (
+                        expected_start_main_sha is None
+                        or expected_start_main_sha == manifest_start
+                    ),
+                    actual={
+                        "manifest": manifest_start,
+                        "argument": expected_start_main_sha,
+                        "main": main_sha,
+                        f"{remote}/main": upstream_sha,
+                    },
+                    expected=manifest_start,
+                )
+            )
+            implementation_branch = manifest_data["implementation_branch"]
+            branch_valid = (
+                _git_raw(
+                    repo,
+                    "check-ref-format",
+                    f"refs/heads/{implementation_branch}",
+                ).returncode
+                == 0
+            )
+            checks.append(
+                _check(
+                    "manifest_implementation_branch",
+                    branch_valid
+                    and all(
+                        task["branch"] == implementation_branch
+                        for task in manifest_data["tasks"]
+                    ),
+                    actual=implementation_branch,
+                    expected="one valid shared implementation branch",
+                )
+            )
+            missing_specs = [
+                task["spec_source"]
+                for task in manifest_data["tasks"]
+                if _git_raw(
+                    repo,
+                    "cat-file",
+                    "-e",
+                    f"{control_sha}:{task['spec_source']}",
+                ).returncode
+                != 0
+            ]
+            checks.append(
+                _check(
+                    "manifest_task_specs_at_control_sha",
+                    not missing_specs,
+                    actual=missing_specs or "all present",
+                    expected="all ordered exact task specs present",
+                )
+            )
     except (LifecycleError, UnicodeError) as exc:
         checks.append({"name": "manifest_at_control_sha", "ok": False, "error": str(exc)})
 
@@ -420,6 +648,8 @@ def check_preflight(
         "control_branch": control_branch,
         "control_sha": control_sha,
         "manifest_path": manifest_path,
+        "manifest_format": manifest_data["format"] if manifest_data else None,
+        "manifest_mode": manifest_data["mode"] if manifest_data else None,
         "batch_id": manifest_data["batch_id"] if manifest_data else None,
         "tasks": tasks,
         "selected_task": selected,
