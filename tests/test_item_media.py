@@ -9,6 +9,7 @@ from sqlalchemy.orm import Session
 
 from ah_there_it_is.db.migrations import upgrade_database
 from ah_there_it_is.db.models import Base, Event, Item, ItemMedia
+from ah_there_it_is.domain.exceptions import DuplicateEntityError
 from ah_there_it_is.db.session import create_db_engine
 from ah_there_it_is.services.inventory import InventoryService
 
@@ -87,3 +88,80 @@ def test_item_media_database_constraints_and_removed_retention(session: Session)
     inventory.remove_item(item.id, reason="damaged", reason_source="explicit")
     assert session.scalar(select(ItemMedia.id).where(ItemMedia.item_id == item.id)) == media.id
     assert session.scalar(select(Item.state).where(Item.id == item.id)) == "removed"
+
+
+def test_item_photo_service_orders_updates_and_records_history(session: Session) -> None:
+    inventory = InventoryService(session)
+    item = inventory.create_item("Camera body")
+
+    first = inventory.attach_item_photo(
+        item.id, " telegram ", " file-front ", caption="front", position=2
+    )
+    second = inventory.attach_item_photo(
+        item.id, "telegram", "file-back", caption="back", position=1
+    )
+    assert [photo.id for photo in inventory.list_item_photos(item.id)] == [
+        second.id,
+        first.id,
+    ]
+    with pytest.raises(DuplicateEntityError):
+        inventory.attach_item_photo(item.id, "telegram", "file-front")
+
+    updated = inventory.update_item_photo(first.id, caption=None, position=0)
+    assert updated.id == first.id
+    assert updated.caption is None
+    assert updated.position == 0
+    assert [photo.id for photo in inventory.list_item_photos(item.id)] == [
+        first.id,
+        second.id,
+    ]
+
+    detached = inventory.detach_item_photo(second.id)
+    assert detached.id == second.id
+    assert [photo.id for photo in inventory.list_item_photos(item.id)] == [first.id]
+    history = inventory.get_item_history(item.id)
+    photo_events = [event for event in history if event.event_type.startswith("item_photo_")]
+    assert [event.event_type for event in photo_events] == [
+        "item_photo_attached",
+        "item_photo_attached",
+        "item_photo_updated",
+        "item_photo_detached",
+    ]
+    assert photo_events[2].payload["before"]["media_id"] == first.id
+    assert photo_events[2].payload["after"]["caption"] is None
+    assert photo_events[3].payload["before"]["media_id"] == second.id
+    assert all("bytes" not in str(event.payload).lower() for event in photo_events)
+
+
+def test_item_photo_service_retains_media_across_remove_restore(session: Session) -> None:
+    inventory = InventoryService(session)
+    item = inventory.create_item("Retained camera")
+    media = inventory.attach_item_photo(item.id, "local", "opaque-1")
+
+    inventory.remove_item(item.id, reason="broken", reason_source="explicit")
+    assert [photo.id for photo in inventory.list_item_photos(item.id)] == [media.id]
+    inventory.restore_item(item.id, state="unknown", location_id=None)
+    assert [photo.id for photo in inventory.list_item_photos(item.id)] == [media.id]
+
+
+def test_item_photo_service_split_keeps_source_media_and_not_child_media(
+    session: Session,
+) -> None:
+    inventory = InventoryService(session)
+    shelf = inventory.create_location("Shelf")
+    bin_ = inventory.create_location("Bin")
+    source = inventory.create_item("Bolts", location_id=shelf.id, quantity=10)
+    first = inventory.attach_item_photo(source.id, "local", "bolts-front")
+    second = inventory.attach_item_photo(source.id, "local", "bolts-back")
+
+    child = inventory.move_item(
+        source.id,
+        bin_.id,
+        portion={"mode": "exact", "value": 3},
+    )
+
+    assert [photo.id for photo in inventory.list_item_photos(source.id)] == [
+        first.id,
+        second.id,
+    ]
+    assert inventory.list_item_photos(child.id) == []
