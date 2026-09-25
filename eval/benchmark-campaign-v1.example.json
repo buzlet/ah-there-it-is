@@ -1,0 +1,31 @@
+{
+  "schema_version": "benchmark-campaign-v1",
+  "campaign_id": "manual-provider-comparison",
+  "campaign_version": "1",
+  "candidate": {
+    "provider": "replace-provider",
+    "model": "replace-model",
+    "config_label": "manual-config-v1"
+  },
+  "prompt": {
+    "version": "inventory-v1",
+    "file": "../prompts/inventory-v1.txt",
+    "sha256": "6c3f4e44d802c9d0562704b61c9e4d8947a5ab50c00e0290c6db6ea96be79bce"
+  },
+  "live_eval": {
+    "file": "corpus-v1.json",
+    "version": "inventory-corpus-v1",
+    "case_ids": ["find-01"]
+  },
+  "model_probe": {
+    "file": "model-probes-v1.json",
+    "version": "model-probes-v1",
+    "case_ids": ["tool-search-basic"]
+  },
+  "repetitions": 3,
+  "delay_seconds": 0.0,
+  "output": {
+    "directory": "results/benchmark-v1",
+    "file_prefix": "replace-candidate"
+  }
+}
