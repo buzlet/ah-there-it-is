@@ -189,6 +189,61 @@ def test_promotion_hard_gate_fails_closed_when_declared_evidence_is_incomplete()
     assert any(reason["gate"] == "evidence_completeness" for reason in report["hard_gate_reasons"])
 
 
+
+@pytest.mark.parametrize(
+    "mutator",
+    [
+        lambda campaign: campaign["attempts"][0].update(pipeline="wat"),
+        lambda campaign: campaign["attempts"][0].update(case_id="different-case"),
+        lambda campaign: campaign["attempts"][0].update(repetition=99),
+        lambda campaign: campaign["attempts"][0].update(evidence={}),
+        lambda campaign: campaign["attempts"][2].update(evidence={}),
+    ],
+)
+def test_promotion_fails_closed_for_malformed_expected_attempt(mutator) -> None:
+    baseline = _campaign(model="baseline")
+    candidate = _campaign(model="candidate")
+    mutator(candidate)
+
+    completeness = campaign_evidence_completeness(candidate)
+    report = build_promotion_report(
+        baseline, candidate, generated_at="2026-01-01T00:00:00Z"
+    )
+
+    assert completeness["complete"] is False
+    assert completeness["invalid_attempt_refs"]
+    assert report["hard_gate_passed"] is False
+    assert any(
+        reason["gate"] == "evidence_completeness"
+        for reason in report["hard_gate_reasons"]
+    )
+
+
+def test_promotion_rejects_non_object_attempt_and_duplicate_declared_case() -> None:
+    candidate = _campaign(model="candidate")
+    candidate["attempts"].append("corrupt")
+    completeness = campaign_evidence_completeness(candidate)
+    assert completeness["complete"] is False
+    assert completeness["invalid_attempt_count"] == 1
+
+    candidate = _campaign(model="candidate")
+    candidate["campaign"]["live_eval"]["case_ids"].append("quantity-removed-undo")
+    completeness = campaign_evidence_completeness(candidate)
+    assert completeness["complete"] is False
+    assert "campaign selections/repetitions are invalid" in completeness["reasons"]
+
+
+def test_promotion_fails_closed_when_live_case_has_no_automatic_pass_result() -> None:
+    baseline = _campaign(model="baseline")
+    candidate = _campaign(model="candidate")
+    candidate["attempts"][0]["evidence"]["checks_passed"] = None
+
+    report = build_promotion_report(
+        baseline, candidate, generated_at="2026-01-01T00:00:00Z"
+    )
+
+    assert report["hard_gate_passed"] is False
+
 def test_promotion_cost_and_latency_are_reported_but_are_not_hard_gates() -> None:
     baseline = _campaign(model="baseline", wall=1.0, cost=0.01)
     candidate = _campaign(model="candidate", wall=5.0, cost=0.05)

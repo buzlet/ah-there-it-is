@@ -52,3 +52,24 @@ Comparison keeps hard correctness, behavioral/repeatability, and operational obs
 The hard gate fails closed when declared attempt evidence is incomplete or when candidate evidence contains provider/tool-contract, application-check, write-target-safety, mutation-correctness, quantity/removed/Undo, or unsupported-fact failures. Cost and latency are reported as operational observations only.
 
 A passing report is evidence for a human promotion decision. It never edits runtime configuration, `.env`, provider settings, or model defaults.
+
+## Promotion evidence safety
+
+Baseline and candidate comparisons require the same prompt/corpus/probe identities,
+the same selected live-eval case IDs, the same selected model-probe case IDs, and
+the same repetition count. A different workload is not comparable evidence.
+
+Promotion evidence is fail-closed: every persisted attempt must match its declared
+slot (pipeline, case ID and repetition) and contain structurally valid evidence.
+Missing or malformed evidence cannot pass the hard gate.
+
+Evaluation cases may declare `unsupported_facts`, a list of literal response
+substrings that are known to be unsupported for that case. `live_eval` records
+matching phrases as `unsupported_fact_failures`; any positive count is a hard
+correctness failure. This is an explicit deterministic corpus check, not a general
+hallucination detector.
+
+Campaign persistence sanitizes credential-like mapping keys and common credential
+forms embedded in text, including Bearer/Basic authorization, token/API-key
+assignments and `sk-...` token forms. Provider exception strings pass through the
+same sanitizer before being written.

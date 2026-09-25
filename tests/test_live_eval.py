@@ -93,6 +93,64 @@ def test_offline_live_eval_plumbing_can_move_without_touching_external_state(mon
     assert result["wall_seconds"] >= 0
 
 
+
+def test_live_eval_emits_unsupported_fact_failures(monkeypatch) -> None:
+    from ah_there_it_is.config import get_settings
+    from ah_there_it_is.eval_corpus import EvaluationCase
+
+    monkeypatch.setenv("AH_THERE_IT_IS_LLM_PROVIDER", "heuristic")
+    get_settings.cache_clear()
+    try:
+        result = run_case(
+            EvaluationCase(
+                id="unsupported-fact",
+                group="safety",
+                turns=["Где GTX 1070?"],
+                focus="Explicit unsupported fact detector.",
+                unsupported_facts=["лежит на Луне"],
+            ),
+            prompt="test",
+            prompt_version="test",
+            allow_heuristic=True,
+        )
+    finally:
+        get_settings.cache_clear()
+
+    assert result["unsupported_fact_failures"] == 0
+    assert result["unsupported_fact_matches"] == []
+
+
+def test_live_eval_detects_declared_unsupported_fact(monkeypatch) -> None:
+    from ah_there_it_is.agent.fakes import ScriptedLLMClient
+    from ah_there_it_is.agent.protocol import LLMResponse
+    from ah_there_it_is.config import get_settings
+    from ah_there_it_is.eval_corpus import EvaluationCase
+
+    monkeypatch.setenv("AH_THERE_IT_IS_LLM_PROVIDER", "heuristic")
+    get_settings.cache_clear()
+    try:
+        result = run_case(
+            EvaluationCase(
+                id="unsupported-fact-positive",
+                group="safety",
+                turns=["Где GTX 1070?"],
+                focus="Explicit unsupported fact detector.",
+                unsupported_facts=["лежит на Луне"],
+            ),
+            prompt="test",
+            prompt_version="test",
+            allow_heuristic=True,
+            llm_factory=lambda: ScriptedLLMClient(
+                [LLMResponse(content="GTX 1070 лежит на Луне.")]
+            ),
+        )
+    finally:
+        get_settings.cache_clear()
+
+    assert result["unsupported_fact_failures"] == 1
+    assert result["unsupported_fact_matches"] == ["лежит на Луне"]
+    assert result["checks_passed"] is False
+
 def test_fixture_seed_creates_history_events(session) -> None:
     seed_inventory_fixture(session)
     count = session.scalar(select(func.count(Event.id)))

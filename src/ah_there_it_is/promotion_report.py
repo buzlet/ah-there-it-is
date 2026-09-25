@@ -40,15 +40,17 @@ def _attempts(campaign: Mapping[str, Any]) -> list[Mapping[str, Any]]:
     return [attempt for attempt in value if isinstance(attempt, Mapping)]
 
 
-def _declared_slots(campaign: Mapping[str, Any]) -> tuple[list[str], list[str]]:
+def _declared_attempts(
+    campaign: Mapping[str, Any],
+) -> tuple[dict[str, tuple[str, str, int]], list[str]]:
     manifest = campaign.get("campaign")
     if not isinstance(manifest, Mapping):
-        return [], ["campaign manifest is missing"]
+        return {}, ["campaign manifest is missing"]
 
     live = manifest.get("live_eval")
     probe = manifest.get("model_probe")
     if not isinstance(live, Mapping) or not isinstance(probe, Mapping):
-        return [], ["campaign selections are missing"]
+        return {}, ["campaign selections are missing"]
 
     live_ids = live.get("case_ids")
     probe_ids = probe.get("case_ids")
@@ -56,45 +58,94 @@ def _declared_slots(campaign: Mapping[str, Any]) -> tuple[list[str], list[str]]:
     if (
         not isinstance(live_ids, list)
         or any(not isinstance(case_id, str) for case_id in live_ids)
+        or len(live_ids) != len(set(live_ids))
         or not isinstance(probe_ids, list)
         or any(not isinstance(case_id, str) for case_id in probe_ids)
+        or len(probe_ids) != len(set(probe_ids))
         or not isinstance(repetitions, int)
         or isinstance(repetitions, bool)
         or repetitions < 1
     ):
-        return [], ["campaign selections/repetitions are invalid"]
+        return {}, ["campaign selections/repetitions are invalid"]
 
-    slots = [
-        f"live_eval:{case_id}:{repetition}"
-        for case_id in live_ids
-        for repetition in range(1, repetitions + 1)
-    ]
-    slots.extend(f"model_probe:{case_id}:1" for case_id in probe_ids)
-    return slots, []
+    declared: dict[str, tuple[str, str, int]] = {}
+    for case_id in live_ids:
+        for repetition in range(1, repetitions + 1):
+            slot = f"live_eval:{case_id}:{repetition}"
+            declared[slot] = ("live_eval", case_id, repetition)
+    for case_id in probe_ids:
+        slot = f"model_probe:{case_id}:1"
+        declared[slot] = ("model_probe", case_id, 1)
+    return declared, []
+
+
+def _valid_attempt_evidence(
+    attempt: Mapping[str, Any],
+    *,
+    pipeline: str,
+    case_id: str,
+) -> bool:
+    evidence = attempt.get("evidence")
+    if not isinstance(evidence, Mapping):
+        return False
+    execution_error = evidence.get("campaign_execution_error")
+    if execution_error is not None:
+        return (
+            isinstance(execution_error, Mapping)
+            and isinstance(execution_error.get("type"), str)
+            and bool(execution_error.get("type"))
+            and isinstance(execution_error.get("message"), str)
+        )
+    if pipeline == "live_eval":
+        return (
+            evidence.get("case_id") == case_id
+            and evidence.get("status") in {"completed", "failed"}
+            and isinstance(evidence.get("checks_passed"), bool)
+            and isinstance(evidence.get("checks"), list)
+        )
+    if pipeline == "model_probe":
+        return evidence.get("case_id") == case_id and isinstance(evidence.get("passed"), bool)
+    return False
 
 
 def campaign_evidence_completeness(campaign: Mapping[str, Any]) -> dict[str, Any]:
-    """Check that persisted attempts exactly cover the declared campaign slots."""
+    """Check that persisted attempts exactly and validly cover declared slots."""
 
-    expected, declaration_errors = _declared_slots(campaign)
+    declared, declaration_errors = _declared_attempts(campaign)
+    expected = list(declared)
+    raw_attempts = campaign.get("attempts")
     attempts = _attempts(campaign)
     observed: list[str] = []
     incomplete: list[str] = []
-    invalid_attempt_count = 0
+    invalid_attempt_refs: list[str] = []
+    invalid_attempt_count = (
+        sum(1 for attempt in raw_attempts if not isinstance(attempt, Mapping))
+        if isinstance(raw_attempts, list)
+        else 0
+    )
     for attempt in attempts:
         slot_id = attempt.get("slot_id")
         if not isinstance(slot_id, str):
             invalid_attempt_count += 1
             continue
         observed.append(slot_id)
+        expected_attempt = declared.get(slot_id)
         if attempt.get("completed") is not True:
             incomplete.append(slot_id)
+        if expected_attempt is None:
+            continue
+        pipeline, case_id, repetition = expected_attempt
+        if (
+            attempt.get("pipeline") != pipeline
+            or attempt.get("case_id") != case_id
+            or attempt.get("repetition") != repetition
+            or not _valid_attempt_evidence(attempt, pipeline=pipeline, case_id=case_id)
+        ):
+            invalid_attempt_refs.append(slot_id)
 
     expected_set = set(expected)
     observed_set = set(observed)
-    duplicate_slots = sorted(
-        {slot for slot in observed if observed.count(slot) > 1}
-    )
+    duplicate_slots = sorted({slot for slot in observed if observed.count(slot) > 1})
     missing = sorted(expected_set - observed_set)
     unexpected = sorted(observed_set - expected_set)
     reasons = list(declaration_errors)
@@ -110,6 +161,8 @@ def campaign_evidence_completeness(campaign: Mapping[str, Any]) -> dict[str, Any
         reasons.append("attempt slots are not marked completed")
     if duplicate_slots:
         reasons.append("duplicate attempt slots are present")
+    if invalid_attempt_refs:
+        reasons.append("attempt metadata/evidence does not match declared slots")
     if invalid_attempt_count:
         reasons.append("attempts without valid slot_id are present")
 
@@ -121,6 +174,7 @@ def campaign_evidence_completeness(campaign: Mapping[str, Any]) -> dict[str, Any
         "unexpected_attempt_refs": unexpected,
         "incomplete_attempt_refs": sorted(incomplete),
         "duplicate_attempt_refs": duplicate_slots,
+        "invalid_attempt_refs": sorted(set(invalid_attempt_refs)),
         "invalid_attempt_count": invalid_attempt_count,
         "reasons": reasons,
         "expected_attempt_refs": expected,
@@ -166,6 +220,7 @@ def _hard_gate_reasons(
                     | set(baseline_completeness.get("incomplete_attempt_refs") or [])
                     | set(baseline_completeness.get("unexpected_attempt_refs") or [])
                     | set(baseline_completeness.get("duplicate_attempt_refs") or [])
+                    | set(baseline_completeness.get("invalid_attempt_refs") or [])
                 ),
             }
         )
@@ -181,6 +236,7 @@ def _hard_gate_reasons(
                     | set(candidate_completeness.get("incomplete_attempt_refs") or [])
                     | set(candidate_completeness.get("unexpected_attempt_refs") or [])
                     | set(candidate_completeness.get("duplicate_attempt_refs") or [])
+                    | set(candidate_completeness.get("invalid_attempt_refs") or [])
                 ),
             }
         )
