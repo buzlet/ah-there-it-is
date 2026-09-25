@@ -148,9 +148,11 @@ Key rules:
 
 ## Current status
 
-Product work through Stage 26 and assignments through 0083 is complete.
+Product work through Stage 26 and implementation/review work through 0090 is complete.
 
-Batches 0071–0080 and 0081–0083 implemented Item media references, the single-user/private-text Telegram adapter, and provider/model benchmark-promotion tooling. Independent post-merge reviews produced corrective PRs #84 and #83; both corrections are merged into current main.
+Batches 0071–0080 and 0081–0083 implemented Item media references, the single-user/private-text Telegram adapter, and provider/model benchmark-promotion tooling. Independent post-merge reviews produced corrective PRs #84 and #83.
+
+Final code-level MVP hardening 0084–0090 was implemented in PR #87 and independently reviewed with corrections in PR #88. Both are merged into current main, and the final post-merge application CI is green.
 
 ### Correction / Undo
 
@@ -172,9 +174,11 @@ Key rules:
 
 All required product-semantic gates for the implemented core are closed.
 
-Next is one sandbox-only final MVP correctness/hardening batch (0084–0090). It may add regression tests and narrow code corrections only; it must not add new product scope or prepare the deployment host.
+Code-level MVP correctness/hardening 0084–0090 and its independent corrections are complete.
 
-After independent review/corrections of that batch, deployment/environment readiness is a separate Direct-shell batch on the actual target server. That Direct work owns service-manager setup, filesystem/env/secrets layout, deployment rehearsal, operational paths and other host-specific readiness.
+Next is a separate Direct-shell deployment/environment-readiness batch (0091+) on the actual target server. That Direct work owns service-manager setup, filesystem/env/secrets layout, deployment rehearsal, operational paths and other host-specific readiness.
+
+The known deployment follow-up is to enforce and verify exactly one Telegram long-polling process for the production bot/database, including restart/upgrade overlap and crash timing around committed mutation versus reply/checkpoint.
 
 Do not reopen merge, Product/SKU, continuous-measurement, multi-user, multilingual,
 QR/barcode, built-in voice, backup-policy, trace-purge or generic hard-delete
