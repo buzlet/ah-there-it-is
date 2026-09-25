@@ -10,6 +10,7 @@ from sqlalchemy import (
     CheckConstraint,
     DateTime,
     ForeignKey,
+    BigInteger,
     Index,
     Integer,
     String,
@@ -266,6 +267,42 @@ class Conversation(Base):
         back_populates="conversation",
         cascade="all, delete-orphan",
         order_by="Message.id",
+    )
+
+
+class TelegramChatBinding(Base):
+    """Private Telegram chat to application conversation mapping."""
+
+    __tablename__ = "telegram_chat_bindings"
+    __table_args__ = (
+        UniqueConstraint("conversation_id", name="uq_telegram_binding_conversation"),
+    )
+
+    chat_id: Mapped[int] = mapped_column(BigInteger, primary_key=True)
+    conversation_id: Mapped[int] = mapped_column(
+        ForeignKey("conversations.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=utc_now, nullable=False
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=utc_now, onupdate=utc_now, nullable=False
+    )
+
+
+class TelegramPollingState(Base):
+    """Singleton durable polling checkpoint; Telegram update IDs need 64 bits."""
+
+    __tablename__ = "telegram_polling_state"
+
+    id: Mapped[int] = mapped_column(primary_key=True, default=1)
+    next_offset: Mapped[int] = mapped_column(
+        BigInteger, nullable=False, default=0, server_default="0"
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=utc_now, onupdate=utc_now, nullable=False
     )
 
 

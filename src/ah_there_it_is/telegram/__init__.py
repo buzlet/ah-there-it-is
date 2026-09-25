@@ -17,6 +17,7 @@ from .client import (
     TelegramUpdate,
     TelegramUser,
 )
+from .adapter import TelegramAdapter, TelegramAdapterResult, SingleUserTelegramAdapter
 
 __all__ = [
     "DEFAULT_TELEGRAM_BASE_URL",
@@ -34,4 +35,7 @@ __all__ = [
     "TelegramTransportError",
     "TelegramUpdate",
     "TelegramUser",
+    "TelegramAdapter",
+    "TelegramAdapterResult",
+    "SingleUserTelegramAdapter",
 ]
