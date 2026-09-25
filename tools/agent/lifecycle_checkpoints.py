@@ -770,6 +770,139 @@ def verify_seed(
     }
 
 
+def verify_batch_seed(
+    *,
+    repo_path: str,
+    control_sha: str,
+    manifest_path: str,
+    seed_sha: str | None = None,
+    allow_later_head: bool = False,
+) -> dict[str, Any]:
+    checks: list[dict[str, Any]] = []
+    try:
+        repo = _repo_root(repo_path)
+        manifest_bytes = _object_blob(repo, control_sha, manifest_path)
+        manifest = parse_manifest(manifest_bytes.decode("utf-8"))
+        if manifest["format"] != "integrated_v8":
+            raise LifecycleError("batch seed verification requires an integrated-v8 manifest")
+    except (LifecycleError, UnicodeError) as exc:
+        return {
+            "status": "invalid",
+            "ok": False,
+            "checks": [{"name": "batch_manifest", "ok": False, "error": str(exc)}],
+        }
+
+    branch = _add_git_check(
+        checks,
+        "implementation_branch",
+        repo,
+        "branch",
+        "--show-current",
+        expected=manifest["implementation_branch"],
+    )
+    porcelain = _add_git_check(
+        checks,
+        "worktree_clean",
+        repo,
+        "status",
+        "--porcelain=v1",
+        "--untracked-files=all",
+    )
+    checks[-1]["actual"] = "clean" if porcelain == "" else "dirty"
+    checks[-1]["ok"] = porcelain == ""
+    head = _add_git_check(checks, "head_exists", repo, "rev-parse", "--verify", "HEAD")
+    selected_seed = seed_sha or head
+    if not _valid_sha(selected_seed) or _ref_sha(repo, selected_seed or "") != selected_seed:
+        checks.append(_check("seed_sha_valid", False, actual=selected_seed))
+        return {
+            "status": "invalid",
+            "ok": False,
+            "branch": branch,
+            "head": head,
+            "seed_sha": selected_seed,
+            "checks": checks,
+        }
+    checks.append(_check("seed_sha_valid", True, actual=selected_seed))
+    start_sha = manifest["expected_start_main_sha"]
+    parent_line = _git_raw(repo, "rev-list", "--parents", "-n", "1", selected_seed)
+    parent_fields = parent_line.stdout.decode("ascii", errors="replace").strip().split()
+    parent_sha = parent_fields[1] if len(parent_fields) == 2 else None
+    checks.append(
+        _check(
+            "seed_parent_is_expected_start",
+            parent_line.returncode == 0 and len(parent_fields) == 2 and parent_sha == start_sha,
+            actual=parent_sha,
+            expected=start_sha,
+        )
+    )
+    if allow_later_head:
+        ancestor = _git_raw(repo, "merge-base", "--is-ancestor", selected_seed, head or "")
+        checks.append(
+            _check("seed_ancestor", ancestor.returncode == 0, actual=selected_seed, expected=head)
+        )
+    else:
+        checks.append(_check("seed_is_head", selected_seed == head, actual=head, expected=selected_seed))
+
+    try:
+        seed_manifest = _object_blob(repo, selected_seed, manifest_path)
+        checks.append(
+            _check(
+                "active_manifest_bytes_match_control",
+                seed_manifest == manifest_bytes,
+                actual=manifest_path,
+                expected="byte-identical",
+            )
+        )
+    except LifecycleError as exc:
+        checks.append(
+            {"name": "active_manifest_bytes_match_control", "ok": False, "error": str(exc)}
+        )
+
+    material: list[dict[str, Any]] = []
+    for task in manifest["tasks"]:
+        try:
+            source = _object_blob(repo, control_sha, task["spec_source"])
+            destination = _object_blob(repo, selected_seed, task["assignment_destination"])
+            matches = source == destination
+            material.append(
+                {
+                    "id": task["id"],
+                    "spec_source": task["spec_source"],
+                    "assignment_destination": task["assignment_destination"],
+                    "ok": matches,
+                }
+            )
+        except LifecycleError as exc:
+            material.append(
+                {
+                    "id": task["id"],
+                    "spec_source": task["spec_source"],
+                    "assignment_destination": task["assignment_destination"],
+                    "ok": False,
+                    "error": str(exc),
+                }
+            )
+    checks.append(
+        _check(
+            "complete_batch_material",
+            len(material) == len(manifest["tasks"]) and all(item["ok"] for item in material),
+            actual=material,
+            expected="all ordered task specs copied byte-for-byte",
+        )
+    )
+    return {
+        "status": "verified" if all(check["ok"] for check in checks) else "blocked",
+        "ok": all(check["ok"] for check in checks),
+        "batch_id": manifest["batch_id"],
+        "branch": branch,
+        "head": head,
+        "seed_sha": selected_seed,
+        "start_main_sha": start_sha,
+        "task_order": [task["id"] for task in manifest["tasks"]],
+        "checks": checks,
+    }
+
+
 def _repo_and_state(repo_path: str, state_dir: str) -> tuple[Path, Path, str, str, bool]:
     repo = _repo_root(repo_path)
     branch = _git(repo, "branch", "--show-current")
@@ -1122,6 +1255,460 @@ def checkpoint_status(*, repo_path: str, state_dir: str, assignment: str) -> dic
         return {"status": "invalid", "assignment": assignment, "error": str(exc)}
 
 
+_BATCH_EVENTS = ("preflight", "seed", "task", "review", "final_local", "pr", "ci", "merge")
+_BATCH_EVENT_RANK = {event: index for index, event in enumerate(_BATCH_EVENTS)}
+
+
+def _batch_manifest(repo: Path, control_sha: str, manifest_path: str) -> dict[str, Any]:
+    try:
+        manifest = parse_manifest(
+            _object_blob(repo, control_sha, manifest_path).decode("utf-8")
+        )
+    except UnicodeError as exc:
+        raise LifecycleError("batch manifest is not valid UTF-8") from exc
+    if manifest["format"] != "integrated_v8":
+        raise LifecycleError("batch checkpoint requires an integrated-v8 manifest")
+    return manifest
+
+
+def _batch_checkpoint_path(state: Path, batch_id: str, *, create: bool) -> Path:
+    return _checkpoint_path(state, f"batch-{_safe_name(batch_id, 'batch ID')}", create=create)
+
+
+def _valid_commit(repo: Path, sha: Any) -> bool:
+    return _valid_sha(sha) and _ref_sha(repo, sha) == sha
+
+
+def _is_ancestor(repo: Path, ancestor: str, descendant: str) -> bool:
+    return (
+        _git_raw(repo, "merge-base", "--is-ancestor", ancestor, descendant).returncode == 0
+    )
+
+
+def _validate_batch_checkpoint(checkpoint: dict[str, Any], repo: Path) -> None:
+    required = {
+        "schema_version",
+        "mode",
+        "batch_id",
+        "control_sha",
+        "start_main_sha",
+        "manifest_path",
+        "branch",
+        "preflight_branch",
+        "repo_path",
+        "head",
+        "highest_event",
+        "preflight_ok",
+        "seed_sha",
+        "task_order",
+        "task_checkpoints",
+        "event_history",
+        "review_head",
+        "final_local_head",
+        "updated_at",
+    }
+    if not required.issubset(checkpoint):
+        raise LifecycleError("batch checkpoint is missing required fields")
+    schema_version = checkpoint.get("schema_version")
+    if (
+        not isinstance(schema_version, int)
+        or isinstance(schema_version, bool)
+        or schema_version != 1
+        or checkpoint.get("mode") != "batch"
+    ):
+        raise LifecycleError("batch checkpoint schema is invalid")
+    batch_id = checkpoint.get("batch_id")
+    if not isinstance(batch_id, str):
+        raise LifecycleError("batch checkpoint batch ID is invalid")
+    _safe_name(batch_id, "batch ID")
+    if not _valid_commit(repo, checkpoint.get("control_sha")) or not _valid_commit(
+        repo, checkpoint.get("start_main_sha")
+    ):
+        raise LifecycleError("batch checkpoint control/start identity is invalid")
+    if not isinstance(checkpoint.get("manifest_path"), str):
+        raise LifecycleError("batch checkpoint manifest path is invalid")
+    _safe_relative_path(checkpoint["manifest_path"], "manifest path")
+    if not isinstance(checkpoint.get("branch"), str) or not checkpoint["branch"]:
+        raise LifecycleError("batch checkpoint branch is invalid")
+    if not isinstance(checkpoint.get("preflight_branch"), str) or not checkpoint[
+        "preflight_branch"
+    ]:
+        raise LifecycleError("batch checkpoint preflight branch is invalid")
+    if not isinstance(checkpoint.get("repo_path"), str) or not checkpoint["repo_path"]:
+        raise LifecycleError("batch checkpoint repository is invalid")
+    if not _valid_commit(repo, checkpoint.get("head")):
+        raise LifecycleError("batch checkpoint HEAD is not a valid commit")
+    highest = checkpoint.get("highest_event")
+    if not isinstance(highest, str) or highest not in _BATCH_EVENT_RANK:
+        raise LifecycleError("batch checkpoint high-water event is invalid")
+    if checkpoint.get("preflight_ok") is not True:
+        raise LifecycleError("batch checkpoint does not record successful preflight")
+    seed = checkpoint.get("seed_sha")
+    if seed is not None:
+        if not _valid_commit(repo, seed):
+            raise LifecycleError("batch checkpoint seed is not a valid commit")
+        parent = _git(repo, "rev-parse", f"{seed}^")
+        if parent != checkpoint["start_main_sha"]:
+            raise LifecycleError("batch checkpoint seed has the wrong parent")
+    task_order = checkpoint.get("task_order")
+    task_checkpoints = checkpoint.get("task_checkpoints")
+    if (
+        not isinstance(task_order, list)
+        or not task_order
+        or any(not isinstance(task_id, str) for task_id in task_order)
+        or len(task_order) != len(set(task_order))
+        or not isinstance(task_checkpoints, list)
+    ):
+        raise LifecycleError("batch checkpoint task order is invalid")
+    completed_ids: list[str] = []
+    for item in task_checkpoints:
+        if not isinstance(item, dict):
+            raise LifecycleError("batch task checkpoint is invalid")
+        task_id = item.get("id")
+        head = item.get("head")
+        correction_count = item.get("correction_count")
+        if (
+            not isinstance(task_id, str)
+            or not _valid_commit(repo, head)
+            or not isinstance(correction_count, int)
+            or isinstance(correction_count, bool)
+            or correction_count < 0
+            or seed is None
+            or not _is_ancestor(repo, seed, head)
+        ):
+            raise LifecycleError("batch task checkpoint fact is invalid")
+        completed_ids.append(task_id)
+    if completed_ids != task_order[: len(completed_ids)]:
+        raise LifecycleError("batch task checkpoints skip, duplicate, or reorder tasks")
+    history = checkpoint.get("event_history")
+    if not isinstance(history, list) or not history:
+        raise LifecycleError("batch checkpoint event history is invalid")
+    history_tasks: list[dict[str, Any]] = []
+    maximum_rank = -1
+    for index, item in enumerate(history):
+        if (
+            not isinstance(item, dict)
+            or not isinstance(item.get("event"), str)
+            or item.get("event") not in _BATCH_EVENT_RANK
+        ):
+            raise LifecycleError("batch checkpoint history contains an invalid event")
+        if not _valid_commit(repo, item.get("head")) or not _valid_timestamp(
+            item.get("timestamp")
+        ):
+            raise LifecycleError("batch checkpoint history contains an invalid fact")
+        event = item["event"]
+        if index == 0 and event != "preflight":
+            raise LifecycleError("batch checkpoint history must begin with preflight")
+        if index > 0 and history[index - 1]["event"] == "merge":
+            raise LifecycleError("batch checkpoint history advances after merge")
+        maximum_rank = max(maximum_rank, _BATCH_EVENT_RANK[event])
+        if event == "task":
+            history_task_id = item.get("task_id")
+            history_correction = item.get("correction_count")
+            next_id = task_order[len(history_tasks)] if len(history_tasks) < len(task_order) else None
+            if history_task_id == next_id and history_correction == 0:
+                history_tasks.append(
+                    {
+                        "id": history_task_id,
+                        "head": item["head"],
+                        "correction_count": 0,
+                    }
+                )
+            elif history_tasks and history_task_id == history_tasks[-1]["id"]:
+                if history_correction != history_tasks[-1]["correction_count"] + 1:
+                    raise LifecycleError("batch checkpoint correction history regresses")
+                history_tasks[-1] = {
+                    "id": history_task_id,
+                    "head": item["head"],
+                    "correction_count": history_correction,
+                }
+            else:
+                raise LifecycleError("batch checkpoint history reorders task checkpoints")
+    if _BATCH_EVENT_RANK[highest] != maximum_rank:
+        raise LifecycleError("batch checkpoint high-water event does not match history")
+    if history_tasks != task_checkpoints:
+        raise LifecycleError("batch checkpoint tasks do not match event history")
+    review_head = checkpoint.get("review_head")
+    final_local_head = checkpoint.get("final_local_head")
+    for label, value in (("review", review_head), ("final local", final_local_head)):
+        if value is not None and (
+            not _valid_commit(repo, value)
+            or seed is None
+            or not _is_ancestor(repo, seed, value)
+        ):
+            raise LifecycleError(f"batch checkpoint {label} head is invalid")
+    if review_head is not None and len(task_checkpoints) != len(task_order):
+        raise LifecycleError("batch review was recorded before all task checkpoints")
+    if final_local_head is not None and review_head is None:
+        raise LifecycleError("batch final-local state requires review")
+    pr_number = checkpoint.get("pr_number")
+    pr_head = checkpoint.get("pr_head_sha")
+    if (pr_number is None) != (pr_head is None):
+        raise LifecycleError("batch PR number/head must be recorded together")
+    if pr_number is not None:
+        if (
+            not isinstance(pr_number, int)
+            or isinstance(pr_number, bool)
+            or pr_number <= 0
+            or not _valid_commit(repo, pr_head)
+            or final_local_head is None
+            or pr_head != final_local_head
+        ):
+            raise LifecycleError("batch PR facts are inconsistent")
+    ci_head = checkpoint.get("ci_green_head")
+    if ci_head is not None and (pr_head is None or ci_head != pr_head):
+        raise LifecycleError("batch CI-green head does not match the exact PR head")
+    merge_sha = checkpoint.get("merge_sha")
+    if merge_sha is not None and (
+        ci_head is None
+        or not _valid_commit(repo, merge_sha)
+        or not _is_ancestor(repo, ci_head, merge_sha)
+    ):
+        raise LifecycleError("batch merge facts are inconsistent with green CI")
+    if not _valid_timestamp(checkpoint.get("updated_at")):
+        raise LifecycleError("batch checkpoint timestamp is invalid")
+
+
+def write_batch_checkpoint(
+    *,
+    repo_path: str,
+    state_dir: str,
+    control_sha: str,
+    manifest_path: str,
+    event: str,
+    seed_sha: str | None = None,
+    task_id: str | None = None,
+    correction_count: int | None = None,
+    pr_number: int | None = None,
+    pr_head_sha: str | None = None,
+    ci_head_sha: str | None = None,
+    merge_sha: str | None = None,
+) -> dict[str, Any]:
+    if event not in _BATCH_EVENT_RANK:
+        raise LifecycleError("batch checkpoint event is invalid")
+    repo, state, current_branch, head, clean = _repo_and_state(repo_path, state_dir)
+    if not clean:
+        raise LifecycleError("batch checkpoint requires a clean worktree")
+    manifest = _batch_manifest(repo, control_sha, manifest_path)
+    path = _batch_checkpoint_path(state, manifest["batch_id"], create=False)
+    previous: dict[str, Any] | None = None
+    if path.exists():
+        previous = _load_batch_checkpoint(path, repo)
+        identity = (
+            previous["control_sha"] == control_sha
+            and previous["start_main_sha"] == manifest["expected_start_main_sha"]
+            and previous["manifest_path"] == _safe_relative_path(manifest_path, "manifest path")
+            and previous["branch"] == manifest["implementation_branch"]
+            and Path(previous["repo_path"]).resolve() == repo
+            and previous["task_order"] == [task["id"] for task in manifest["tasks"]]
+        )
+        if not identity:
+            raise LifecycleError("batch checkpoint identity changed")
+    elif event != "preflight":
+        raise LifecycleError("batch checkpoint must begin with preflight")
+
+    if previous is None:
+        if head != manifest["expected_start_main_sha"]:
+            raise LifecycleError("batch preflight HEAD must be the expected start-main")
+        payload: dict[str, Any] = {
+            "schema_version": 1,
+            "mode": "batch",
+            "batch_id": manifest["batch_id"],
+            "control_sha": control_sha,
+            "start_main_sha": manifest["expected_start_main_sha"],
+            "manifest_path": _safe_relative_path(manifest_path, "manifest path"),
+            "branch": manifest["implementation_branch"],
+            "preflight_branch": current_branch,
+            "repo_path": str(repo),
+            "head": head,
+            "highest_event": "preflight",
+            "preflight_ok": True,
+            "seed_sha": None,
+            "task_order": [task["id"] for task in manifest["tasks"]],
+            "task_checkpoints": [],
+            "event_history": [
+                {"event": "preflight", "head": head, "timestamp": _utc_now()}
+            ],
+            "review_head": None,
+            "final_local_head": None,
+            "updated_at": _utc_now(),
+        }
+    else:
+        if event == "preflight":
+            raise LifecycleError("batch preflight cannot be recorded twice")
+        if previous.get("merge_sha") is not None:
+            raise LifecycleError("batch merge is terminal")
+        if event != "merge" and current_branch != manifest["implementation_branch"]:
+            raise LifecycleError("batch lifecycle event requires the implementation branch")
+        payload = dict(previous)
+        payload["head"] = head
+        payload["updated_at"] = _utc_now()
+        if _BATCH_EVENT_RANK[event] > _BATCH_EVENT_RANK[payload["highest_event"]]:
+            payload["highest_event"] = event
+
+        if event == "seed":
+            if previous["seed_sha"] is not None or current_branch != manifest["implementation_branch"]:
+                raise LifecycleError("batch seed can only be recorded once on its implementation branch")
+            selected_seed = seed_sha or head
+            verification = verify_batch_seed(
+                repo_path=str(repo),
+                control_sha=control_sha,
+                manifest_path=manifest_path,
+                seed_sha=selected_seed,
+                allow_later_head=selected_seed != head,
+            )
+            if not verification["ok"]:
+                raise LifecycleError("batch seed verification failed")
+            payload["seed_sha"] = selected_seed
+        elif event == "task":
+            if previous["seed_sha"] is None or current_branch != manifest["implementation_branch"]:
+                raise LifecycleError("batch task checkpoint requires its seed and implementation branch")
+            if not _is_ancestor(repo, previous["seed_sha"], head):
+                raise LifecycleError("batch task HEAD does not preserve seed ancestry")
+            completed = [dict(item) for item in previous["task_checkpoints"]]
+            next_id = previous["task_order"][len(completed)] if len(completed) < len(previous["task_order"]) else None
+            requested_correction = 0 if correction_count is None else correction_count
+            if task_id == next_id and requested_correction == 0:
+                completed.append({"id": task_id, "head": head, "correction_count": 0})
+            elif completed and task_id == completed[-1]["id"]:
+                expected_correction = completed[-1]["correction_count"] + 1
+                if requested_correction != expected_correction or head == completed[-1]["head"]:
+                    raise LifecycleError("batch task correction must advance count and HEAD exactly once")
+                completed[-1] = {
+                    "id": task_id,
+                    "head": head,
+                    "correction_count": requested_correction,
+                }
+                for key in (
+                    "review_head",
+                    "final_local_head",
+                    "pr_number",
+                    "pr_head_sha",
+                    "ci_green_head",
+                    "merge_sha",
+                ):
+                    payload.pop(key, None)
+                payload["review_head"] = None
+                payload["final_local_head"] = None
+            else:
+                raise LifecycleError("batch task checkpoints must advance in manifest order")
+            payload["task_checkpoints"] = completed
+        elif event == "review":
+            if len(previous["task_checkpoints"]) != len(previous["task_order"]):
+                raise LifecycleError("batch review requires every ordered task checkpoint")
+            if previous.get("review_head") is not None:
+                raise LifecycleError("batch review is already recorded")
+            payload["review_head"] = head
+        elif event == "final_local":
+            if previous.get("review_head") is None:
+                raise LifecycleError("batch final-local verification requires review")
+            if previous.get("final_local_head") is not None:
+                raise LifecycleError("batch final-local verification is already recorded")
+            payload["final_local_head"] = head
+        elif event == "pr":
+            if previous.get("final_local_head") != head:
+                raise LifecycleError("batch PR head must equal the final-local verified head")
+            if previous.get("pr_number") is not None:
+                raise LifecycleError("batch PR is already recorded for this exact head")
+            if not isinstance(pr_number, int) or isinstance(pr_number, bool) or pr_number <= 0:
+                raise LifecycleError("batch PR number must be positive")
+            selected_pr_head = pr_head_sha or head
+            if selected_pr_head != head:
+                raise LifecycleError("batch PR head must equal current HEAD")
+            if previous.get("pr_number") not in {None, pr_number}:
+                raise LifecycleError("batch PR number cannot change")
+            payload["pr_number"] = pr_number
+            payload["pr_head_sha"] = selected_pr_head
+            payload.pop("ci_green_head", None)
+            payload.pop("merge_sha", None)
+        elif event == "ci":
+            selected_ci_head = ci_head_sha or head
+            if previous.get("ci_green_head") is not None:
+                raise LifecycleError("batch exact-head CI is already recorded")
+            if previous.get("pr_head_sha") != selected_ci_head or head != selected_ci_head:
+                raise LifecycleError("batch CI must be green for the exact current PR head")
+            payload["ci_green_head"] = selected_ci_head
+        elif event == "merge":
+            selected_merge = merge_sha or head
+            if previous.get("ci_green_head") != previous.get("pr_head_sha"):
+                raise LifecycleError("batch merge requires green CI for the exact PR head")
+            if selected_merge != head or not _is_ancestor(repo, previous["ci_green_head"], selected_merge):
+                raise LifecycleError("batch merge commit must contain the green PR head")
+            payload["merge_sha"] = selected_merge
+
+        history_event: dict[str, Any] = {
+            "event": event,
+            "head": head,
+            "timestamp": payload["updated_at"],
+        }
+        if event == "task":
+            history_event["task_id"] = task_id
+            history_event["correction_count"] = 0 if correction_count is None else correction_count
+        payload["event_history"] = [*previous["event_history"], history_event]
+
+    _validate_batch_checkpoint(payload, repo)
+    path = _batch_checkpoint_path(state, manifest["batch_id"], create=True)
+    _atomic_json(path, payload)
+    return {"status": "recorded", "checkpoint_path": str(path), "checkpoint": payload}
+
+
+def _load_batch_checkpoint(path: Path, repo: Path) -> dict[str, Any]:
+    if path.is_symlink():
+        raise LifecycleError("batch checkpoint file must not be a symlink")
+    try:
+        with path.open("r", encoding="utf-8") as stream:
+            checkpoint = json.load(stream)
+    except (OSError, UnicodeError, json.JSONDecodeError) as exc:
+        raise LifecycleError("batch checkpoint JSON is missing or malformed") from exc
+    if not isinstance(checkpoint, dict):
+        raise LifecycleError("batch checkpoint JSON must be an object")
+    _validate_batch_checkpoint(checkpoint, repo)
+    return checkpoint
+
+
+def batch_checkpoint_status(
+    *,
+    repo_path: str,
+    state_dir: str,
+    control_sha: str,
+    manifest_path: str,
+) -> dict[str, Any]:
+    try:
+        repo, state, branch, head, clean = _repo_and_state(repo_path, state_dir)
+        manifest = _batch_manifest(repo, control_sha, manifest_path)
+        path = _batch_checkpoint_path(state, manifest["batch_id"], create=False)
+        if not path.exists():
+            return {"status": "missing", "batch_id": manifest["batch_id"]}
+        checkpoint = _load_batch_checkpoint(path, repo)
+        identity = (
+            checkpoint["control_sha"] == control_sha
+            and checkpoint["manifest_path"] == _safe_relative_path(manifest_path, "manifest path")
+            and checkpoint["task_order"] == [task["id"] for task in manifest["tasks"]]
+            and Path(checkpoint["repo_path"]).resolve() == repo
+        )
+        if not identity:
+            raise LifecycleError("batch checkpoint identity mismatch")
+        expected_head = checkpoint.get("merge_sha") or checkpoint["head"]
+        expected_branch = (
+            "main"
+            if checkpoint.get("merge_sha")
+            else checkpoint["branch"]
+            if checkpoint.get("seed_sha")
+            else checkpoint["preflight_branch"]
+        )
+        current = head == expected_head and branch == expected_branch
+        return {
+            "status": "current" if current else "stale",
+            "batch_id": manifest["batch_id"],
+            "branch": branch,
+            "head": head,
+            "worktree_clean": clean,
+            "checkpoint": checkpoint,
+        }
+    except LifecycleError as exc:
+        return {"status": "invalid", "error": str(exc)}
+
+
 def _parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description=__doc__)
     commands = parser.add_subparsers(dest="command", required=True)
@@ -1152,6 +1739,15 @@ def _parser() -> argparse.ArgumentParser:
     seed.add_argument("--seed-sha")
     seed.add_argument("--allow-later-head", action="store_true")
 
+    batch_seed = commands.add_parser(
+        "verify-batch-seed", help="verify one immutable integrated-batch seed"
+    )
+    batch_seed.add_argument("--repo", required=True)
+    batch_seed.add_argument("--control-sha", required=True)
+    batch_seed.add_argument("--manifest", required=True)
+    batch_seed.add_argument("--seed-sha")
+    batch_seed.add_argument("--allow-later-head", action="store_true")
+
     checkpoint = commands.add_parser("checkpoint", help="write one durable lifecycle checkpoint")
     checkpoint.add_argument("--repo", required=True)
     checkpoint.add_argument("--state-dir", required=True)
@@ -1167,6 +1763,30 @@ def _parser() -> argparse.ArgumentParser:
     status.add_argument("--repo", required=True)
     status.add_argument("--state-dir", required=True)
     status.add_argument("--assignment", required=True)
+
+    batch_checkpoint = commands.add_parser(
+        "batch-checkpoint", help="record one integrated-batch lifecycle event"
+    )
+    batch_checkpoint.add_argument("--repo", required=True)
+    batch_checkpoint.add_argument("--state-dir", required=True)
+    batch_checkpoint.add_argument("--control-sha", required=True)
+    batch_checkpoint.add_argument("--manifest", required=True)
+    batch_checkpoint.add_argument("--event", choices=_BATCH_EVENTS, required=True)
+    batch_checkpoint.add_argument("--seed-sha")
+    batch_checkpoint.add_argument("--task")
+    batch_checkpoint.add_argument("--correction-count", type=int)
+    batch_checkpoint.add_argument("--pr-number", type=int)
+    batch_checkpoint.add_argument("--pr-head-sha")
+    batch_checkpoint.add_argument("--ci-head-sha")
+    batch_checkpoint.add_argument("--merge-sha")
+
+    batch_status = commands.add_parser(
+        "batch-checkpoint-status", help="inspect integrated-batch lifecycle state"
+    )
+    batch_status.add_argument("--repo", required=True)
+    batch_status.add_argument("--state-dir", required=True)
+    batch_status.add_argument("--control-sha", required=True)
+    batch_status.add_argument("--manifest", required=True)
     return parser
 
 
@@ -1207,6 +1827,14 @@ def main(argv: list[str] | None = None) -> int:
                 seed_sha=args.seed_sha,
                 allow_later_head=args.allow_later_head,
             )
+        elif args.command == "verify-batch-seed":
+            result = verify_batch_seed(
+                repo_path=args.repo,
+                control_sha=args.control_sha,
+                manifest_path=args.manifest,
+                seed_sha=args.seed_sha,
+                allow_later_head=args.allow_later_head,
+            )
         elif args.command == "checkpoint":
             result = write_checkpoint(
                 repo_path=args.repo,
@@ -1219,11 +1847,33 @@ def main(argv: list[str] | None = None) -> int:
                 pr_head_sha=args.pr_head_sha,
                 merge_sha=args.merge_sha,
             )
-        else:
+        elif args.command == "checkpoint-status":
             result = checkpoint_status(
                 repo_path=args.repo,
                 state_dir=args.state_dir,
                 assignment=args.assignment,
+            )
+        elif args.command == "batch-checkpoint":
+            result = write_batch_checkpoint(
+                repo_path=args.repo,
+                state_dir=args.state_dir,
+                control_sha=args.control_sha,
+                manifest_path=args.manifest,
+                event=args.event,
+                seed_sha=args.seed_sha,
+                task_id=args.task,
+                correction_count=args.correction_count,
+                pr_number=args.pr_number,
+                pr_head_sha=args.pr_head_sha,
+                ci_head_sha=args.ci_head_sha,
+                merge_sha=args.merge_sha,
+            )
+        else:
+            result = batch_checkpoint_status(
+                repo_path=args.repo,
+                state_dir=args.state_dir,
+                control_sha=args.control_sha,
+                manifest_path=args.manifest,
             )
     except LifecycleError as exc:
         result = {"status": "invalid", "ok": False, "error": str(exc)}

@@ -18,6 +18,20 @@ repository identity is checked from `--repo`/`--expected-repo-path`. This keeps 
 same committed tests valid when CI checks out the repository at another absolute
 path.
 
+Current integrated batches use three explicit command surfaces:
+
+```text
+verify-batch-seed
+batch-checkpoint
+batch-checkpoint-status
+```
+
+Batch seed verification proves the control manifest and every ordered assignment
+copy at the single seed commit. Batch checkpoints record preflight, seed, ordered
+task heads/corrections, review, final-local verification, PR/exact head, exact-head
+CI, and merge facts in an atomic private file outside the repository. Legacy
+`verify-seed`, `checkpoint`, and `checkpoint-status` meanings are unchanged.
+
 ## Full-local verifier
 
 `tools/agent/canonical_verifier.py`
