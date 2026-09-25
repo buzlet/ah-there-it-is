@@ -520,3 +520,172 @@ def test_portable_v1_fixture_uses_bounded_dry_run(
     assert result["source_alembic_revision"] == "c4cfe3a3e921"
     assert result["items"] == result["events"] == 3
     assert not destination.exists()
+
+
+def _large_portable_document() -> dict:
+    stamp = "2026-09-25T00:00:00+00:00"
+    locations = [
+        {
+            "id": index,
+            "parent_id": index - 1 if index % 10 != 1 else None,
+            "name": f"Location {index}",
+            "description": f"Location description {index}",
+            "created_at": stamp,
+            "updated_at": stamp,
+        }
+        for index in range(120, 0, -1)
+    ]
+    categories = [
+        {
+            "id": index,
+            "parent_id": index - 1 if index % 5 != 1 else None,
+            "name": f"Category {index}",
+            "description": None,
+            "created_at": stamp,
+            "updated_at": stamp,
+        }
+        for index in range(30, 0, -1)
+    ]
+    items = []
+    for index in range(1000, 0, -1):
+        mode = index % 4
+        state, location_status, location_id = (
+            ("working", "known", (index % 120) + 1)
+            if mode == 0
+            else ("unknown", "unknown", None)
+            if mode == 1
+            else ("used", "in_use", None)
+            if mode == 2
+            else ("sold", "not_applicable", None)
+        )
+        items.append(
+            {
+                "id": index,
+                "name": f"Scale Item {index}",
+                "description": f"Scale description {index}",
+                "state": state,
+                "category_id": (index % 30) + 1,
+                "location_id": location_id,
+                "location_status": location_status,
+                "quantity": (index % 3) + 1,
+                "attributes": {"index": index, "group": index % 11},
+                "aliases": [f"Alias {index}"],
+                "tags": [f"Tag {index % 23}", "Scale"],
+                "created_at": stamp,
+                "updated_at": stamp,
+            }
+        )
+    events = [
+        {
+            "id": index,
+            "event_type": "scale_event",
+            "item_id": (index % 1000) + 1,
+            "from_location_id": None,
+            "to_location_id": (index % 120) + 1,
+            "payload": {"index": index, "body": "payload-" + "x" * 128},
+            "original_text": f"event {index} " + "y" * 64,
+            "created_at": stamp,
+        }
+        for index in range(10000, 0, -1)
+    ]
+    return {
+        "history": {"events": events},
+        "excluded": [
+            "agent_run_logs", "agent_feedback", "experiment_runs",
+            "experiment_reviews", "provider_metadata",
+        ],
+        "inventory": {
+            "items": items,
+            "locations": locations,
+            "categories": categories,
+        },
+        "source": {"alembic_revision": "a4b7c9d2e610"},
+        "exported_at": stamp,
+        "format": "inventory-portable-v2",
+    }
+
+
+def _portable_semantics(value: dict) -> dict:
+    normalized = json.loads(json.dumps(value))
+    normalized.pop("exported_at", None)
+    for section in ("categories", "locations", "items"):
+        normalized["inventory"][section].sort(key=lambda row: row["id"])
+    normalized["history"]["events"].sort(key=lambda row: row["id"])
+    for item in normalized["inventory"]["items"]:
+        item["aliases"].sort(key=str.casefold)
+        item["tags"].sort(key=str.casefold)
+    return normalized
+
+
+def test_portable_target_scale_bounded_roundtrip_and_late_failure(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    from ah_there_it_is import portable_stream, storage, storage_cli
+
+    raw = _large_portable_document()
+    encoded = json.dumps(raw, ensure_ascii=False, separators=(",", ":")).encode()
+    source = tmp_path / "large-portable.json"
+    source.write_bytes(encoded)
+    active = tmp_path / "active.db"
+    active_url = f"sqlite:///{active}"
+    upgrade_database(active_url)
+    imported = tmp_path / "large-imported.db"
+    reexported = tmp_path / "large-reexported.json"
+    trackers: list[_TrackingBytes] = []
+    original_open = Path.open
+
+    def tracked_open(path: Path, mode: str = "r", *args, **kwargs):
+        if path.resolve() == source.resolve() and mode == "rb":
+            tracker = _TrackingBytes(encoded)
+            trackers.append(tracker)
+            return tracker
+        return original_open(path, mode, *args, **kwargs)
+
+    monkeypatch.setattr(Path, "open", tracked_open)
+    monkeypatch.setattr(portable_stream.tempfile, "tempdir", str(tmp_path))
+    monkeypatch.setattr(storage_cli, "get_settings", lambda: Settings(database_url=active_url))
+    monkeypatch.setattr(
+        storage,
+        "load_portable_inventory",
+        lambda _source: (_ for _ in ()).throw(AssertionError("complete parser used")),
+    )
+    monkeypatch.setattr(
+        sys,
+        "argv",
+        ["storage_cli", "import-json", str(source), str(imported), "--dry-run"],
+    )
+    assert storage_cli.main() == 0
+    dry_run = json.loads(capsys.readouterr().out)
+    assert dry_run["locations"] == 120
+    assert dry_run["categories"] == 30
+    assert dry_run["items"] == 1000
+    assert dry_run["events"] == 10000
+
+    result = import_portable_inventory(active_url, source, imported)
+    assert (result.locations, result.categories, result.items, result.events) == (
+        120, 30, 1000, 10000,
+    )
+    from ah_there_it_is.storage import export_portable_inventory
+
+    reconstructed = export_portable_inventory(f"sqlite:///{imported}", reexported)
+    assert _portable_semantics(reconstructed) == _portable_semantics(raw)
+    assert trackers and all(
+        size == 64 * 1024
+        for tracker in trackers
+        for size in tracker.read_sizes
+    )
+
+    late_source = tmp_path / "large-late-invalid.json"
+    late_source.write_bytes(encoded[:-1])
+    late_destination = tmp_path / "large-late-failed.db"
+    active_before = active.read_bytes()
+    source_before = late_source.read_bytes()
+    with pytest.raises(PortableInventoryValidationError, match="unexpected end|expected"):
+        import_portable_inventory(active_url, late_source, late_destination)
+    assert not late_destination.exists()
+    assert active.read_bytes() == active_before
+    assert late_source.read_bytes() == source_before
+    assert not list(tmp_path.glob("ah-portable-input-*"))
+    assert not list(tmp_path.glob(".large-late-failed.db.portable-*.tmp"))
