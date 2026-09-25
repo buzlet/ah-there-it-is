@@ -44,7 +44,9 @@ Implementer stops at:
 
 `READY FOR REVIEW`
 
-Reviewer works on the same PR/branch and may append correction commits according
-to `agent-tasks/common/v9.md`.
+Reviewer is an independent role. Review the exact implementation head without
+reading the implementer's self-review, handoff, conclusions or remaining-risk list.
+The reviewer may append correction commits to the same PR/branch only for
+independently established findings, according to `agent-tasks/common/v9.md`.
 
 Neither implementer nor reviewer merges.
