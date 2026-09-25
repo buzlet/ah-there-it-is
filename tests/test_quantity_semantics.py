@@ -155,3 +155,10 @@ def test_quantity_change_requires_nonblank_reason(session: Session, reason: str)
             reason=reason,
             reason_source="explicit",
         )
+
+
+def test_quantity_above_sqlite_integer_range_fails_at_domain_boundary(
+    session: Session,
+) -> None:
+    with pytest.raises(ValueError, match="quantity must be an integer"):
+        InventoryService(session).create_item("Impossible count", quantity=2**63)

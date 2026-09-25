@@ -7,6 +7,8 @@ from enum import StrEnum
 
 from ah_there_it_is.domain.states import QuantityMode
 
+MAX_SQLITE_INTEGER = 2**63 - 1
+
 
 class ReasonSource(StrEnum):
     EXPLICIT = "explicit"
@@ -26,9 +28,11 @@ class QuantityValue:
         if (
             not isinstance(self.value, int)
             or isinstance(self.value, bool)
-            or self.value < 1
+            or not 1 <= self.value <= MAX_SQLITE_INTEGER
         ):
-            raise ValueError("exact and approximate quantity must be an integer >= 1")
+            raise ValueError(
+                f"exact and approximate quantity must be an integer between 1 and {MAX_SQLITE_INTEGER}"
+            )
 
     @classmethod
     def coerce(

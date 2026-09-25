@@ -4,10 +4,10 @@ from __future__ import annotations
 
 import json
 from collections.abc import Callable
-from typing import TypeVar
+from typing import Annotated, TypeVar
 from urllib.parse import urlencode
 
-from fastapi import APIRouter, Depends, HTTPException, Request
+from fastapi import APIRouter, Depends, HTTPException, Path as PathParam, Query, Request
 from fastapi.responses import HTMLResponse
 from fastapi.templating import Jinja2Templates
 from sqlalchemy.exc import IntegrityError
@@ -16,6 +16,7 @@ from sqlalchemy.orm import Session
 from ah_there_it_is.agent.errors import AgentTurnFailedError
 from ah_there_it_is.db.models import ItemMedia
 from ah_there_it_is.domain.exceptions import EntityNotFoundError, InventoryError
+from ah_there_it_is.domain.quantity import MAX_SQLITE_INTEGER
 from ah_there_it_is.services.activity import ActivityService
 from ah_there_it_is.services.catalog import CatalogService
 from ah_there_it_is.services.chat_application import ChatApplicationService
@@ -63,6 +64,9 @@ from ah_there_it_is.web.schemas import (
 
 
 _T = TypeVar("_T")
+PathId = Annotated[int, PathParam(gt=0, le=MAX_SQLITE_INTEGER)]
+PageNumber = Annotated[int, Query(le=MAX_SQLITE_INTEGER // 100)]
+OptionalQueryId = Annotated[int | None, Query(le=MAX_SQLITE_INTEGER)]
 
 
 def _manual_mutation(session: Session, action: Callable[[], _T]) -> _T:
@@ -252,7 +256,7 @@ def build_router(templates: Jinja2Templates) -> APIRouter:
     @router.get("/chat-requests", response_class=HTMLResponse)
     def chat_requests_page(
         request: Request,
-        page: int = 1,
+        page: PageNumber = 1,
         page_size: int = ChatRequestService.DEFAULT_PAGE_SIZE,
         session: Session = Depends(get_session),
     ) -> HTMLResponse:
@@ -334,9 +338,9 @@ def build_router(templates: Jinja2Templates) -> APIRouter:
 
     @router.get("/api/conversations/{conversation_id}", response_model=ConversationResponse)
     def conversation(
-        conversation_id: int,
+        conversation_id: PathId,
         limit: int = ConversationService.DEFAULT_MESSAGE_WINDOW_LIMIT,
-        before_id: int | None = None,
+        before_id: OptionalQueryId = None,
         session: Session = Depends(get_session),
     ) -> ConversationResponse:
         conversations = ConversationService(session)
@@ -379,7 +383,7 @@ def build_router(templates: Jinja2Templates) -> APIRouter:
 
     @router.post("/api/runs/{run_id}/feedback", response_model=FeedbackResponse)
     def feedback(
-        run_id: int,
+        run_id: PathId,
         payload: FeedbackRequest,
         session: Session = Depends(get_session),
     ) -> FeedbackResponse:
@@ -402,8 +406,8 @@ def build_router(templates: Jinja2Templates) -> APIRouter:
     def activity(
         request: Request,
         event_type: str | None = None,
-        item_id: int | None = None,
-        page: int = 1,
+        item_id: OptionalQueryId = None,
+        page: PageNumber = 1,
         page_size: int = ActivityService.DEFAULT_PAGE_SIZE,
         session: Session = Depends(get_session),
     ) -> HTMLResponse:
@@ -449,7 +453,7 @@ def build_router(templates: Jinja2Templates) -> APIRouter:
 
     @router.get("/activity/{event_id}", response_class=HTMLResponse)
     def activity_detail(
-        event_id: int,
+        event_id: PathId,
         request: Request,
         session: Session = Depends(get_session),
     ) -> HTMLResponse:
@@ -472,7 +476,7 @@ def build_router(templates: Jinja2Templates) -> APIRouter:
         q: str = "",
         lifecycle: str | None = None,
         location_status: str = "all",
-        page: int = 1,
+        page: PageNumber = 1,
         page_size: int = CatalogService.DEFAULT_PAGE_SIZE,
         session: Session = Depends(get_session),
     ) -> HTMLResponse:
@@ -529,9 +533,9 @@ def build_router(templates: Jinja2Templates) -> APIRouter:
 
     @router.get("/items/{item_id}", response_class=HTMLResponse)
     def item_detail(
-        item_id: int,
+        item_id: PathId,
         request: Request,
-        page: int = 1,
+        page: PageNumber = 1,
         page_size: int = CatalogService.DEFAULT_PAGE_SIZE,
         session: Session = Depends(get_session),
     ) -> HTMLResponse:
@@ -576,7 +580,7 @@ def build_router(templates: Jinja2Templates) -> APIRouter:
 
     @router.patch("/api/items/{item_id}", response_model=ItemResponse)
     def edit_item(
-        item_id: int,
+        item_id: PathId,
         payload: ItemEditRequest,
         session: Session = Depends(get_session),
     ) -> ItemResponse:
@@ -600,7 +604,7 @@ def build_router(templates: Jinja2Templates) -> APIRouter:
         include_in_schema=False,
     )
     def list_item_media(
-        item_id: int,
+        item_id: PathId,
         session: Session = Depends(get_session),
     ) -> list[ItemMediaResponse]:
         try:
@@ -621,7 +625,7 @@ def build_router(templates: Jinja2Templates) -> APIRouter:
         include_in_schema=False,
     )
     def attach_item_media(
-        item_id: int,
+        item_id: PathId,
         payload: ItemMediaAttachRequest,
         session: Session = Depends(get_session),
     ) -> ItemMediaResponse:
@@ -645,8 +649,8 @@ def build_router(templates: Jinja2Templates) -> APIRouter:
         include_in_schema=False,
     )
     def update_item_media(
-        item_id: int,
-        media_id: int,
+        item_id: PathId,
+        media_id: PathId,
         payload: ItemMediaUpdateRequest,
         session: Session = Depends(get_session),
     ) -> ItemMediaResponse:
@@ -677,8 +681,8 @@ def build_router(templates: Jinja2Templates) -> APIRouter:
         include_in_schema=False,
     )
     def detach_item_media(
-        item_id: int,
-        media_id: int,
+        item_id: PathId,
+        media_id: PathId,
         session: Session = Depends(get_session),
     ) -> ItemMediaResponse:
         inventory = InventoryService(session, autocommit=False)
@@ -697,7 +701,7 @@ def build_router(templates: Jinja2Templates) -> APIRouter:
 
     @router.post("/api/items/{item_id}/move", response_model=ItemResponse)
     def move_item(
-        item_id: int,
+        item_id: PathId,
         payload: ItemMoveRequest,
         session: Session = Depends(get_session),
     ) -> ItemResponse:
@@ -715,7 +719,7 @@ def build_router(templates: Jinja2Templates) -> APIRouter:
 
     @router.post("/api/items/{item_id}/take", response_model=ItemResponse)
     def take_item(
-        item_id: int,
+        item_id: PathId,
         payload: ItemTakeRequest | None = None,
         session: Session = Depends(get_session),
     ) -> ItemResponse:
@@ -736,7 +740,7 @@ def build_router(templates: Jinja2Templates) -> APIRouter:
 
     @router.post("/api/items/{item_id}/location-unknown", response_model=ItemResponse)
     def mark_item_location_unknown(
-        item_id: int,
+        item_id: PathId,
         session: Session = Depends(get_session),
     ) -> ItemResponse:
         inventory = InventoryService(session, autocommit=False)
@@ -750,7 +754,7 @@ def build_router(templates: Jinja2Templates) -> APIRouter:
 
     @router.post("/api/items/{item_id}/quantity", response_model=ItemResponse)
     def change_item_quantity(
-        item_id: int,
+        item_id: PathId,
         payload: ItemQuantityChangeRequest,
         session: Session = Depends(get_session),
     ) -> ItemResponse:
@@ -767,7 +771,7 @@ def build_router(templates: Jinja2Templates) -> APIRouter:
 
     @router.post("/api/items/{item_id}/remove", response_model=ItemResponse)
     def remove_item(
-        item_id: int,
+        item_id: PathId,
         payload: ItemRemoveRequest,
         session: Session = Depends(get_session),
     ) -> ItemResponse:
@@ -786,7 +790,7 @@ def build_router(templates: Jinja2Templates) -> APIRouter:
 
     @router.post("/api/items/{item_id}/restore", response_model=ItemResponse)
     def restore_item(
-        item_id: int,
+        item_id: PathId,
         payload: ItemRestoreRequest,
         session: Session = Depends(get_session),
     ) -> ItemResponse:
@@ -815,8 +819,8 @@ def build_router(templates: Jinja2Templates) -> APIRouter:
 
     @router.get("/locations/{location_id}", response_class=HTMLResponse)
     def location_detail_page(
-        location_id: int, request: Request,
-        page: int = 1,
+        location_id: PathId, request: Request,
+        page: PageNumber = 1,
         session: Session = Depends(get_session),
     ) -> HTMLResponse:
         try:
@@ -833,7 +837,7 @@ def build_router(templates: Jinja2Templates) -> APIRouter:
 
     @router.get("/locations/{location_id}/edit", response_class=HTMLResponse)
     def location_edit_page(
-        location_id: int, request: Request, session: Session = Depends(get_session)
+        location_id: PathId, request: Request, session: Session = Depends(get_session)
     ) -> HTMLResponse:
         rows = CatalogService(session).list_locations()
         node = next((row for row in rows if row["id"] == location_id), None)
@@ -854,7 +858,7 @@ def build_router(templates: Jinja2Templates) -> APIRouter:
 
     @router.patch("/api/locations/{location_id}", response_model=TreeResponse)
     def edit_location(
-        location_id: int, payload: TreeEditRequest, session: Session = Depends(get_session)
+        location_id: PathId, payload: TreeEditRequest, session: Session = Depends(get_session)
     ) -> TreeResponse:
         inventory = InventoryService(session, autocommit=False)
         node = _manual_mutation(
@@ -876,8 +880,8 @@ def build_router(templates: Jinja2Templates) -> APIRouter:
 
     @router.get("/categories/{category_id}", response_class=HTMLResponse)
     def category_detail_page(
-        category_id: int, request: Request,
-        page: int = 1,
+        category_id: PathId, request: Request,
+        page: PageNumber = 1,
         session: Session = Depends(get_session),
     ) -> HTMLResponse:
         try:
@@ -894,7 +898,7 @@ def build_router(templates: Jinja2Templates) -> APIRouter:
 
     @router.get("/categories/{category_id}/edit", response_class=HTMLResponse)
     def category_edit_page(
-        category_id: int, request: Request, session: Session = Depends(get_session)
+        category_id: PathId, request: Request, session: Session = Depends(get_session)
     ) -> HTMLResponse:
         rows = CatalogService(session).list_categories()
         node = next((row for row in rows if row["id"] == category_id), None)
@@ -915,7 +919,7 @@ def build_router(templates: Jinja2Templates) -> APIRouter:
 
     @router.patch("/api/categories/{category_id}", response_model=TreeResponse)
     def edit_category(
-        category_id: int, payload: TreeEditRequest, session: Session = Depends(get_session)
+        category_id: PathId, payload: TreeEditRequest, session: Session = Depends(get_session)
     ) -> TreeResponse:
         inventory = InventoryService(session, autocommit=False)
         node = _manual_mutation(
@@ -928,7 +932,7 @@ def build_router(templates: Jinja2Templates) -> APIRouter:
     @router.get("/experiments", response_class=HTMLResponse)
     def experiments(
         request: Request,
-        page: int = 1,
+        page: PageNumber = 1,
         page_size: int = ExperimentService.DEFAULT_PAGE_SIZE,
         session: Session = Depends(get_session),
     ) -> HTMLResponse:
@@ -956,7 +960,7 @@ def build_router(templates: Jinja2Templates) -> APIRouter:
 
     @router.get("/experiments/{experiment_run_id}", response_class=HTMLResponse)
     def experiment_detail(
-        experiment_run_id: int,
+        experiment_run_id: PathId,
         request: Request,
         session: Session = Depends(get_session),
     ) -> HTMLResponse:
@@ -980,7 +984,7 @@ def build_router(templates: Jinja2Templates) -> APIRouter:
         response_model=ExperimentReviewResponse,
     )
     def experiment_review(
-        experiment_run_id: int,
+        experiment_run_id: PathId,
         payload: ExperimentReviewRequest,
         session: Session = Depends(get_session),
     ) -> ExperimentReviewResponse:
@@ -1005,7 +1009,7 @@ def build_router(templates: Jinja2Templates) -> APIRouter:
     @router.get("/evaluations", response_class=HTMLResponse)
     def evaluations(
         request: Request,
-        page: int = 1,
+        page: PageNumber = 1,
         page_size: int = EvaluationService.DEFAULT_PAGE_SIZE,
         session: Session = Depends(get_session),
     ) -> HTMLResponse:
@@ -1033,7 +1037,7 @@ def build_router(templates: Jinja2Templates) -> APIRouter:
 
     @router.get("/evaluations/{run_id}", response_class=HTMLResponse)
     def evaluation_detail(
-        run_id: int,
+        run_id: PathId,
         request: Request,
         session: Session = Depends(get_session),
     ) -> HTMLResponse:

@@ -4,18 +4,27 @@
 from __future__ import annotations
 
 import json
+import traceback
+from io import BytesIO
+from urllib.error import HTTPError
 
 from fastapi.testclient import TestClient
 import httpx
+import pytest
+from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from ah_there_it_is.agent import AgentRunner, LLMResponse, ScriptedLLMClient
+from ah_there_it_is.agent.errors import ProviderProtocolError, ProviderRequestError
 from ah_there_it_is.agent.gemini import GeminiConfig, GeminiLLMClient
 from ah_there_it_is.agent.openai_compatible import (
     OpenAICompatibleConfig, OpenAICompatibleLLMClient,
 )
 from ah_there_it_is.app import create_app
 from ah_there_it_is.config import Settings
+from ah_there_it_is.db.models import AgentRunLog
+from ah_there_it_is.services.chat_application import ChatApplicationService
+from ah_there_it_is.services.chat_requests import ChatRequestService
 from ah_there_it_is.services.evaluation import EvaluationService
 
 
@@ -105,11 +114,15 @@ def test_gemini_trace_config_excludes_secrets_but_request_keeps_extra_body() -> 
     assert config["has_extra_body"] is True
     assert config["temperature"] == 0.4
     serialized = json.dumps(adapter.info.model_dump())
-    for secret in (
+    secrets = (
         "password-gemini", "query-gemini", "fragment-gemini",
         "nested-gemini", "api-gemini-secret",
-    ):
+    )
+    for secret in secrets:
         assert secret not in serialized
+    safe_error = adapter._safe_error_detail("provider echoed " + " ".join(secrets))
+    assert not any(secret in safe_error for secret in secrets)
+    assert "[redacted]" in safe_error
 
 
 def test_historical_config_shape_remains_readable(session: Session) -> None:
@@ -127,3 +140,133 @@ def test_historical_config_shape_remains_readable(session: Session) -> None:
         detail = web.get(f"/evaluations/{run_id}")
     assert detail.status_code == 200
     assert "historical-value" in detail.text
+
+
+def test_provider_error_redacts_config_secrets_before_durable_failure_evidence(
+    session: Session,
+) -> None:
+    secrets = (
+        "TEST_API_SECRET_0087",
+        "TEST_PASSWORD_SECRET_0087",
+        "TEST_QUERY_SECRET_0087",
+        "TEST_FRAGMENT_SECRET_0087",
+        "TEST_NESTED_SECRET_0087",
+    )
+
+    def respond(_request: httpx.Request) -> httpx.Response:
+        return httpx.Response(400, text="denied " + " ".join(secrets))
+
+    config = OpenAICompatibleConfig(
+        base_url=(
+            "https://user:TEST_PASSWORD_SECRET_0087@provider.example/v1"
+            "?token=TEST_QUERY_SECRET_0087#TEST_FRAGMENT_SECRET_0087"
+        ),
+        model="test-model",
+        api_key=secrets[0],
+        extra_body={"nested": {"secret": secrets[-1]}},
+        max_retries=0,
+    )
+    with httpx.Client(transport=httpx.MockTransport(respond)) as transport:
+        service = ChatApplicationService(
+            session,
+            lambda: OpenAICompatibleLLMClient(config, client=transport),
+        )
+        with pytest.raises(ProviderRequestError) as error:
+            service.execute_chat(
+                "Trigger provider failure",
+                request_key="provider-failure-0087",
+                source_identity="web",
+            )
+
+    run = session.scalar(select(AgentRunLog).order_by(AgentRunLog.id.desc()).limit(1))
+    record = ChatRequestService(session).get("provider-failure-0087")
+    assert run is not None and run.status == "failed"
+    assert record is not None and record.status == "failed"
+    evidence = json.dumps(
+        {
+            "exception": str(error.value),
+            "run_error": run.error,
+            "tool_trace": run.tool_trace,
+            "receipts": run.mutation_receipts,
+            "request_error": record.error,
+            "source_identity": record.source_identity,
+        },
+        ensure_ascii=False,
+    )
+    assert not any(secret in evidence for secret in secrets)
+    assert "[redacted]" in evidence
+
+
+def test_provider_trace_url_does_not_persist_configured_key_in_path() -> None:
+    secret = "TEST_PATH_API_SECRET_0087"
+    url = f"https://provider.example/v1/{secret}"
+    openai = OpenAICompatibleLLMClient(OpenAICompatibleConfig(
+        base_url=url, model="test", api_key=secret,
+    ))
+    gemini = GeminiLLMClient(GeminiConfig(
+        base_url=url, model="test", api_key=secret,
+    ))
+    assert secret not in json.dumps(openai.info.model_dump())
+    assert secret not in json.dumps(gemini.info.model_dump())
+
+
+def test_provider_request_error_traceback_does_not_expose_key() -> None:
+    secret = "TEST_TRACEBACK_API_SECRET_0087"
+
+    def fail(_request: httpx.Request) -> httpx.Response:
+        raise httpx.ConnectError(f"connection failed: {secret}")
+
+    with httpx.Client(transport=httpx.MockTransport(fail)) as transport:
+        adapter = OpenAICompatibleLLMClient(OpenAICompatibleConfig(
+            base_url="https://provider.example/v1", model="test",
+            api_key=secret, max_retries=0,
+        ), client=transport)
+        from ah_there_it_is.agent.protocol import AgentMessage
+        with pytest.raises(ProviderRequestError) as error:
+            adapter.complete([AgentMessage(role="user", content="Hello")], [])
+    assert secret not in "".join(traceback.format_exception(error.value))
+
+
+def test_gemini_http_error_traceback_does_not_expose_key(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    secret = "TEST_GEMINI_TRACEBACK_SECRET_0087"
+
+    def fail(*_args, **_kwargs):
+        raise HTTPError(
+            f"https://provider.example/{secret}", 400, secret, {},
+            BytesIO(f"denied {secret}".encode()),
+        )
+
+    monkeypatch.setattr("ah_there_it_is.agent.gemini.urlopen", fail)
+    adapter = GeminiLLMClient(GeminiConfig(
+        model="test", api_key=secret, max_retries=0,
+    ))
+    from ah_there_it_is.agent.protocol import AgentMessage
+    with pytest.raises(ProviderRequestError) as error:
+        adapter.complete([AgentMessage(role="user", content="Hello")], [])
+    assert secret not in "".join(traceback.format_exception(error.value))
+
+
+def test_malformed_provider_response_cannot_persist_echoed_key(session: Session) -> None:
+    secret = "TEST_MALFORMED_RESPONSE_SECRET_0087"
+
+    def respond(_request: httpx.Request) -> httpx.Response:
+        return httpx.Response(200, json={
+            "choices": [{"message": {"content": [secret]}}],
+        })
+
+    with httpx.Client(transport=httpx.MockTransport(respond)) as transport:
+        service = ChatApplicationService(session, lambda: OpenAICompatibleLLMClient(
+            OpenAICompatibleConfig(
+                base_url="https://provider.example/v1", model="test",
+                api_key=secret, max_retries=0,
+            ), client=transport,
+        ))
+        with pytest.raises(Exception) as error:
+            service.execute_chat("Hello", request_key="malformed-0087")
+    run = session.scalar(select(AgentRunLog).order_by(AgentRunLog.id.desc()).limit(1))
+    record = ChatRequestService(session).get("malformed-0087")
+    assert run is not None and record is not None
+    assert secret not in json.dumps({"run": run.error, "request": record.error})
+    assert isinstance(error.value, ProviderProtocolError)

@@ -244,3 +244,77 @@ def test_quantity_second_writer_is_blocked_after_model_turn_first_flushed_write(
     assert len(outcomes) == 1
     with factory() as durable:
         assert InventoryService(durable).get_item(item.id).quantity == 2
+
+
+def test_process_death_after_reservation_stays_processing_until_explicit_recovery(
+    database_factory,
+) -> None:
+    _, factory = database_factory
+
+    class SimulatedProcessDeath(BaseException):
+        pass
+
+    with pytest.raises(SimulatedProcessDeath):
+        with factory() as session:
+            ChatRequestService(session).execute(
+                request_key="reserved-death-0085",
+                message="Create New meter",
+                conversation_id=None,
+                operation=lambda _commit: (_ for _ in ()).throw(
+                    SimulatedProcessDeath("process died after reservation")
+                ),
+            )
+
+    with factory() as durable:
+        source = ChatRequestService(durable).get("reserved-death-0085")
+        assert source is not None
+        assert source.status == "processing"
+        assert source.agent_run_id is None
+        assert counts(durable) == (0, 0, 0, 0)
+
+        recovered = ChatRequestService(durable).recover(
+            source_request_key="reserved-death-0085",
+            new_request_key="reserved-recovery-0085",
+            recovery_note="Operator verified that no AgentRunner work started.",
+            operation=lambda commit: AgentRunner(durable, create_llm()).run(
+                "Create New meter", commit_on_success=commit
+            ),
+        )
+        attempt = ChatRequestService(durable).get("reserved-recovery-0085")
+        assert recovered.replayed is False
+        assert attempt is not None and attempt.status == "completed"
+        assert attempt.recovered_from_id == source.id
+        assert source.status == "processing"
+        assert counts(durable) == (1, 1, 2, 1)
+
+
+def test_process_death_after_provisional_turn_flush_rolls_back_business_state(
+    database_factory,
+) -> None:
+    _, factory = database_factory
+
+    class SimulatedProcessDeath(BaseException):
+        pass
+
+    with pytest.raises(SimulatedProcessDeath):
+        with factory() as session:
+            def operation(commit: bool):
+                assert commit is False
+                AgentRunner(session, create_llm()).run(
+                    "Create New meter", commit_on_success=False
+                )
+                raise SimulatedProcessDeath("process died before final commit")
+
+            ChatRequestService(session).execute(
+                request_key="provisional-death-0085",
+                message="Create New meter",
+                conversation_id=None,
+                operation=operation,
+            )
+
+    with factory() as durable:
+        record = ChatRequestService(durable).get("provisional-death-0085")
+        assert record is not None
+        assert record.status == "processing"
+        assert record.agent_run_id is None
+        assert counts(durable) == (0, 0, 0, 0)

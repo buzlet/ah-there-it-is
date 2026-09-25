@@ -530,3 +530,26 @@ def test_suggested_location_is_seen_but_does_not_authorize_move(
     assert attempted_move["error"]["type"] == "ToolPreconditionError"
     assert inventory.get_item(target.id).current_location_id is None
     assert int(session.scalar(select(func.count(Event.id))) or 0) == events_before
+
+
+def test_tool_integer_ids_reject_boolean_alias_of_existing_item(session: Session) -> None:
+    inventory = InventoryService(session)
+    item = inventory.create_item("Boolean target", quantity=5)
+    assert item.id == 1
+    dispatcher = ToolDispatcher(session)
+    assert dispatcher.execute("search_items", {"query": "Boolean target"})["ok"] is True
+
+    result = dispatcher.execute(
+        "change_item_quantity",
+        {
+            "item_id": True,
+            "quantity_mode": "exact",
+            "quantity": 2,
+            "reason": "malformed boolean id",
+            "reason_source": "explicit",
+        },
+    )
+
+    assert result["ok"] is False
+    assert result["error"]["type"] == "invalid_arguments"
+    assert inventory.get_item(item.id).quantity == 5

@@ -375,3 +375,131 @@ def test_media_undo_stale_post_state_rolls_back_all_compensation(session: Sessio
         photo.id for photo in photos
     ]
     assert [event.id for event in inventory.get_item_history(item.id)] == before_event_ids
+
+
+def test_media_attach_and_remove_same_turn_undo_is_atomic(session: Session) -> None:
+    inventory = InventoryService(session)
+    shelf = inventory.create_location("Combined shelf")
+    item = inventory.create_item("Combined camera", location_id=shelf.id, quantity=2)
+    run = AgentRunner(
+        session,
+        ScriptedLLMClient([
+            LLMResponse(tool_calls=(ToolCall(
+                id="search", name="search_items", arguments={"query": "Combined camera"}
+            ),)),
+            LLMResponse(tool_calls=(
+                ToolCall(id="photo", name="attach_item_photo", arguments={
+                    "item_id": item.id,
+                    "provider": "local",
+                    "media_reference": "combined-photo",
+                    "caption": "front",
+                }),
+                ToolCall(id="remove", name="remove_item", arguments={
+                    "item_id": item.id,
+                    "reason": "temporary removal",
+                    "reason_source": "explicit",
+                }),
+            )),
+            LLMResponse(content="Done."),
+        ]),
+    ).run("Attach this reference and remove the camera")
+
+    assert [receipt.operation for receipt in run.receipts] == [
+        "attach_item_photo", "remove_item"
+    ]
+    assert inventory.get_item(item.id).state == "removed"
+    attached = inventory.list_item_photos(item.id)
+    assert [photo.media_reference for photo in attached] == ["combined-photo"]
+
+    AgentRunner(
+        session,
+        ScriptedLLMClient([
+            LLMResponse(tool_calls=(ToolCall(
+                id="undo", name="undo_last_action", arguments={}
+            ),)),
+            LLMResponse(content="Undone."),
+        ]),
+    ).run("Undo", conversation_id=run.conversation_id)
+
+    restored = inventory.get_item(item.id)
+    assert restored.state == "unknown"
+    assert restored.current_location_id == shelf.id
+    assert (restored.quantity_mode, restored.quantity) == ("exact", 2)
+    assert inventory.list_item_photos(item.id) == []
+
+
+def test_media_update_detach_and_quantity_same_turn_undo_restores_all(
+    session: Session,
+) -> None:
+    inventory = InventoryService(session)
+    item = inventory.create_item("Receipt camera", quantity=5)
+    media = inventory.attach_item_photo(
+        item.id, "local", "receipt-photo", caption="before", position=3
+    )
+    run = AgentRunner(
+        session,
+        ScriptedLLMClient([
+            LLMResponse(tool_calls=(ToolCall(
+                id="search", name="search_items", arguments={"query": "Receipt camera"}
+            ),)),
+            LLMResponse(tool_calls=(ToolCall(
+                id="photos", name="list_item_photos", arguments={"item_id": item.id}
+            ),)),
+            LLMResponse(tool_calls=(
+                ToolCall(id="quantity", name="change_item_quantity", arguments={
+                    "item_id": item.id,
+                    "quantity_mode": "approximate",
+                    "quantity": 4,
+                    "reason": "recounted",
+                    "reason_source": "explicit",
+                }),
+                ToolCall(id="update", name="update_item_photo", arguments={
+                    "media_id": media.id,
+                    "caption": "updated",
+                    "position": 1,
+                }),
+            )),
+            LLMResponse(tool_calls=(ToolCall(
+                id="detach", name="detach_item_photo", arguments={"media_id": media.id}
+            ),)),
+            LLMResponse(content="Updated."),
+        ]),
+    ).run("Recount, update the photo metadata, then detach it")
+
+    assert [receipt.operation for receipt in run.receipts] == [
+        "change_item_quantity", "update_item_photo", "detach_item_photo"
+    ]
+    assert (inventory.get_item(item.id).quantity_mode, inventory.get_item(item.id).quantity) == (
+        "approximate", 4
+    )
+    assert inventory.list_item_photos(item.id) == []
+
+    AgentRunner(
+        session,
+        ScriptedLLMClient([
+            LLMResponse(tool_calls=(ToolCall(
+                id="undo", name="undo_last_action", arguments={}
+            ),)),
+            LLMResponse(content="Undone."),
+        ]),
+    ).run("Undo", conversation_id=run.conversation_id)
+
+    restored_item = inventory.get_item(item.id)
+    restored_media = inventory.list_item_photos(item.id)
+    assert (restored_item.quantity_mode, restored_item.quantity) == ("exact", 5)
+    assert len(restored_media) == 1
+    assert restored_media[0].id == media.id
+    assert restored_media[0].provider == "local"
+    assert restored_media[0].media_reference == "receipt-photo"
+    assert restored_media[0].caption == "before"
+    assert restored_media[0].position == 3
+
+
+def test_media_position_above_sqlite_integer_range_fails_before_flush(
+    session: Session,
+) -> None:
+    inventory = InventoryService(session)
+    item = inventory.create_item("Camera")
+    with pytest.raises(ValueError, match="position must be between"):
+        inventory.attach_item_photo(item.id, "local", "oversized", position=2**63)
+    assert inventory.list_item_photos(item.id) == []

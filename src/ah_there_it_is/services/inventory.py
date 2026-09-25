@@ -23,7 +23,9 @@ from ah_there_it_is.db.models import (
 )
 from ah_there_it_is.domain.exceptions import DuplicateEntityError, EntityNotFoundError
 from ah_there_it_is.domain.names import normalize_name
-from ah_there_it_is.domain.quantity import Portion, QuantityValue, ReasonSource, validated_reason
+from ah_there_it_is.domain.quantity import (
+    MAX_SQLITE_INTEGER, Portion, QuantityValue, ReasonSource, validated_reason,
+)
 from ah_there_it_is.domain.states import ItemState, LocationStatus, QuantityMode
 
 
@@ -1057,8 +1059,8 @@ class InventoryService:
     def _validated_media_position(value: int) -> int:
         if isinstance(value, bool) or not isinstance(value, int):
             raise ValueError("position must be a non-negative integer")
-        if value < 0:
-            raise ValueError("position must be a non-negative integer")
+        if not 0 <= value <= MAX_SQLITE_INTEGER:
+            raise ValueError(f"position must be between 0 and {MAX_SQLITE_INTEGER}")
         return value
 
     @staticmethod

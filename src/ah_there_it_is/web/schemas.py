@@ -8,12 +8,19 @@ from typing import Annotated, Any, Literal
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
 from ah_there_it_is.domain.states import ItemState
+from ah_there_it_is.domain.quantity import MAX_SQLITE_INTEGER
 from ah_there_it_is.agent.receipts import MutationReceipt
+
+
+PositiveInt = Annotated[int, Field(strict=True, gt=0, le=MAX_SQLITE_INTEGER)]
+NonNegativeInt = Annotated[int, Field(strict=True, ge=0, le=MAX_SQLITE_INTEGER)]
+CountInt = Annotated[int, Field(strict=True, ge=1, le=MAX_SQLITE_INTEGER)]
+RatingInt = Annotated[int, Field(strict=True, ge=1, le=5)]
 
 
 class ChatRequest(BaseModel):
     message: str = Field(min_length=1, max_length=10_000)
-    conversation_id: int | None = Field(default=None, gt=0)
+    conversation_id: PositiveInt | None = None
     request_key: str | None = Field(
         default=None,
         min_length=8,
@@ -71,7 +78,7 @@ class ChatRequestRecoveryResponse(BaseModel):
 
 
 class FeedbackRequest(BaseModel):
-    rating: int = Field(ge=1, le=5)
+    rating: RatingInt
     comment: str | None = Field(default=None, max_length=2_000)
 
 
@@ -92,9 +99,9 @@ class ItemCreateRequest(BaseModel):
     description: str | None = Field(default=None, max_length=20_000)
     state: ItemState = ItemState.UNKNOWN
     quantity_mode: Literal["exact", "approximate", "unknown"] = "exact"
-    quantity: int | None = Field(default=1, ge=1)
-    category_id: int | None = Field(default=None, gt=0)
-    location_id: int | None = Field(default=None, gt=0)
+    quantity: CountInt | None = 1
+    category_id: PositiveInt | None = None
+    location_id: PositiveInt | None = None
     attributes: dict[str, Any] = Field(default_factory=dict)
     aliases: list[AliasName] = Field(default_factory=list)
     tags: list[TagName] = Field(default_factory=list)
@@ -125,7 +132,7 @@ class ItemEditRequest(BaseModel):
     name: str | None = Field(default=None, min_length=1, max_length=300)
     description: str | None = Field(default=None, max_length=20_000)
     state: ItemState | None = None
-    category_id: int | None = Field(default=None, gt=0)
+    category_id: PositiveInt | None = None
     attributes: dict[str, Any] | None = None
     aliases: list[AliasName] | None = None
     tags: list[TagName] | None = None
@@ -146,7 +153,7 @@ class ItemEditRequest(BaseModel):
 class ItemMoveRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
-    location_id: int = Field(gt=0)
+    location_id: PositiveInt
     portion: "ItemPortionRequest | None" = None
 
 
@@ -154,7 +161,7 @@ class ItemPortionRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     mode: Literal["exact", "approximate", "unknown"]
-    value: int | None = Field(default=None, ge=1)
+    value: CountInt | None = None
 
     @model_validator(mode="after")
     def valid_quantity(self) -> "ItemPortionRequest":
@@ -170,7 +177,7 @@ class ItemTakeRequest(BaseModel):
 class ItemQuantityChangeRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
     quantity_mode: Literal["exact", "approximate", "unknown"]
-    quantity: int | None = Field(default=None, ge=1)
+    quantity: CountInt | None = None
     reason: str = Field(min_length=1, max_length=500)
     reason_source: Literal["explicit", "context"]
 
@@ -189,7 +196,7 @@ class ItemRestoreRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     state: ItemState
-    location_id: int | None = Field(gt=0)
+    location_id: PositiveInt | None
 
     @field_validator("state")
     @classmethod
@@ -211,7 +218,7 @@ class TreeCreateRequest(BaseModel):
 
     name: str = Field(min_length=1, max_length=200)
     description: str | None = Field(default=None, max_length=20_000)
-    parent_id: int | None = Field(default=None, gt=0)
+    parent_id: PositiveInt | None = None
 
     @field_validator("name")
     @classmethod
@@ -226,7 +233,7 @@ class TreeEditRequest(BaseModel):
 
     name: str | None = Field(default=None, min_length=1, max_length=200)
     description: str | None = Field(default=None, max_length=20_000)
-    parent_id: int | None = Field(default=None, gt=0)
+    parent_id: PositiveInt | None = None
 
     @model_validator(mode="after")
     def require_name_when_provided(self) -> "TreeEditRequest":
@@ -260,14 +267,14 @@ class ItemMediaAttachRequest(BaseModel):
     provider: str = Field(min_length=1, max_length=100)
     media_reference: str = Field(min_length=1, max_length=1000)
     caption: str | None = Field(default=None, max_length=20_000)
-    position: int = Field(default=0, ge=0)
+    position: NonNegativeInt = 0
 
 
 class ItemMediaUpdateRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     caption: str | None = Field(default=None, max_length=20_000)
-    position: int | None = Field(default=None, ge=0)
+    position: NonNegativeInt | None = None
 
 
 class ItemResponse(BaseModel):
@@ -310,7 +317,7 @@ class ConversationResponse(BaseModel):
 
 class ExperimentReviewRequest(BaseModel):
     choice: str = Field(pattern="^(baseline|variant|tie|both_bad)$")
-    variant_rating: int | None = Field(default=None, ge=1, le=5)
+    variant_rating: RatingInt | None = None
     comment: str | None = Field(default=None, max_length=2_000)
 
 

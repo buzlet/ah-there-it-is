@@ -45,6 +45,28 @@ def test_health() -> None:
         engine.dispose()
 
 
+def test_oversized_inventory_numbers_rejected_before_sqlite() -> None:
+    app, factory, engine = build_test_app()
+    try:
+        with factory() as session:
+            item_id = InventoryService(session).create_item("Camera").id
+        with TestClient(app, raise_server_exceptions=False) as client:
+            quantity = client.post("/api/items", json={
+                "name": "Overflow", "quantity": 2**63,
+            })
+            position = client.post(f"/api/items/{item_id}/media", json={
+                "provider": "test", "media_reference": "photo", "position": 2**63,
+            })
+            path_id = client.get(f"/items/{2**63}")
+            page = client.get("/items", params={"page": 2**63})
+        assert quantity.status_code == 422
+        assert position.status_code == 422
+        assert path_id.status_code == 422
+        assert page.status_code == 422
+    finally:
+        engine.dispose()
+
+
 def test_index_renders_usable_chat_shell() -> None:
     app, _, engine = build_test_app()
     try:
@@ -723,5 +745,37 @@ def test_experiment_pages_show_side_by_side_and_accept_review() -> None:
         assert review.status_code == 200
         assert review.json()["choice"] == "variant"
         assert review.json()["variant_rating"] == 5
+    finally:
+        engine.dispose()
+
+
+def test_web_integer_payload_fields_reject_json_booleans() -> None:
+    app, _, engine = build_test_app()
+    try:
+        with TestClient(app) as client:
+            item = client.post(
+                "/api/items",
+                json={"name": "Boolean quantity", "quantity": True},
+            )
+            valid_item = client.post(
+                "/api/items",
+                json={"name": "Media boundary"},
+            )
+            media = client.post(
+                f"/api/items/{valid_item.json()['id']}/media",
+                json={
+                    "provider": "local",
+                    "media_reference": "bool-position",
+                    "position": True,
+                },
+            )
+            chat = client.post(
+                "/api/chat",
+                json={"message": "Where is it?", "conversation_id": True},
+            )
+        assert item.status_code == 422
+        assert valid_item.status_code == 201
+        assert media.status_code == 422
+        assert chat.status_code == 422
     finally:
         engine.dispose()
