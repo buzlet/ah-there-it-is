@@ -204,7 +204,12 @@ def runtime_paths(database_url: str) -> dict[str, object]:
 
 def main(argv: Sequence[str] | None = None) -> int:
     args = build_parser().parse_args(argv)
-    settings = get_settings()
+    try:
+        settings = get_settings()
+    except ValueError:
+        # Pydantic and numeric parsing errors may include the supplied value.
+        print("error: invalid AH_THERE_IT_IS configuration", file=sys.stderr)
+        return 2
 
     if args.command == "paths":
         print(json.dumps(runtime_paths(settings.database_url), sort_keys=True))
@@ -256,15 +261,22 @@ def main(argv: Sequence[str] | None = None) -> int:
         from ah_there_it_is.telegram.runtime import (
             TelegramRuntimeConfigurationError,
             run_telegram_bot,
+            validate_telegram_settings,
+        )
+        from ah_there_it_is.telegram.singleton import (
+            TelegramSingletonError,
+            telegram_singleton,
         )
 
         try:
-            return run_telegram_bot(
-                settings,
-                poll_timeout=args.poll_timeout,
-                limit=args.limit,
-            )
-        except TelegramRuntimeConfigurationError as exc:
+            validate_telegram_settings(settings)
+            with telegram_singleton(settings.database_url):
+                return run_telegram_bot(
+                    settings,
+                    poll_timeout=args.poll_timeout,
+                    limit=args.limit,
+                )
+        except (TelegramRuntimeConfigurationError, TelegramSingletonError) as exc:
             print(f"error: {exc}", file=sys.stderr)
             return 2
     raise AssertionError(f"unsupported command: {args.command}")
