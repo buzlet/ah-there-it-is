@@ -56,13 +56,19 @@ Key direction:
 
 The quantity/physical-instance product-semantic gate is closed. Use the decision document as implementation authority.
 
-### Search
+### Language and search
 
-Retrieval is deterministic and bounded. Fuzzy matching, transliteration, morphology and embeddings remain deferred pending measured need.
+The only supported natural language is Russian.
+
+Latin-script product names, model numbers, brand names and technical identifiers are ordinary data, not multilingual support.
+
+Retrieval is deterministic and bounded. Do not add multilingual normalization, language detection, transliteration, cross-language behavior, morphology, fuzzy matching or embeddings without measured Russian-language retrieval failures that justify the specific change.
 
 ### Recovery
 
-Full SQLite backup/restore is separate from portable inventory import. Current portable format is v2 with frozen v1 import support. Bootstrap is separate onboarding. Doctor is read-only except explicit derived FTS repair.
+Full SQLite backup/restore is separate from portable inventory import. Current runtime portable format is v2 with frozen v1 import support; the accepted quantity implementation advances export to v3 while retaining v1/v2 import compatibility. Bootstrap is separate onboarding. Doctor is read-only except explicit derived FTS repair.
+
+Backup scheduling, retention and off-machine copying are external infrastructure and are not application features.
 
 ## Active implementation protocol
 
@@ -113,6 +119,24 @@ Do not recursively read `agent-tasks/archive/`.
 - `tools/agent/canonical_verifier.py` — optional durable full-local verifier for manifest-declared high-risk batches;
 - `tools/agent/ci_waiter.py` — bounded exact-head CI observer.
 
+## Product/deployment scope
+
+Accepted scope is recorded in:
+
+`agent-tasks/designs/product-scope-decisions.md`
+
+Key rules:
+
+- single logical user only; no household/multi-user account model;
+- external surfaces may attach simple source identity/user labels as metadata, without a first-class Channel domain abstraction;
+- trace retention/purge management is external; traces are retained for replay/evaluation/model improvement;
+- voice recognition is external and the application receives text;
+- QR/barcodes are out of scope;
+- Telegram bot is an optional future single-user text transport whose account security lives in its adapter/infrastructure;
+- future Item photos may be represented by one-or-many external media references;
+- provider/model evaluation is a separate subsystem, not inventory-domain behavior;
+- WhatsApp and other hypothetical transports are not designed now.
+
 ## Current status
 
 Product work through Stage 26 and assignments through 0060 are complete.
@@ -127,4 +151,4 @@ Next: prepare and issue an implementation batch from:
 
 `agent-tasks/designs/quantity-physical-instance-decision.md`
 
-Do not reopen merge, Product/SKU or continuous-measurement scope unless a new explicit product decision does so.
+Do not reopen merge, Product/SKU, continuous-measurement, multi-user, multilingual, QR/barcode, built-in voice, backup-policy or trace-purge scope unless a new explicit product decision does so.
