@@ -1,73 +1,156 @@
-# Single-user Telegram bot adapter draft
+# Single-user Telegram bot adapter
 
-Status: optional post-MVP design draft. Not implementation authority.
+Status: **accepted core-MVP design** on 2026-09-25. Stored on the temporary planning branch until 0061-0070 merges.
+
+Authoritative umbrella decision:
+`agent-tasks/parallel/core-media-telegram-decision.md`
 
 ## Goal
 
-Expose the existing text inventory interaction through one Telegram bot bound to one allowed Telegram account, without introducing Telegram-specific semantics into the inventory domain.
+Provide a working single-user Telegram text interface to the existing inventory application without adding Telegram concepts to inventory domain code.
 
 ## Architecture
 
 ```text
-Telegram update
-  -> bot adapter validates allowed sender
-  -> normalize incoming text
-  -> call existing application chat boundary
-  -> receive structured/text response
-  -> Telegram reply
+Telegram long polling
+  -> TelegramBotAdapter
+  -> shared application ChatApplicationService
+  -> ChatRequestService / AgentRunner
+  -> inventory
+  -> response
+  -> Telegram sendMessage
 ```
 
-The inventory application remains single-user.
+Refactor existing web-chat orchestration into a reusable application-level service if needed. Web and Telegram must not maintain separate mutation/idempotency logic.
 
-## Security boundary
+## Configuration
 
-The adapter/infrastructure owns:
+Environment-backed settings:
 
-- bot token;
-- allowed Telegram user/account ID;
-- Telegram update authentication/transport;
-- rejection of messages from other users;
-- polling/webhook operational configuration.
+```text
+AH_THERE_IT_IS_TELEGRAM_BOT_TOKEN
+AH_THERE_IT_IS_TELEGRAM_ALLOWED_USER_ID
+```
 
-Inventory domain does not own Telegram ACLs.
+Optional operational settings may cover poll timeout/backoff.
 
-## Conversation mapping
+Never log/persist the bot token.
 
-The adapter needs a durable way to map Telegram chat/dialog context to an application `conversation_id`.
+Do not add generic accounts/users/channels.
 
-For a single-user bot, the simplest policy is one configured application conversation per Telegram chat, with the mapping stored by the adapter.
+## Accepted input
 
-Do not create a general User/Channel domain model solely for this.
+Core MVP accepts only:
+
+- private Telegram chat;
+- `from.id == configured allowed user ID`;
+- nonblank text message.
+
+Other senders/chats/media are ignored or rejected before invoking the inventory application.
+
+## Adapter state
+
+Persist Telegram-specific state outside inventory domain entities.
+
+Minimum state:
+
+```text
+telegram chat id -> application conversation_id
+last acknowledged update id / next offset
+```
+
+One logical application user remains authoritative.
 
 ## Idempotency
 
-Telegram update/message identifiers should be mapped to the application's existing request-key/idempotency boundary so replayed updates do not duplicate mutations.
+For every accepted update, derive:
 
-A deterministic adapter request key is preferable to ad-hoc retry detection.
+```text
+request_key = "telegram:" + update_id
+```
 
-## Input/output scope
+Feed it into the existing application request-key path.
 
-Initial adapter should support text only.
+Repeated delivery of one Update must replay the prior result and never reapply inventory mutations.
 
-Voice notes, photos and documents may be handled by separate upstream processing later:
+## Polling
 
-- voice -> external speech-to-text -> ordinary text;
-- photo -> future media service/reference flow.
+Use Bot API `getUpdates` long polling only.
 
-The bot should not duplicate agent/domain logic.
+No webhook implementation in core MVP.
 
-## Error behavior
+Do not run long polling and webhook mode simultaneously.
 
-The adapter should distinguish:
+Advance the durable local checkpoint only after application processing and reply attempt according to the adapter state machine.
 
-- temporary infrastructure/provider failure: retry according to Telegram transport policy while preserving request idempotency;
-- application ambiguity/clarification: send the agent's normal response;
-- unauthorized sender: reject before application invocation.
+## Delivery semantics
 
-## No Telegram-specific domain commands
+Inventory mutation correctness is stronger than outbound delivery:
 
-Commands such as `/start`, `/help` or adapter diagnostics may exist at the bot layer, but inventory mutations should continue to flow through natural text/application tools.
+- application effect: exactly once under request-key semantics;
+- Telegram reply: best-effort at least once.
 
-## Later implementation dependency
+A crash after Telegram accepted a reply but before local acknowledgement may cause the response to be sent again after restart. This is acceptable and must be documented/tested. It must not duplicate inventory mutation.
 
-Implement only after core MVP correctness is accepted. It should require little or no change to inventory domain code; any large domain change would indicate a transport-boundary leak.
+## Reply rendering
+
+Use plain text.
+
+Split responses longer than the Bot API text limit into deterministic ordered chunks.
+
+Current official Bot API documentation states `sendMessage.text` accepts 1–4096 characters after entity parsing. Keep the limit isolated as adapter configuration/constant and covered by tests rather than scattering it through application code.
+
+## Errors
+
+Classify at adapter boundary:
+
+- unauthorized/non-private/non-text update -> no application call;
+- temporary Telegram API failure -> bounded retry/backoff or retry on next loop;
+- application clarification -> send ordinary agent text;
+- application failure -> safe generic Telegram error without leaking secrets/internal traceback.
+
+## CLI/runtime
+
+Provide an explicit runtime command for the bot process rather than starting a poller as a side effect of the FastAPI web app.
+
+Conceptually:
+
+```text
+ah-there-it-is telegram-bot
+```
+
+The bot process uses the same database/settings/LLM construction as the web application.
+
+## Testing
+
+Use fake Telegram transport; no live network in CI.
+
+Test at minimum:
+
+- unauthorized user;
+- non-private chat;
+- non-text update;
+- first message creates/reuses mapping;
+- second message reuses conversation;
+- update replay;
+- application mutation replay;
+- long response chunking;
+- getUpdates transient failure;
+- sendMessage transient failure;
+- process restart/checkpoint behavior;
+- token redaction.
+
+## Telegram photos
+
+Not in first adapter implementation.
+
+Future bridge:
+
+```text
+Telegram photo
+  -> external media service
+  -> provider + media_reference
+  -> attach_item_photo(...)
+```
+
+This requires no ItemMedia schema change.
