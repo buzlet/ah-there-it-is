@@ -81,6 +81,33 @@ Accepted and closed:
 
 The next step is implementation planning/batching, not further quantity product-semantic design.
 
-## Other future decisions
+## Product/deployment scope
 
-See `agent-tasks/designs/future-decision-gates.md` for correction/undo, purge, trace retention, automated backups, remote/multi-user access, optional integrations and provider/model promotion.
+Accepted scope is recorded in:
+
+`agent-tasks/designs/product-scope-decisions.md`
+
+Important decisions:
+
+- application is single-user;
+- web/Telegram/other external surfaces may use different source identity labels, but no first-class Channel or multi-user domain model is required;
+- backup scheduling/retention/off-machine copying is external infrastructure;
+- traces are retained for future replay/evaluation/model improvement; purge/retention management is external;
+- voice-to-text is external and the application receives text;
+- future photo support may associate one-or-many external media references with an Item;
+- QR/barcodes are not implemented;
+- Telegram bot is the only currently desired external chat transport; its single-account security/binding lives in Telegram adapter infrastructure;
+- provider/model comparison is a separate evaluation subsystem;
+- Russian is the only supported natural language; Latin product/model identifiers remain ordinary data;
+- no generic WhatsApp/transport abstraction is planned now.
+
+## Remaining product decisions
+
+Only two explicit product-semantic gates remain in:
+
+`agent-tasks/designs/future-decision-gates.md`
+
+- generic correction/Undo UX;
+- exceptional destructive hard-delete/purge semantics.
+
+Neither blocks the accepted quantity implementation.
