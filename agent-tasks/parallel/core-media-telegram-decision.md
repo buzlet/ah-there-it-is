@@ -138,6 +138,8 @@ Telegram Bot API
 
 The web chat and Telegram adapter should share the same application-level chat execution service rather than duplicating AgentRunner/ChatRequestService orchestration.
 
+That shared boundary accepts optional `source_identity` metadata for audit/trace only. Web may use `web`; Telegram uses `telegram:<allowed_user_id>` or a configured non-secret label. This metadata never grants write authority and does not create a User/Channel domain model.
+
 ### Supported Telegram mode
 
 Core MVP uses **long polling** only.
