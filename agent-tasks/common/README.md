@@ -4,8 +4,8 @@ For batches issued after the v9 process change, use:
 
 `v9.md`
 
-`v8.md` remains authoritative for batches that were already issued under v8.
+`v8.md` remains historical authority for work that was issued under v8.
 
-Do not migrate an in-flight v8 batch mid-execution.
+No active v8 batch remains at v9 adoption.
 
 Execution-environment rules live separately under `agent-tasks/executors/`.
