@@ -1,7 +1,6 @@
 # test_wheel_migrations.py
 from __future__ import annotations
 
-import importlib.util
 import json
 import os
 import signal
@@ -21,21 +20,32 @@ import zipfile
 from ah_there_it_is.storage import CURRENT_SCHEMA_REVISION
 
 
+def _wheel_build_command(repo: Path, wheelhouse: Path) -> list[str]:
+    command = [
+        sys.executable,
+        "-m",
+        "pip",
+        "wheel",
+        "--no-deps",
+    ]
+    if (repo / ".sandbox" / "MANIFEST.txt").is_file():
+        command.append("--no-build-isolation")
+    command.extend(
+        [
+            "--wheel-dir",
+            str(wheelhouse),
+            str(repo),
+        ]
+    )
+    return command
+
+
 def test_quantity_removed_migration_is_packaged_in_wheel(tmp_path: Path) -> None:
     repo = Path(__file__).resolve().parents[1]
     wheelhouse = tmp_path / "wheelhouse"
     wheelhouse.mkdir()
     subprocess.run(
-        [
-            sys.executable,
-            "-m",
-            "pip",
-            "wheel",
-            "--no-deps",
-            "--wheel-dir",
-            str(wheelhouse),
-            str(repo),
-        ],
+        _wheel_build_command(repo, wheelhouse),
         check=True,
         capture_output=True,
         text=True,
@@ -71,25 +81,7 @@ def test_wheel_contains_and_runs_packaged_migrations_and_runtime(
     outside.mkdir()
     shutil.copy2(repo / "tests/fixtures/inventory-portable-v1.json", fixture)
 
-    build_command = [
-        sys.executable,
-        "-m",
-        "pip",
-        "wheel",
-        "--no-deps",
-        "--wheel-dir",
-        str(wheelhouse),
-        str(repo),
-    ]
-    # U24 is intentionally provisioned with the build backend toolchain and
-    # must exercise the no-build-isolation path. Generic CI only installs the
-    # project/test dependencies, so let pip isolate pyproject build requirements
-    # there instead of adding wheel/setuptools as application dependencies.
-    if (
-        importlib.util.find_spec("setuptools") is not None
-        and importlib.util.find_spec("wheel") is not None
-    ):
-        build_command.insert(4, "--no-build-isolation")
+    build_command = _wheel_build_command(repo, wheelhouse)
 
     subprocess.run(
         build_command,
@@ -179,8 +171,20 @@ def test_wheel_contains_and_runs_packaged_migrations_and_runtime(
         check=True, capture_output=True, text=True,
     ).stdout.strip())
     # Reuse already installed test dependencies without fetching from a network.
+    # Sandbox execution may bridge a parent preinstalled environment through a
+    # .pth entry, so preserve every active site-packages root rather than only
+    # the current interpreter's purelib.
+    parent_dependency_paths = []
+    for entry in sys.path:
+        if not entry:
+            continue
+        candidate = Path(entry).resolve()
+        if candidate.is_dir() and "site-packages" in candidate.parts:
+            parent_dependency_paths.append(candidate)
+    assert parent_dependency_paths
     (site_packages / "parent-dependencies.pth").write_text(
-        str(Path(sysconfig.get_paths()["purelib"]).resolve()) + "\n", encoding="utf-8"
+        "".join(f"{path}\n" for path in dict.fromkeys(parent_dependency_paths)),
+        encoding="utf-8",
     )
     assert console_script.is_file()
 

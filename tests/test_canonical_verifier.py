@@ -13,7 +13,7 @@ import pytest
 from tools.agent import canonical_verifier as verifier
 
 
-FAKE_JUST = f'''#!{sys.executable}
+FAKE_MAKE = f'''#!{sys.executable}
 import os
 import signal
 import subprocess
@@ -23,24 +23,24 @@ from pathlib import Path
 
 assert len(sys.argv) == 2, sys.argv
 recipe = sys.argv[1]
-with open(os.environ["FAKE_JUST_CALLS"], "a", encoding="utf-8") as calls:
+with open(os.environ["FAKE_MAKE_CALLS"], "a", encoding="utf-8") as calls:
     calls.write(recipe + "\\n")
 print("stdout-" + recipe, flush=True)
 print("stderr-" + recipe, file=sys.stderr, flush=True)
-if os.environ.get("FAKE_JUST_DELAY_RECIPE") == recipe:
-    time.sleep(float(os.environ.get("FAKE_JUST_DELAY_SECONDS", "0.4")))
-if os.environ.get("FAKE_JUST_FAIL_RECIPE") == recipe:
+if os.environ.get("FAKE_MAKE_DELAY_RECIPE") == recipe:
+    time.sleep(float(os.environ.get("FAKE_MAKE_DELAY_SECONDS", "0.4")))
+if os.environ.get("FAKE_MAKE_FAIL_RECIPE") == recipe:
     raise SystemExit(7)
-if os.environ.get("FAKE_JUST_LARGE_RECIPE") == recipe:
+if os.environ.get("FAKE_MAKE_LARGE_RECIPE") == recipe:
     payload = b"x" * 1600000
     sys.stdout.buffer.write(payload)
     sys.stdout.buffer.flush()
     sys.stderr.buffer.write(b"y" * 1600000)
     sys.stderr.buffer.flush()
-if os.environ.get("FAKE_JUST_HANG_RECIPE") == recipe:
+if os.environ.get("FAKE_MAKE_HANG_RECIPE") == recipe:
     child_code = "import signal,time; signal.signal(signal.SIGTERM, signal.SIG_IGN); time.sleep(60)"
     child = subprocess.Popen([sys.executable, "-c", child_code])
-    Path(os.environ["FAKE_JUST_CHILD_PID_FILE"]).write_text(str(child.pid), encoding="ascii")
+    Path(os.environ["FAKE_MAKE_CHILD_PID_FILE"]).write_text(str(child.pid), encoding="ascii")
     while True:
         time.sleep(0.05)
 '''
@@ -59,19 +59,19 @@ def verifier_workspace(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> dict[
 
     fake_bin = tmp_path / "fake-bin"
     fake_bin.mkdir()
-    fake_just = fake_bin / "just"
-    fake_just.write_text(FAKE_JUST, encoding="utf-8")
-    fake_just.chmod(0o755)
-    calls = tmp_path / "just-calls.log"
+    fake_make = fake_bin / "make"
+    fake_make.write_text(FAKE_MAKE, encoding="utf-8")
+    fake_make.chmod(0o755)
+    calls = tmp_path / "make-calls.log"
     child_pid = tmp_path / "child.pid"
     monkeypatch.setenv("PATH", str(fake_bin) + os.pathsep + os.environ.get("PATH", ""))
     monkeypatch.setenv("HOME", str(tmp_path / "home"))
-    monkeypatch.setenv("FAKE_JUST_CALLS", str(calls))
-    monkeypatch.setenv("FAKE_JUST_CHILD_PID_FILE", str(child_pid))
+    monkeypatch.setenv("FAKE_MAKE_CALLS", str(calls))
+    monkeypatch.setenv("FAKE_MAKE_CHILD_PID_FILE", str(child_pid))
     return {
         "root": tmp_path,
         "repo": repo,
-        "fake_just": fake_just,
+        "fake_make": fake_make,
         "calls": calls,
         "child_pid": child_pid,
         "runs": tmp_path / "state" / "runs",
@@ -126,7 +126,7 @@ def _partial_state(
         repo=repo,
         state_dir=run_dir,
         head_sha=verifier._git_head(repo),
-        just_path=str(workspace["fake_just"]),
+        make_path=str(workspace["fake_make"]),
         timeout_seconds=60.0,
     )
     stdout = run_dir / "01-check-attempt-1.stdout.log"
@@ -139,7 +139,7 @@ def _partial_state(
         {
             "index": 0,
             "recipe": "check",
-            "command": ["just", "check"],
+            "command": ["make", "check"],
             "attempt": 1,
             "head_sha": state["head_sha"],
             "started_at": "2026-09-24T00:00:00Z",
@@ -179,7 +179,7 @@ def test_runs_exact_canonical_order_with_durable_head_and_stream_logs(
         text=True,
     ).stdout.strip()
     for check in summary["checks"]:
-        assert check["command"] == ["just", check["recipe"]]
+        assert check["command"] == ["make", check["recipe"]]
         assert check["head_sha"] == summary["head_sha"]
         assert check["exit_code"] == 0
         assert check["status"] == "success"
@@ -195,7 +195,7 @@ def test_runs_exact_canonical_order_with_durable_head_and_stream_logs(
 
 
 def test_failure_stops_at_first_failed_recipe(verifier_workspace: dict[str, Path], monkeypatch) -> None:
-    monkeypatch.setenv("FAKE_JUST_FAIL_RECIPE", "corpus-check")
+    monkeypatch.setenv("FAKE_MAKE_FAIL_RECIPE", "corpus-check")
 
     started = _start(verifier_workspace)
     result = _wait_for_terminal(_state(verifier_workspace))
@@ -212,7 +212,7 @@ def test_failure_stops_at_first_failed_recipe(verifier_workspace: dict[str, Path
 
 
 def test_logs_are_bounded_and_include_both_stream_ends(verifier_workspace: dict[str, Path], monkeypatch) -> None:
-    monkeypatch.setenv("FAKE_JUST_LARGE_RECIPE", "check")
+    monkeypatch.setenv("FAKE_MAKE_LARGE_RECIPE", "check")
 
     _start(verifier_workspace)
     result = _wait_for_terminal(_state(verifier_workspace))
@@ -231,12 +231,12 @@ def test_logs_are_bounded_and_include_both_stream_ends(verifier_workspace: dict[
         assert payload.endswith(expected * 100)
 
 
-def test_timeout_kills_the_whole_just_process_group(
+def test_timeout_kills_the_whole_make_process_group(
     verifier_workspace: dict[str, Path], monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    monkeypatch.setenv("FAKE_JUST_HANG_RECIPE", "check")
+    monkeypatch.setenv("FAKE_MAKE_HANG_RECIPE", "check")
 
-    _start(verifier_workspace, timeout_seconds=0.2)
+    _start(verifier_workspace, timeout_seconds=1.0)
     result = _wait_for_terminal(_state(verifier_workspace), timeout=10)
 
     assert result["status"] == "timed_out"
@@ -258,8 +258,8 @@ def test_timeout_kills_the_whole_just_process_group(
 def test_status_and_resume_do_not_launch_duplicate_when_supervisor_is_alive(
     verifier_workspace: dict[str, Path], monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    monkeypatch.setenv("FAKE_JUST_DELAY_RECIPE", "check")
-    monkeypatch.setenv("FAKE_JUST_DELAY_SECONDS", "0.7")
+    monkeypatch.setenv("FAKE_MAKE_DELAY_RECIPE", "check")
+    monkeypatch.setenv("FAKE_MAKE_DELAY_SECONDS", "0.7")
 
     started = _start(verifier_workspace)
     status = verifier.status_run(state_dir=str(_state(verifier_workspace)))
@@ -278,7 +278,7 @@ def test_status_and_resume_do_not_launch_duplicate_when_supervisor_is_alive(
 def test_concurrent_verifier_for_same_repository_is_refused(
     verifier_workspace: dict[str, Path], monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    monkeypatch.setenv("FAKE_JUST_HANG_RECIPE", "check")
+    monkeypatch.setenv("FAKE_MAKE_HANG_RECIPE", "check")
 
     first = _start(verifier_workspace, "concurrent-one", timeout_seconds=0.3)
     second = _start(verifier_workspace, "concurrent-two", timeout_seconds=0.3)
@@ -368,7 +368,7 @@ def test_run_state_must_live_outside_worktree(verifier_workspace: dict[str, Path
     assert not (verifier_workspace["repo"] / "state-run").exists()
 
 
-def test_status_blocks_resume_while_orphaned_just_group_is_alive(
+def test_status_blocks_resume_while_orphaned_make_group_is_alive(
     verifier_workspace: dict[str, Path],
 ) -> None:
     run_dir = _state(verifier_workspace, "orphaned-command")
@@ -387,7 +387,7 @@ def test_status_blocks_resume_while_orphaned_just_group_is_alive(
             repo=verifier_workspace["repo"],
             state_dir=run_dir,
             head_sha=verifier._git_head(verifier_workspace["repo"]),
-            just_path=str(verifier_workspace["fake_just"]),
+            make_path=str(verifier_workspace["fake_make"]),
             timeout_seconds=60.0,
         )
         state["attempts"][0] = 1
@@ -444,7 +444,7 @@ def test_new_start_refuses_previous_orphaned_command_group(
             repo=verifier_workspace["repo"],
             state_dir=previous_dir,
             head_sha=verifier._git_head(verifier_workspace["repo"]),
-            just_path=str(verifier_workspace["fake_just"]),
+            make_path=str(verifier_workspace["fake_make"]),
             timeout_seconds=60.0,
         )
         state["attempts"][0] = 1

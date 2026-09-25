@@ -85,3 +85,4 @@ jobs:
           name: model-probe-${{ inputs.provider }}
           path: model-probe.json
           if-no-files-found: ignore
+          retention-days: 5
