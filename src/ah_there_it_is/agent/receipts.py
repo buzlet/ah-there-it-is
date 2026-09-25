@@ -15,8 +15,9 @@ class MutationReceipt(BaseModel):
         "create_item", "create_location", "create_category", "update_item", "move_item",
         "take_item", "mark_item_location_unknown", "change_item_quantity",
         "remove_item", "restore_item", "undo_last_action",
+        "attach_item_photo", "update_item_photo", "detach_item_photo",
     ]
-    entity_type: Literal["item", "location", "category"]
+    entity_type: Literal["item", "location", "category", "media"]
     entity_id: int = Field(gt=0)
     changed: bool
     before_ids: dict[str, int | None] = Field(default_factory=dict)

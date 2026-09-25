@@ -15,6 +15,7 @@ from sqlalchemy.orm import Session
 
 from ah_there_it_is.agent.runner import AgentRunner
 from ah_there_it_is.agent.errors import AgentTurnFailedError
+from ah_there_it_is.db.models import ItemMedia
 from ah_there_it_is.domain.exceptions import EntityNotFoundError, InventoryError
 from ah_there_it_is.services.activity import ActivityService
 from ah_there_it_is.services.catalog import CatalogService
@@ -47,6 +48,9 @@ from ah_there_it_is.web.schemas import (
     ItemCreateRequest,
     ItemEditRequest,
     ItemMoveRequest,
+    ItemMediaAttachRequest,
+    ItemMediaResponse,
+    ItemMediaUpdateRequest,
     ItemQuantityChangeRequest,
     ItemRemoveRequest,
     ItemRestoreRequest,
@@ -83,6 +87,19 @@ def _tree_response(node) -> TreeResponse:
         description=node.description,
         parent_id=node.parent_id,
         path=CatalogService.path(node),
+    )
+
+
+def _media_response(media: ItemMedia) -> ItemMediaResponse:
+    return ItemMediaResponse(
+        id=media.id,
+        item_id=media.item_id,
+        provider=media.provider,
+        media_reference=media.media_reference,
+        caption=media.caption,
+        position=media.position,
+        created_at=media.created_at,
+        updated_at=media.updated_at,
     )
 
 
@@ -596,6 +613,111 @@ def build_router(templates: Jinja2Templates) -> APIRouter:
             ),
         )
         return ItemResponse(**CatalogService(session).item_dict(item))
+
+    @router.get(
+        "/api/items/{item_id}/media",
+        response_model=list[ItemMediaResponse],
+    )
+    @router.get(
+        "/api/items/{item_id}/photos",
+        response_model=list[ItemMediaResponse],
+        include_in_schema=False,
+    )
+    def list_item_media(
+        item_id: int,
+        session: Session = Depends(get_session),
+    ) -> list[ItemMediaResponse]:
+        try:
+            media = InventoryService(session).list_item_photos(item_id)
+        except EntityNotFoundError as exc:
+            raise HTTPException(status_code=404, detail=str(exc)) from exc
+        return [_media_response(photo) for photo in media]
+
+    @router.post(
+        "/api/items/{item_id}/media",
+        response_model=ItemMediaResponse,
+        status_code=201,
+    )
+    @router.post(
+        "/api/items/{item_id}/photos",
+        response_model=ItemMediaResponse,
+        status_code=201,
+        include_in_schema=False,
+    )
+    def attach_item_media(
+        item_id: int,
+        payload: ItemMediaAttachRequest,
+        session: Session = Depends(get_session),
+    ) -> ItemMediaResponse:
+        inventory = InventoryService(session, autocommit=False)
+        media = _manual_mutation(
+            session,
+            lambda: inventory.attach_item_photo(
+                item_id,
+                **payload.model_dump(mode="python"),
+            ),
+        )
+        return _media_response(media)
+
+    @router.patch(
+        "/api/items/{item_id}/media/{media_id}",
+        response_model=ItemMediaResponse,
+    )
+    @router.patch(
+        "/api/items/{item_id}/photos/{media_id}",
+        response_model=ItemMediaResponse,
+        include_in_schema=False,
+    )
+    def update_item_media(
+        item_id: int,
+        media_id: int,
+        payload: ItemMediaUpdateRequest,
+        session: Session = Depends(get_session),
+    ) -> ItemMediaResponse:
+        inventory = InventoryService(session, autocommit=False)
+
+        def update() -> ItemMedia:
+            parent = inventory.get_item(item_id)
+            media = session.get(ItemMedia, media_id)
+            if media is None or media.item_id != parent.id:
+                raise EntityNotFoundError(
+                    f"item photo id={media_id} is not attached to item id={item_id}"
+                )
+            patch = payload.model_dump(exclude_unset=True, mode="python")
+            if "position" in patch and patch["position"] is None:
+                raise ValueError("position must be a non-negative integer when provided")
+            return inventory.update_item_photo(media_id, **patch)
+
+        media = _manual_mutation(session, update)
+        return _media_response(media)
+
+    @router.delete(
+        "/api/items/{item_id}/media/{media_id}",
+        response_model=ItemMediaResponse,
+    )
+    @router.delete(
+        "/api/items/{item_id}/photos/{media_id}",
+        response_model=ItemMediaResponse,
+        include_in_schema=False,
+    )
+    def detach_item_media(
+        item_id: int,
+        media_id: int,
+        session: Session = Depends(get_session),
+    ) -> ItemMediaResponse:
+        inventory = InventoryService(session, autocommit=False)
+
+        def detach() -> ItemMedia:
+            parent = inventory.get_item(item_id)
+            media = session.get(ItemMedia, media_id)
+            if media is None or media.item_id != parent.id:
+                raise EntityNotFoundError(
+                    f"item photo id={media_id} is not attached to item id={item_id}"
+                )
+            return inventory.detach_item_photo(media_id)
+
+        media = _manual_mutation(session, detach)
+        return _media_response(media)
 
     @router.post("/api/items/{item_id}/move", response_model=ItemResponse)
     def move_item(

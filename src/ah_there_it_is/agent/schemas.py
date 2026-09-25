@@ -44,6 +44,28 @@ class ItemIdInput(_ToolInput):
     page_size: int = Field(default=50, ge=1, le=100)
 
 
+class ItemPhotoListInput(_ToolInput):
+    item_id: int = Field(gt=0)
+
+
+class AttachItemPhotoInput(_ToolInput):
+    item_id: int = Field(gt=0)
+    provider: str = Field(min_length=1, max_length=100)
+    media_reference: str = Field(min_length=1, max_length=1000)
+    caption: str | None = None
+    position: int = Field(default=0, ge=0)
+
+
+class UpdateItemPhotoInput(_ToolInput):
+    media_id: int = Field(gt=0)
+    caption: str | None = None
+    position: int | None = Field(default=None, ge=0)
+
+
+class ItemPhotoIdInput(_ToolInput):
+    media_id: int = Field(gt=0)
+
+
 class LocationIdInput(_ToolInput):
     location_id: int = Field(gt=0)
     page: int = Field(default=1, ge=1)

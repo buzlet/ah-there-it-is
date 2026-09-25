@@ -7,6 +7,8 @@ from sqlalchemy import inspect, select, text
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
+from ah_there_it_is.agent import LLMResponse, ScriptedLLMClient, ToolCall
+from ah_there_it_is.agent.runner import AgentRunner
 from ah_there_it_is.db.migrations import upgrade_database
 from ah_there_it_is.db.models import Base, Event, Item, ItemMedia
 from ah_there_it_is.domain.exceptions import DuplicateEntityError
@@ -165,3 +167,58 @@ def test_item_photo_service_split_keeps_source_media_and_not_child_media(
         second.id,
     ]
     assert inventory.list_item_photos(child.id) == []
+
+
+def test_item_photo_agent_attach_and_immediate_undo(session: Session) -> None:
+    inventory = InventoryService(session)
+    item = inventory.create_item("Agent camera")
+    attach_run = AgentRunner(
+        session,
+        ScriptedLLMClient(
+            [
+                LLMResponse(
+                    tool_calls=(
+                        ToolCall(
+                            id="1",
+                            name="search_items",
+                            arguments={"query": "Agent camera"},
+                        ),
+                    )
+                ),
+                LLMResponse(
+                    tool_calls=(
+                        ToolCall(
+                            id="2",
+                            name="attach_item_photo",
+                            arguments={
+                                "item_id": item.id,
+                                "provider": "telegram",
+                                "media_reference": "file-agent-1",
+                            },
+                        ),
+                    )
+                ),
+                LLMResponse(content="Attached."),
+            ]
+        ),
+    ).run("Attach the supplied photo reference")
+    assert attach_run.receipts[0].operation == "attach_item_photo"
+    assert attach_run.receipts[0].entity_type == "media"
+    assert [photo.media_reference for photo in inventory.list_item_photos(item.id)] == [
+        "file-agent-1"
+    ]
+
+    AgentRunner(
+        session,
+        ScriptedLLMClient(
+            [
+                LLMResponse(
+                    tool_calls=(
+                        ToolCall(id="u", name="undo_last_action", arguments={}),
+                    )
+                ),
+                LLMResponse(content="Undone."),
+            ]
+        ),
+    ).run("Undo that", conversation_id=attach_run.conversation_id)
+    assert inventory.list_item_photos(item.id) == []

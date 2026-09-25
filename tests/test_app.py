@@ -548,6 +548,48 @@ def test_inventory_views_and_manual_correction_use_service_layer() -> None:
         engine.dispose()
 
 
+def test_item_media_api_and_detail_projection() -> None:
+    app, factory, engine = build_test_app()
+    try:
+        with factory() as session:
+            item = InventoryService(session).create_item("Media API item")
+            item_id = item.id
+
+        with TestClient(app) as client:
+            empty = client.get(f"/api/items/{item_id}/media")
+            attached = client.post(
+                f"/api/items/{item_id}/media",
+                json={
+                    "provider": "telegram",
+                    "media_reference": "file-web-1",
+                    "caption": "front",
+                    "position": 2,
+                },
+            )
+            media_id = attached.json()["id"]
+            updated = client.patch(
+                f"/api/items/{item_id}/media/{media_id}",
+                json={"caption": "updated", "position": 0},
+            )
+            detail = client.get(f"/items/{item_id}")
+            listed = client.get(f"/api/items/{item_id}/media")
+            detached = client.delete(f"/api/items/{item_id}/media/{media_id}")
+
+        assert empty.status_code == 200 and empty.json() == []
+        assert attached.status_code == 201
+        assert updated.status_code == 200
+        assert updated.json()["caption"] == "updated"
+        assert "file-web-1" in detail.text
+        assert "updated" in detail.text
+        assert listed.json()[0]["position"] == 0
+        assert detached.status_code == 200
+
+        with factory() as session:
+            assert InventoryService(session).list_item_photos(item_id) == []
+    finally:
+        engine.dispose()
+
+
 def test_evaluation_pages_show_variant_summary_and_trace() -> None:
     app, factory, engine = build_test_app()
     try:

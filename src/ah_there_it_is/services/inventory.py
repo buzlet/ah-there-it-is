@@ -466,6 +466,47 @@ class InventoryService:
         self._commit(item)
         return media
 
+    def restore_item_photo(
+        self,
+        media_id: int,
+        item_id: int,
+        provider: str,
+        media_reference: str,
+        *,
+        caption: str | None = None,
+        position: int = 0,
+    ) -> ItemMedia:
+        """Restore a detached association with its original stable ID for Undo."""
+        item = self.get_item(item_id)
+        provider = self._validated_media_text(provider, "provider", 100)
+        media_reference = self._validated_media_text(
+            media_reference, "media_reference", 1000
+        )
+        position = self._validated_media_position(position)
+        if self.session.get(ItemMedia, media_id) is not None:
+            raise DuplicateEntityError(f"item photo id={media_id} already exists")
+        self._ensure_media_reference_available(item.id, provider, media_reference)
+        media = ItemMedia(
+            id=media_id,
+            item=item,
+            provider=provider,
+            media_reference=media_reference,
+            caption=caption,
+            position=position,
+        )
+        self.session.add(media)
+        self.session.flush()
+        metadata = self._media_metadata(media)
+        self.session.add(
+            Event(
+                event_type="item_photo_attached",
+                item=item,
+                payload={"media": metadata, "after": metadata, "undo_restore": True},
+            )
+        )
+        self._commit(media)
+        return media
+
     def change_item_quantity(
         self,
         item_id: int,

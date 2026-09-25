@@ -20,8 +20,11 @@ from ah_there_it_is.agent.schemas import (
     CreateItemInput,
     ChangeItemQuantityInput,
     CreateLocationInput,
+    AttachItemPhotoInput,
     IdInput,
     ItemIdInput,
+    ItemPhotoIdInput,
+    ItemPhotoListInput,
     ItemMutationInput,
     LocationIdInput,
     MoveItemInput,
@@ -32,8 +35,9 @@ from ah_there_it_is.agent.schemas import (
     SearchInput,
     SuggestItemLocationsInput,
     UpdateItemInput,
+    UpdateItemPhotoInput,
 )
-from ah_there_it_is.db.models import Category, Event, Item, Location
+from ah_there_it_is.db.models import Category, Event, Item, ItemMedia, Location
 from ah_there_it_is.domain.exceptions import InventoryError
 from ah_there_it_is.domain.names import normalize_search_text
 from ah_there_it_is.services.inventory import InventoryService
@@ -49,6 +53,7 @@ class ToolRunState:
     seen: dict[str, set[int]] = field(
         default_factory=lambda: {
             "item": set(),
+            "media": set(),
             "location": set(),
             "category": set(),
             "tag": set(),
@@ -57,6 +62,7 @@ class ToolRunState:
     resolved: dict[str, set[int]] = field(
         default_factory=lambda: {
             "item": set(),
+            "media": set(),
             "location": set(),
             "category": set(),
             "tag": set(),
@@ -100,10 +106,13 @@ class ToolDispatcher:
         "create_item", "update_item", "move_item", "take_item",
         "mark_item_location_unknown", "change_item_quantity", "remove_item", "restore_item",
     })
+    MEDIA_MUTATION_TOOLS = frozenset({
+        "attach_item_photo", "update_item_photo", "detach_item_photo",
+    })
     LOCATION_MUTATION_TOOLS = frozenset({
         "move_item", "take_item", "mark_item_location_unknown", "remove_item", "restore_item",
     })
-    MUTATION_TOOLS = ITEM_MUTATION_TOOLS | frozenset({
+    MUTATION_TOOLS = ITEM_MUTATION_TOOLS | MEDIA_MUTATION_TOOLS | frozenset({
         "create_location", "create_category", "undo_last_action",
     })
 
@@ -199,9 +208,13 @@ class ToolDispatcher:
                 "mark_item_location_unknown",
                 "remove_item",
                 "restore_item",
+                "list_item_photos",
+                "attach_item_photo",
             })
             if self.state.resolved["location"]:
                 names.add("move_item")
+        if self.state.seen["media"]:
+            names.update({"update_item_photo", "detach_item_photo"})
         if self.conversation_id is not None:
             prior = UndoService(self.inventory.session).eligible_run(self.conversation_id)
             if prior is not None:
@@ -274,9 +287,24 @@ class ToolDispatcher:
             return self._error(type(exc).__name__, str(exc))
 
     def _mutation_before(self, name: str, parsed: BaseModel) -> dict[str, Any]:
+        last_event_id = self.inventory.session.scalar(select(func.max(Event.id))) or 0
+        if name in self.MEDIA_MUTATION_TOOLS:
+            if name == "attach_item_photo":
+                return {
+                    "last_event_id": last_event_id,
+                    "item_id": parsed.item_id,  # type: ignore[attr-defined]
+                    "media": None,
+                }
+            media = self.inventory.session.get(
+                ItemMedia, parsed.media_id  # type: ignore[attr-defined]
+            )
+            return {
+                "last_event_id": last_event_id,
+                "item_id": media.item_id if media is not None else None,
+                "media": self._media_dict(media) if media is not None else None,
+            }
         if name not in self.ITEM_MUTATION_TOOLS:
             return {}
-        last_event_id = self.inventory.session.scalar(select(func.max(Event.id))) or 0
         if name == "create_item":
             return {"last_event_id": last_event_id}
         item_id = parsed.item_id  # type: ignore[attr-defined]
@@ -292,31 +320,51 @@ class ToolDispatcher:
         self, name: str, parsed: BaseModel, result: dict[str, Any],
         before: dict[str, Any] | None,
     ) -> MutationReceipt:
-        entity_type = "item" if name in self.ITEM_MUTATION_TOOLS else name.removeprefix("create_")
+        entity_type = (
+            "item"
+            if name in self.ITEM_MUTATION_TOOLS
+            else "media"
+            if name in self.MEDIA_MUTATION_TOOLS
+            else name.removeprefix("create_")
+        )
         entity_id = result["id"]
         before = before or {}
         event_ids: tuple[int, ...] = ()
         before_ids: dict[str, int | None] = {}
         after_ids: dict[str, int | None] = {}
-        if entity_type == "item":
-            new_events = list(self.inventory.session.scalars(
-                select(Event).where(Event.id > before.get("last_event_id", 0)).order_by(Event.id)
-            ))
+        new_events: list[Event] = []
+        if entity_type in {"item", "media"}:
+            new_events = list(
+                self.inventory.session.scalars(
+                    select(Event)
+                    .where(Event.id > before.get("last_event_id", 0))
+                    .order_by(Event.id)
+                )
+            )
             event_ids = tuple(event.id for event in new_events)
-            if name in self.LOCATION_MUTATION_TOOLS:
+            if entity_type == "item" and name in self.LOCATION_MUTATION_TOOLS:
                 before_ids = {"location_id": before["location_id"]}
                 after_ids = {"location_id": result["location_id"]}
-            elif name == "update_item" and "category_id" in parsed.model_fields_set:
+            elif (
+                entity_type == "item"
+                and name == "update_item"
+                and "category_id" in parsed.model_fields_set
+            ):
                 before_ids = {"category_id": before["category_id"]}
                 after_ids = {"category_id": result["category_id"]}
-            elif name == "create_item":
+            elif entity_type == "item" and name == "create_item":
                 after_ids = {
                     "category_id": result["category_id"],
                     "location_id": result["location_id"],
                 }
         elif name in {"create_location", "create_category"}:
             after_ids = {"parent_id": result["parent_id"]}
-        changed = bool(event_ids) if name in self.ITEM_MUTATION_TOOLS - {"create_item"} else True
+        changed = (
+            bool(event_ids)
+            if name in self.ITEM_MUTATION_TOOLS | self.MEDIA_MUTATION_TOOLS
+            and name not in {"create_item"}
+            else True
+        )
         affected_item_ids: tuple[int, ...] = ()
         receipt_before: dict[str, Any] = {}
         receipt_after: dict[str, Any] = {}
@@ -344,6 +392,18 @@ class ToolDispatcher:
                 "operation": name,
                 "source_item_id": source_id,
                 "created_item_ids": [entity_id] if entity_id != source_id else [],
+                "expected_post_state": receipt_after,
+            }
+        elif entity_type == "media":
+            item_id = before.get("item_id", result.get("item_id"))
+            affected_item_ids = (item_id,) if item_id is not None else ()
+            if before.get("media") is not None:
+                receipt_before[str(entity_id)] = before["media"]
+            if name != "detach_item_photo":
+                receipt_after[str(entity_id)] = result
+            compensation = {
+                "operation": name,
+                "item_id": item_id,
                 "expected_post_state": receipt_after,
             }
         return MutationReceipt(
@@ -488,6 +548,26 @@ class ToolDispatcher:
                 RestoreItemInput,
                 self._restore_item,
             ),
+            "list_item_photos": _ToolSpec(
+                "List opaque photo references attached to an already-resolved Item. References are metadata only; do not claim visual facts.",
+                ItemPhotoListInput,
+                self._list_item_photos,
+            ),
+            "attach_item_photo": _ToolSpec(
+                "Attach a photo reference only when the user or trusted upstream supplied the exact provider and opaque reference; never invent or infer either value.",
+                AttachItemPhotoInput,
+                self._attach_item_photo,
+            ),
+            "update_item_photo": _ToolSpec(
+                "Edit caption or display order for a photo association returned by list_item_photos; the reference is opaque and not visual evidence.",
+                UpdateItemPhotoInput,
+                self._update_item_photo,
+            ),
+            "detach_item_photo": _ToolSpec(
+                "Detach only a selected photo association returned by list_item_photos; this removes the association and never deletes external media.",
+                ItemPhotoIdInput,
+                self._detach_item_photo,
+            ),
         }
 
     def _search_items(self, raw: BaseModel) -> list[dict[str, Any]]:
@@ -522,6 +602,50 @@ class ToolDispatcher:
         args = self._cast(IdInput, raw)
         self._require_seen("item", args.id)
         return self._item_dict(self.inventory.get_item(args.id))
+
+    def _list_item_photos(self, raw: BaseModel) -> dict[str, Any]:
+        args = self._cast(ItemPhotoListInput, raw)
+        self._require_resolved("item", args.item_id)
+        photos = self.inventory.list_item_photos(args.item_id)
+        self._remember_seen("media", [photo.id for photo in photos])
+        return {
+            "item_id": args.item_id,
+            "photos": [self._media_dict(photo) for photo in photos],
+        }
+
+    def _attach_item_photo(self, raw: BaseModel) -> dict[str, Any]:
+        args = self._cast(AttachItemPhotoInput, raw)
+        self._require_resolved("item", args.item_id)
+        photo = self._validated_write(
+            [("item", args.item_id)],
+            lambda: self.inventory.attach_item_photo(
+                args.item_id,
+                args.provider,
+                args.media_reference,
+                caption=args.caption,
+                position=args.position,
+            ),
+        )
+        self._remember_seen("media", [photo.id])
+        return self._media_dict(photo)
+
+    def _update_item_photo(self, raw: BaseModel) -> dict[str, Any]:
+        args = self._cast(UpdateItemPhotoInput, raw)
+        self._require_seen("media", args.media_id)
+        payload = args.model_dump(mode="python", exclude_unset=True)
+        media_id = payload.pop("media_id")
+        if "position" in payload and payload["position"] is None:
+            raise ValueError("position must be a non-negative integer when provided")
+        photo = self.inventory.update_item_photo(media_id, **payload)
+        self._remember_seen("media", [photo.id])
+        return self._media_dict(photo)
+
+    def _detach_item_photo(self, raw: BaseModel) -> dict[str, Any]:
+        args = self._cast(ItemPhotoIdInput, raw)
+        self._require_seen("media", args.media_id)
+        photo = self.inventory.detach_item_photo(args.media_id)
+        self._remember_seen("media", [photo.id])
+        return self._media_dict(photo)
 
     def _get_location(self, raw: BaseModel) -> dict[str, Any]:
         args = self._cast(IdInput, raw)
@@ -876,6 +1000,20 @@ class ToolDispatcher:
             "current_location_id": item.current_location_id,
             "location_status": item.location_status,
             "location_path": self._path(item.current_location),
+        }
+
+    @staticmethod
+    def _media_dict(media: ItemMedia | None) -> dict[str, Any]:
+        if media is None:
+            raise ValueError("item photo does not exist")
+        return {
+            "id": media.id,
+            "media_id": media.id,
+            "item_id": media.item_id,
+            "provider": media.provider,
+            "media_reference": media.media_reference,
+            "caption": media.caption,
+            "position": media.position,
         }
 
     def _location_dict(self, location: Location) -> dict[str, Any]:
