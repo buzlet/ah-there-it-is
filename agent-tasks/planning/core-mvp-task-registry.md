@@ -1,139 +1,56 @@
-# Core MVP task registry after active batch 0061-0070
+# Core MVP task registry after reviewed 0071–0083
 
-Status: planning/reservation only. Batch 0061-0070 is merged; 0071-0083 are ready for issuance from a reconciled main SHA.
+Status: 0071–0083 implemented, independently reviewed, corrected and merged.
 
-## Completed prerequisite
+## Completed
 
-0061-0070 — quantity / removed / portable-v3 / immediate Undo — merged in PR #77.
+- 0061–0070 — quantity / removed / portable-v3 / immediate Undo.
+- 0071–0080 — Item media references + single-user/private-text Telegram adapter.
+- 0081–0083 — provider/model benchmark campaign, comparison and promotion evidence.
+- PR #84 — independent media/Telegram corrections.
+- PR #83 — independent model-evaluation corrections.
 
-## Reserved next core batch: 0071-0080
+Historical specs are archived and are not active implementation authority.
 
-Purpose: Item photo references + single-user Telegram bot, then integration closure.
+## Next sandbox batch: 0084–0090
 
-### 0071 — ItemMedia schema and migration
+Purpose: final integrated MVP correctness/hardening only.
 
-- add ItemMedia association table;
-- provider/reference/caption/position/timestamps;
-- constraints/indexes;
-- no image bytes;
-- removed Items retain media;
-- installed-wheel/fresh/upgrade migration tests.
+The sandbox batch may:
+- reproduce suspected defects;
+- add adversarial/regression tests;
+- make narrow code corrections;
+- check cross-surface invariants, crash/idempotency, Undo/lifecycle/media interactions, security/privacy, boundedness, package/startup semantics and integrated MVP acceptance evidence.
 
-### 0072 — Item photo domain service and history
+The sandbox batch must not:
+- add new product features;
+- perform target-server preparation;
+- configure systemd/services;
+- choose production filesystem/env/secrets locations;
+- implement deployment scripts tied to the target host;
+- rehearse real deployment/restart/backup paths.
 
-- attach/list/update/detach;
-- stable Item write resolution;
-- deterministic ordering;
-- structured attach/update/detach Events;
-- no external byte deletion;
-- split child receives no copied media.
+## Following Direct batch: 0091+
 
-### 0073 — photo API, web projection and immediate Undo
+Purpose: deployment/environment readiness on the actual target server.
 
-- structured REST/manual-web surfaces;
-- Item detail lists photo refs/captions;
-- optional resolver seam with fake implementation;
-- one-level Undo for attach/detach/caption/order mutations;
-- no vision or image-content search;
-- portable-v3 explicitly remains unchanged.
+The Direct agent owns host-specific MVP preparation after code-level acceptance:
+- runtime/service-manager setup;
+- environment and secret placement;
+- filesystem/data/log paths;
+- deployment and restart rehearsal;
+- schema/readiness checks against the target installation;
+- operational backup/restore path validation where applicable;
+- any host-specific issues discovered during deployment preparation.
 
-### 0074 — shared application chat execution boundary
+Direct work must not silently reopen product semantics.
 
-- extract web-route chat orchestration into reusable application service;
-- preserve ChatRequestService request-key/idempotency semantics;
-- preserve AgentRunner transaction behavior/receipts;
-- web API behavior remains compatible;
-- no Telegram code in inventory domain.
+## Review lifecycle
 
-### 0075 — Telegram Bot API client
+For both sandbox and Direct batches:
 
-- httpx-based provider-neutral-ish Telegram transport wrapper;
-- getUpdates long polling;
-- sendMessage;
-- plain-text deterministic chunking;
-- bounded timeout/retry/backoff;
-- no additional Telegram dependency;
-- secret-safe errors/logging;
-- fake transport tests.
+implementation → self-review → PR → exact-head CI green → READY FOR INDEPENDENT REVIEW
 
-### 0076 — Telegram single-user authorization and conversation mapping
+Then a separate reviewer independently reconstructs requirements, performs adversarial review/tests, and places any corrections in a separate PR.
 
-- required bot token + allowed user ID settings;
-- private-chat text only;
-- reject unauthorized/non-private/non-text before app call;
-- persist Telegram chat -> application conversation mapping;
-- no generic User/Channel model.
-
-### 0077 — Telegram update idempotency and checkpoint state machine
-
-- request_key = telegram:<update_id>;
-- durable polling checkpoint;
-- repeated Update replays result, never mutation;
-- crash/restart tests;
-- document/accept at-least-once outbound reply at uncertain send acknowledgement boundary.
-
-### 0078 — Telegram runtime command and operational behavior
-
-- explicit `ah-there-it-is telegram-bot` process;
-- no FastAPI startup side effect;
-- graceful bounded polling loop;
-- application/provider configuration reuse;
-- /start and /help adapter-only commands if useful;
-- health/error behavior without secret leakage.
-
-### 0079 — media + Telegram integrated scenarios/hardening
-
-- target-scale ItemMedia associations;
-- removed/restore + photos;
-- split-no-copy invariant;
-- Undo media association mutations;
-- Telegram duplicate/retry/idempotency;
-- long text responses;
-- failure injection;
-- package/runtime tests.
-
-### 0080 — core media/Telegram integration review
-
-- cumulative API/UI/runtime/history audit;
-- verify no Telegram concepts leaked into inventory domain;
-- verify no image bytes/vision accidentally entered core;
-- docs/config examples;
-- one full-local v8 verification when issued;
-- final PR/CI.
-
-## Parallel lane reserved: 0081-0083 provider/model evaluation
-
-After 0061-0070 merges, start a second implementation branch from the same reconciled main SHA:
-
-- 0081 — benchmark campaign schema and repeated runner;
-- 0082 — benchmark aggregation and baseline/candidate comparison;
-- 0083 — promotion hard-gate report and evaluation integration.
-
-Draft specs:
-`agent-tasks/planning/post-0070-model-evaluation/`
-
-This lane is intentionally file-disjoint from 0071-0080 and may merge before or after it.
-
-The slower agent may take 0081-0083 while the faster agent executes all 0071-0080.
-
-## After both lanes, still core before MVP declaration
-
-1. final correctness audit against main containing 0061-0083;
-2. fix only concrete audit findings;
-3. final MVP acceptance.
-
-## Not core implementation
-
-- executor/process redesign;
-- Telegram webhooks;
-- Telegram group support;
-- Telegram photo ingestion;
-- external media storage service itself;
-- image vision/recognition;
-- WhatsApp;
-- QR/barcodes;
-- voice recognition;
-- multi-user;
-- multilingual search;
-- backup scheduling;
-- trace purge.
+Implementer and reviewer do not self-merge. Orchestrator verifies findings/corrections and performs final integration.

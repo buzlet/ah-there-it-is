@@ -144,9 +144,9 @@ Key rules:
 
 ## Current status
 
-Product work through Stage 26 and assignments through 0070 are complete.
+Product work through Stage 26 and assignments through 0083 is complete.
 
-Batch 0061–0070 implemented exact/approximate/unknown quantity truth, homogeneous-lot partial splitting, generic removed/restore, portable-v3, immediate one-level Undo, Russian scenarios and runtime integration.
+Batches 0071–0080 and 0081–0083 implemented Item media references, the single-user/private-text Telegram adapter, and provider/model benchmark-promotion tooling. Independent post-merge reviews produced corrective PRs #84 and #83; both corrections are merged into current main.
 
 ### Correction / Undo
 
@@ -166,16 +166,11 @@ Key rules:
 
 ## Next product step
 
-All required product-semantic gates for the implemented inventory core are closed.
+All required product-semantic gates for the implemented core are closed.
 
-Before core MVP acceptance, the planned independent implementation lanes are:
+Next is one sandbox-only final MVP correctness/hardening batch (0084–0090). It may add regression tests and narrow code corrections only; it must not add new product scope or prepare the deployment host.
 
-- 0071–0080: Item photo references + single-user Telegram text adapter;
-- 0081–0083: provider/model benchmark and promotion-report tooling.
-
-Their accepted/planned scope is documented under `agent-tasks/planning/`.
-
-After both lanes merge: final correctness audit, concrete fixes only, then MVP acceptance.
+After independent review/corrections of that batch, deployment/environment readiness is a separate Direct-shell batch on the actual target server. That Direct work owns service-manager setup, filesystem/env/secrets layout, deployment rehearsal, operational paths and other host-specific readiness.
 
 Do not reopen merge, Product/SKU, continuous-measurement, multi-user, multilingual,
 QR/barcode, built-in voice, backup-policy, trace-purge or generic hard-delete

@@ -4,9 +4,9 @@
 
 Repository: `buzlet/ah-there-it-is`.
 
-Product stages through Stage 26 and assignments through 0080 are complete on this
-implementation branch; provider/model campaign tooling 0081–0083 remains a
-separate sibling lane.
+Product stages through Stage 26 and assignments through 0083 are complete on main.
+
+Media/Telegram 0071–0080 and model-evaluation 0081–0083 are merged. Their independent review corrections are also merged: PR #84 for media/Telegram and PR #83 for model-evaluation hardening.
 
 Batch 0061–0070 merged as PR #77 at `33710743ba1d3c7a380cf4a2a37457fb94e89eaa`; its exact PR head was `35ee225e9a9159457a395d0f03bed37c5c6777af`. Authoritative CI was green.
 
@@ -126,10 +126,10 @@ Accepted and closed in:
 
 ## Remaining work before MVP acceptance
 
-The media + Telegram core lane (0071–0080) is implemented and documented here.
-Its explicit boundaries remain: no image bytes or vision inference, no Telegram
-webhooks/groups/photo ingestion, and no generic multi-user/channel model.
+1. Run one sandbox-only final correctness/hardening batch 0084–0090 across the integrated core. Fix only reproducible code-level findings; do not add product scope.
+2. Subject that batch to an independent reviewer. Implementer and reviewer stop at green PR CI and do not self-merge.
+3. After code correctness is accepted, run a separate Direct-shell deployment-readiness batch on the actual target server.
 
-The sibling 0081–0083 lane owns provider/model evaluation campaign tooling. The
-lanes are merge-order independent; after both land, run one final correctness
-audit and fix only concrete findings before MVP acceptance.
+The Direct batch, not the sandbox batch, owns host preparation: service manager, environment/secrets placement, filesystem layout, deployment/restart rehearsal, operational paths and other server-specific setup.
+
+Only after both code acceptance and Direct deployment readiness are green should the project be declared MVP-ready.
