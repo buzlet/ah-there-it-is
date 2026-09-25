@@ -18,6 +18,12 @@ from .client import (
     TelegramUser,
 )
 from .adapter import TelegramAdapter, TelegramAdapterResult, SingleUserTelegramAdapter
+from .polling import (
+    TelegramPollResult,
+    TelegramPollingLoop,
+    TelegramPollingService,
+    TelegramUpdateProcessor,
+)
 
 __all__ = [
     "DEFAULT_TELEGRAM_BASE_URL",
@@ -38,4 +44,8 @@ __all__ = [
     "TelegramAdapter",
     "TelegramAdapterResult",
     "SingleUserTelegramAdapter",
+    "TelegramPollResult",
+    "TelegramPollingLoop",
+    "TelegramPollingService",
+    "TelegramUpdateProcessor",
 ]

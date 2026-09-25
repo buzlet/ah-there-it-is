@@ -9,7 +9,12 @@ from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
-from ah_there_it_is.db.models import TelegramChatBinding, TelegramPollingState, utc_now
+from ah_there_it_is.db.models import (
+    ChatRequestRecord,
+    TelegramChatBinding,
+    TelegramPollingState,
+    utc_now,
+)
 from ah_there_it_is.telegram.client import TelegramMessage, TelegramUpdate
 
 
@@ -70,6 +75,20 @@ class TelegramAdapter:
         message = update.message
         binding = self.session.get(TelegramChatBinding, message.chat.id)
         conversation_id = binding.conversation_id if binding is not None else None
+        # A first delivery reserves the request before the chat binding is
+        # persisted.  On a send/checkpoint retry the binding is present, but
+        # the keyed request must be replayed with the exact conversation value
+        # used for that reservation (often ``None`` for the first message).
+        # Otherwise ChatRequestService would mistake a delivery retry for a
+        # conflicting request.
+        if request_key is not None:
+            prior_request = self.session.scalar(
+                select(ChatRequestRecord).where(
+                    ChatRequestRecord.request_key == request_key
+                )
+            )
+            if prior_request is not None:
+                conversation_id = prior_request.requested_conversation_id
         execution = self.chat_service.execute_chat(
             message.text.strip(),
             conversation_id=conversation_id,
