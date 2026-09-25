@@ -1,17 +1,19 @@
-# Issued batches
+# Issued tasks
 
-Under v9, each new batch is one Markdown file committed to `main`:
+Under v9, each new task/batch is one Markdown file committed to `main`:
 
 `agent-tasks/batches/<batch-id>.md`
 
 The commit containing the finalized file is the immutable **issuance SHA**.
 
-A batch defines work/verification and links exactly one executor profile under
-`agent-tasks/executors/`.
+This file defines only work and verification. It does not select or describe an
+execution environment.
 
-Do not duplicate executor details inside the batch.
+The orchestrator supplies the executor separately:
 
-No control branch, copied assignment files or seed commit is required.
+`Executor: agent-tasks/executors/<profile>.md`
 
-Completed batch files may be archived later by the orchestrator; archival is not
+No control branch, copied assignment files, launcher or seed commit is required.
+
+Completed task files may be archived later by the orchestrator; archival is not
 part of implementer/reviewer lifecycle.

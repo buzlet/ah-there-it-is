@@ -35,15 +35,15 @@ git rev-parse --show-toplevel
 git branch --show-current
 ```
 
-The current branch must be the orchestrator-precreated implementation branch and
-the issuance SHA must be its ancestor.
+The current branch must be `work/<batch-id>`, pre-created by the orchestrator,
+and the issuance SHA must be its ancestor.
 
 Do not require current `origin/main` to equal the issuance SHA.
 
 ## Checkout/bootstrap
 
 If the exact issued checkout does not exist, create a fresh canonical checkout in
-the required workdir and check out the pre-created implementation branch.
+the required workdir and check out `work/<batch-id>`.
 
 Use the repository-local `.venv`.
 

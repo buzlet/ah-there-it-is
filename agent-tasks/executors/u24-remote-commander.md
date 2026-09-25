@@ -23,8 +23,8 @@ This profile uses the existing `gpt` repository path.
 The orchestrator must ensure that no concurrent implementation is using the same
 checkout before selecting this executor.
 
-The checkout must be on the issued implementation branch and the issuance SHA
-must be an ancestor of HEAD.
+The checkout must be on `work/<batch-id>` and the issuance SHA must be an
+ancestor of HEAD.
 
 Do not require current `origin/main` to equal the issuance SHA.
 

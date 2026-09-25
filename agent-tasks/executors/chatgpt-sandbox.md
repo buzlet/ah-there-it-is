@@ -12,7 +12,7 @@ execution_user: sandbox
 
 ## Workdir
 
-For batch file:
+For the separately supplied task:
 
 `agent-tasks/batches/<batch-id>.md`
 
@@ -79,10 +79,10 @@ GNU Make is canonical.
 
 ## Publication
 
-The orchestrator pre-creates the remote implementation branch from the issuance
-SHA.
+The orchestrator pre-creates `work/<batch-id>` from the issuance SHA.
 
-Publish append-only implementation/reviewer commits through the GitHub connector.
+Publish append-only implementation/reviewer commits to that branch through the
+GitHub connector.
 
 Do not rebase or force-push because `main` advanced.
 

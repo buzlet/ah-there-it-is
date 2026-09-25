@@ -1,7 +1,5 @@
 # Batch: <batch-id>
 
-Executor: `agent-tasks/executors/chatgpt-sandbox.md`
-
 Full local required: `false`
 
 ## Objective

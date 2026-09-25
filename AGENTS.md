@@ -76,10 +76,11 @@ For batches issued after the v9 process change, use:
 
 `agent-tasks/common/v9.md`
 
-Each issued batch is one file committed to `main`. The commit containing the
-finalized batch file is its immutable issuance SHA. The batch links one executor
-profile under `agent-tasks/executors/`; execution-environment rules live only
-in that profile.
+Each issued task is one file committed to `main`. The commit containing the
+finalized task file is its immutable issuance SHA.
+
+Task and executor are separate issuance inputs. The task never embeds environment
+details or selects its executor.
 
 There is no control branch, seed, assignment copy, committed self-review file or
 separate reviewer-correction PR in v9.
@@ -93,16 +94,14 @@ Do not run repository-wide regression after each task. Verification breadth and
 
 Execution-environment details are not duplicated in batch specifications.
 
-A batch contains exactly one executor link, for example:
+At issuance the orchestrator supplies a separate executor path, for example:
 
 `Executor: agent-tasks/executors/chatgpt-sandbox.md`
 
-Available executor profiles live under:
-
-`agent-tasks/executors/`
+Available executor profiles live under `agent-tasks/executors/`.
 
 The selected executor profile owns user/workdir/bootstrap/network/publication and
-host-specific stop rules. Task/lifecycle semantics remain in v9.
+host-specific stop rules. The task file contains none of those details.
 
 Windows Git Bash remains pending native validation and may be selected only when
 its executor profile explicitly permits the issued work.
@@ -116,8 +115,8 @@ Python 3.12 is the project CI/test compatibility target. Do not add Python 3.13 
 Read only:
 
 1. this file;
-2. the one issued batch file at the issuance SHA;
-3. the executor profile linked by that batch;
+2. the issued task file at the issuance SHA;
+3. the separately supplied executor profile at the same issuance SHA;
 4. `agent-tasks/common/v9.md`;
 5. relevant source/tests.
 

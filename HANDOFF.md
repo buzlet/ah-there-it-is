@@ -15,7 +15,7 @@ Active implementation protocol for newly issued work:
 `agent-tasks/common/v9.md`
 
 Execution environment is selected separately through one profile under
-`agent-tasks/executors/`.
+`agent-tasks/executors/`; task files do not embed the executor selection.
 
 Batches already issued under v8 finish under v8; do not migrate an in-flight
 batch mid-run.
@@ -26,15 +26,18 @@ Historical process material is archived and is not normal implementation context
 
 v9 separates task definition from execution environment.
 
-A batch links exactly one reusable executor profile:
+The orchestrator hands the agent two separate paths: the task and one executor
+profile, both read at the issuance SHA.
+
+Executor profiles:
 
 - `agent-tasks/executors/chatgpt-sandbox.md`
 - `agent-tasks/executors/u24-direct-shell.md`
 - `agent-tasks/executors/u24-remote-commander.md`
 - `agent-tasks/executors/windows-git-bash.md`
 
-The executor file, not the batch, owns workdir/user/bootstrap/network/publication
-rules. Python 3.12 application CI remains authoritative regardless of executor.
+The executor file owns workdir/user/bootstrap/network/publication rules. The task
+file contains none of them. Python 3.12 application CI remains authoritative.
 
 ## Verification model
 
