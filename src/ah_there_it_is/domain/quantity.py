@@ -47,6 +47,29 @@ class QuantityValue:
         return {"mode": self.mode.value, "value": self.value}
 
 
+@dataclass(frozen=True)
+class Portion:
+    """An explicitly supplied nonempty part of a lot; absence means whole lot."""
+
+    quantity: QuantityValue
+
+    @classmethod
+    def coerce(
+        cls,
+        value: "Portion | QuantityValue | dict[str, object]",
+    ) -> "Portion":
+        if isinstance(value, cls):
+            return value
+        if isinstance(value, QuantityValue):
+            return cls(value)
+        if not isinstance(value, dict):
+            raise ValueError("portion must be an object with mode and value")
+        extra = set(value) - {"mode", "value"}
+        if extra or "mode" not in value or "value" not in value:
+            raise ValueError("portion must contain exactly mode and value")
+        return cls(QuantityValue.coerce(value["mode"], value["value"]))  # type: ignore[arg-type]
+
+
 def validated_reason(
     reason: str, reason_source: ReasonSource | str
 ) -> tuple[str, ReasonSource]:

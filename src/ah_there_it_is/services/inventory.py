@@ -13,7 +13,7 @@ from sqlalchemy.orm import Session, selectinload
 from ah_there_it_is.db.models import Alias, Category, Event, Item, ItemTag, Location, Tag, utc_now
 from ah_there_it_is.domain.exceptions import DuplicateEntityError, EntityNotFoundError
 from ah_there_it_is.domain.names import normalize_name
-from ah_there_it_is.domain.quantity import QuantityValue, ReasonSource, validated_reason
+from ah_there_it_is.domain.quantity import Portion, QuantityValue, ReasonSource, validated_reason
 from ah_there_it_is.domain.states import ItemState, LocationStatus, QuantityMode
 
 
@@ -400,6 +400,7 @@ class InventoryService:
         item_id: int,
         location_id: int,
         *,
+        portion: Portion | QuantityValue | dict[str, object] | None = None,
         original_text: str | None = None,
     ) -> Item:
         if location_id is None:
@@ -410,44 +411,146 @@ class InventoryService:
         destination = self._get_optional(Location, location_id, "location")
         if item.current_location_id == destination.id:
             return item
+        requested = Portion.coerce(portion) if portion is not None else None
+        try:
+            affected = self._split_for_portion(item, requested, original_text=original_text)
+            old_location = affected.current_location
+            old_status = affected.location_status
+            affected.current_location = destination
+            affected.location_status = LocationStatus.KNOWN.value
+            self._record_location_transition(
+                affected,
+                event_type="item_moved",
+                from_location=old_location,
+                to_location=destination,
+                from_status=old_status,
+                to_status=LocationStatus.KNOWN.value,
+                original_text=original_text,
+            )
+            self._commit(affected)
+            return affected
+        except Exception:
+            if self.autocommit:
+                self.session.rollback()
+            raise
 
-        old_location = item.current_location
-        old_status = item.location_status
-        item.current_location = destination
-        item.location_status = LocationStatus.KNOWN.value
-        self._record_location_transition(
-            item,
-            event_type="item_moved",
-            from_location=old_location,
-            to_location=destination,
-            from_status=old_status,
-            to_status=LocationStatus.KNOWN.value,
-            original_text=original_text,
-        )
-        self._commit(item)
-        return item
-
-    def take_item(self, item_id: int, *, original_text: str | None = None) -> Item:
+    def take_item(
+        self,
+        item_id: int,
+        *,
+        portion: Portion | QuantityValue | dict[str, object] | None = None,
+        original_text: str | None = None,
+    ) -> Item:
         item = self.get_item(item_id)
         self._ensure_nonterminal(item, "take")
         if item.location_status == LocationStatus.IN_USE.value:
             return item
+        requested = Portion.coerce(portion) if portion is not None else None
+        try:
+            affected = self._split_for_portion(item, requested, original_text=original_text)
+            old_location = affected.current_location
+            old_status = affected.location_status
+            affected.current_location = None
+            affected.location_status = LocationStatus.IN_USE.value
+            self._record_location_transition(
+                affected,
+                event_type="item_taken",
+                from_location=old_location,
+                to_location=None,
+                from_status=old_status,
+                to_status=LocationStatus.IN_USE.value,
+                original_text=original_text,
+            )
+            self._commit(affected)
+            return affected
+        except Exception:
+            if self.autocommit:
+                self.session.rollback()
+            raise
 
-        old_location = item.current_location
-        old_status = item.location_status
-        item.current_location = None
-        item.location_status = LocationStatus.IN_USE.value
-        self._record_location_transition(
-            item,
-            event_type="item_taken",
-            from_location=old_location,
-            to_location=None,
-            from_status=old_status,
-            to_status=LocationStatus.IN_USE.value,
-            original_text=original_text,
+    def _split_for_portion(
+        self,
+        source: Item,
+        portion: Portion | None,
+        *,
+        original_text: str | None,
+    ) -> Item:
+        if portion is None:
+            return source
+        before = QuantityValue.coerce(source.quantity_mode, source.quantity)
+        child_quantity = portion.quantity
+        remainder, is_whole = self._split_quantities(before, child_quantity)
+        if is_whole:
+            return source
+
+        source.quantity_mode = remainder.mode.value
+        source.quantity = remainder.value
+        source.updated_at = utc_now()
+        child = Item(
+            name=source.name,
+            normalized_name=source.normalized_name,
+            description=source.description,
+            state=source.state,
+            category=source.category,
+            current_location=source.current_location,
+            location_status=source.location_status,
+            quantity_mode=child_quantity.mode.value,
+            quantity=child_quantity.value,
+            attributes=dict(source.attributes),
         )
-        self._commit(item)
-        return item
+        self.session.add(child)
+        self.session.flush()
+        self._replace_aliases(child, [alias.name for alias in source.aliases])
+        self._replace_tags(child, [link.tag.name for link in source.tag_links])
+        payload = {
+            "source_item_id": source.id,
+            "child_item_id": child.id,
+            "before": before.as_dict(),
+            "remainder": remainder.as_dict(),
+            "child": child_quantity.as_dict(),
+            "copied_description": source.description,
+        }
+        self.session.add_all(
+            [
+                Event(
+                    event_type="item_split",
+                    item=source,
+                    payload=payload,
+                    original_text=original_text,
+                ),
+                Event(
+                    event_type="item_split_from",
+                    item=child,
+                    payload=payload,
+                    original_text=original_text,
+                ),
+            ]
+        )
+        return child
+
+    @staticmethod
+    def _split_quantities(
+        source: QuantityValue, child: QuantityValue
+    ) -> tuple[QuantityValue, bool]:
+        if (
+            source.mode is QuantityMode.EXACT
+            and child.mode is QuantityMode.EXACT
+            and child.value == source.value
+        ):
+            return source, True
+        if source.mode is QuantityMode.UNKNOWN or child.mode is QuantityMode.UNKNOWN:
+            return QuantityValue(QuantityMode.UNKNOWN, None), False
+
+        assert source.value is not None and child.value is not None
+        remainder_value = source.value - child.value
+        if remainder_value <= 0:
+            return QuantityValue(QuantityMode.UNKNOWN, None), False
+        remainder_mode = (
+            QuantityMode.EXACT
+            if source.mode is QuantityMode.EXACT and child.mode is QuantityMode.EXACT
+            else QuantityMode.APPROXIMATE
+        )
+        return QuantityValue(remainder_mode, remainder_value), False
 
     def mark_item_location_unknown(
         self, item_id: int, *, original_text: str | None = None
