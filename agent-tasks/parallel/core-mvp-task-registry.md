@@ -103,12 +103,26 @@ Purpose: Item photo references + single-user Telegram bot, then integration clos
 - one full-local v8 verification when issued;
 - final PR/CI.
 
-## After 0080, still core before MVP declaration
+## Parallel lane reserved: 0081-0083 provider/model evaluation
 
-1. final correctness audit against merged 0061-0080 runtime;
+After 0061-0070 merges, start a second implementation branch from the same reconciled main SHA:
+
+- 0081 — benchmark campaign schema and repeated runner;
+- 0082 — benchmark aggregation and baseline/candidate comparison;
+- 0083 — promotion hard-gate report and evaluation integration.
+
+Draft specs:
+`agent-tasks/parallel/post-0070-model-evaluation/`
+
+This lane is intentionally file-disjoint from 0071-0080 and may merge before or after it.
+
+The slower agent may take 0081-0083 while the faster agent executes all 0071-0080.
+
+## After both lanes, still core before MVP declaration
+
+1. final correctness audit against main containing 0061-0083;
 2. fix only concrete audit findings;
-3. provider/model evaluation promotion tooling based on the existing evaluation stack and `provider-evaluation-gap-audit.md`;
-4. final MVP acceptance.
+3. final MVP acceptance.
 
 ## Not core implementation
 
