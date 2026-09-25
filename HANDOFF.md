@@ -10,53 +10,53 @@ Media/Telegram 0071–0080 and model-evaluation 0081–0083 are merged. Their in
 
 Batch 0061–0070 merged as PR #77 at `33710743ba1d3c7a380cf4a2a37457fb94e89eaa`; its exact PR head was `35ee225e9a9159457a395d0f03bed37c5c6777af`. Authoritative CI was green.
 
-Active implementation protocol:
+Active implementation protocol for newly issued work:
 
-`agent-tasks/common/v8.md`
+`agent-tasks/common/v9.md`
+
+Execution environment is selected separately through one profile under
+`agent-tasks/executors/`.
+
+Batches already issued under v8 finish under v8; do not migrate an in-flight
+batch mid-run.
 
 Historical process material is archived and is not normal implementation context.
 
 ## Execution
 
-Direct U24 execution runs as OS user `rdu01`.
+v9 separates task definition from execution environment.
 
-Each issued patch/batch receives its own exact checkout path under:
+A batch links exactly one reusable executor profile:
 
-`/home/rdu01/projects/<patch-name>`
+- `agent-tasks/executors/chatgpt-sandbox.md`
+- `agent-tasks/executors/u24-direct-shell.md`
+- `agent-tasks/executors/u24-remote-commander.md`
+- `agent-tasks/executors/windows-git-bash.md`
 
-The agent must stay inside that checkout for Git, edits, Python, Make and tests. Do not switch to `gpt`, do not use sudo, and do not reuse another patch checkout.
-
-The direct-shell environment is already connected to U24.
-
-Remote Commander on U24 remains available when explicitly selected.
-
-A third execution channel is the ChatGPT sandbox. It uses the exact
-`sandbox-bundle-<start-main-sha>` CI artifact, works only under an issued
-`/mnt/data/<patch-name>` directory, runs `make sandbox-bootstrap`, and does not
-use shell network access. See `agent-tasks/common/sandbox-execution.md`.
-
-Python 3.12 remains the authoritative CI/test compatibility target. Sandbox
-execution currently uses its preinstalled Python 3.13 environment as an additional
-implementation environment, not as a new required CI matrix lane.
+The executor file, not the batch, owns workdir/user/bootstrap/network/publication
+rules. Python 3.12 application CI remains authoritative regardless of executor.
 
 ## Verification model
 
-One coherent issued batch:
+For new v9 work:
 
-- one implementation branch;
-- focused checkpoint per task;
-- no full repository suite between tasks;
-- one final PR;
-- one authoritative full CI;
-- full local regression only when manifest sets `full_local_required: true`.
+- one batch file in `main`;
+- its commit is the issuance SHA;
+- one pre-created implementation branch from that SHA;
+- ordinary task commits as recovery checkpoints;
+- one PR and authoritative exact-head CI;
+- independent reviewer may append correction commits to the same branch;
+- implementer/reviewer never merge;
+- orchestrator owns current-main compatibility, merge and post-merge verification.
 
-The integrated-batch lifecycle tooling now treats an absolute manifest workdir as execution-host metadata; actual checkout identity is verified through the explicit runtime checkout parameter rather than requiring CI to use the U24 absolute path.
+No control branch, seed, assignment copies, lifecycle journal, committed self-review
+record or separate correction PR is part of the normal v9 path.
 
 ## Useful process tools
 
-- `tools/agent/lifecycle_checkpoints.py`;
-- `tools/agent/canonical_verifier.py` for manifest-declared full-local runs;
-- `tools/agent/ci_waiter.py`.
+- `tools/agent/canonical_verifier.py` when a batch explicitly requires full-local verification;
+- `tools/agent/ci_waiter.py` where supported;
+- lifecycle checkpoint tooling remains legacy for v8/historical batches.
 
 ## Product summary
 

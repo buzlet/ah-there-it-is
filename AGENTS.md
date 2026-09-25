@@ -72,36 +72,40 @@ Backup scheduling, retention and off-machine copying are external infrastructure
 
 ## Active implementation protocol
 
-Use only:
+For batches issued after the v9 process change, use:
 
-`agent-tasks/common/v8.md`
+`agent-tasks/common/v9.md`
 
-One issued batch has one implementation branch, focused checkpoint per task, one final PR and one authoritative full CI.
+Each issued batch is one file committed to `main`. The commit containing the
+finalized batch file is its immutable issuance SHA. The batch links one executor
+profile under `agent-tasks/executors/`; execution-environment rules live only
+in that profile.
 
-Do not run repository-wide regression after each task.
+There is no control branch, seed, assignment copy, committed self-review file or
+separate reviewer-correction PR in v9.
 
-Full local regression is run only when the immutable manifest says `full_local_required: true`.
+Do not migrate an already-running v8 batch to v9 mid-execution.
 
-The agent must not expand verification scope on its own.
+Do not run repository-wide regression after each task. Verification breadth and
+`full_local_required` come from the issued batch file.
 
 ## Execution
 
-Supported implementation execution channels are direct U24 shell, explicitly selected Remote Commander, and the ChatGPT sandbox.
+Execution-environment details are not duplicated in batch specifications.
 
-Direct U24 execution is already connected to the machine and runs as OS user `rdu01`.
+A batch contains exactly one executor link, for example:
 
-The launcher supplies a unique patch checkout under:
+`Executor: agent-tasks/executors/chatgpt-sandbox.md`
 
-`/home/rdu01/projects/<patch-name>`
+Available executor profiles live under:
 
-All Git, edits, Python, Make and tests must run only inside that exact checkout. Do not switch users, use sudo, or operate in another repository checkout.
+`agent-tasks/executors/`
 
-Remote Commander on U24 remains supported when explicitly selected.
+The selected executor profile owns user/workdir/bootstrap/network/publication and
+host-specific stop rules. Task/lifecycle semantics remain in v9.
 
-Sandbox execution uses the exact CI artifact `sandbox-bundle-<start-main-sha>`,
-an issued workdir under `/mnt/data/`, the preinstalled `/opt/pyvenv` dependency environment via `make sandbox-bootstrap`, and no shell network access. See `agent-tasks/common/sandbox-execution.md`.
-
-Windows Git Bash through Remote Commander is prepared but pending native validation.
+Windows Git Bash remains pending native validation and may be selected only when
+its executor profile explicitly permits the issued work.
 
 ### Python verification policy
 
@@ -112,17 +116,18 @@ Python 3.12 is the project CI/test compatibility target. Do not add Python 3.13 
 Read only:
 
 1. this file;
-2. exact issued manifest/task specs;
-3. `agent-tasks/common/v8.md`;
-4. relevant source/tests.
+2. the one issued batch file at the issuance SHA;
+3. the executor profile linked by that batch;
+4. `agent-tasks/common/v9.md`;
+5. relevant source/tests.
 
 Do not recursively read `agent-tasks/archive/`.
 
 ## Process helpers
 
-- `tools/agent/lifecycle_checkpoints.py` — read-only control/seed/checkpoint inspection;
-- `tools/agent/canonical_verifier.py` — optional durable full-local verifier for manifest-declared high-risk batches;
-- `tools/agent/ci_waiter.py` — bounded exact-head CI observer.
+- `tools/agent/canonical_verifier.py` — optional when the issued batch explicitly requires durable full-local verification;
+- `tools/agent/ci_waiter.py` — optional bounded exact-head CI observer where its environment supports it;
+- v8 lifecycle/seed helpers are legacy and are not used by new v9 batches.
 
 ## Product/deployment scope
 
