@@ -5,7 +5,12 @@ import json
 from pathlib import Path
 
 import pytest
+from sqlalchemy import event as sqlalchemy_event, func, select
+from sqlalchemy.orm import Session
 
+from ah_there_it_is.db.migrations import upgrade_database
+from ah_there_it_is.db.models import Alias, Category, Item, ItemTag, Location, Tag
+from ah_there_it_is.db.session import create_db_engine
 from ah_there_it_is.portable_stream import (
     PortableInputError,
     SpoolMarker,
@@ -13,6 +18,7 @@ from ah_there_it_is.portable_stream import (
 )
 from ah_there_it_is.storage import (
     PortableInventoryValidationError,
+    _write_portable_workspace_inventory,
     validate_portable_workspace,
 )
 
@@ -242,3 +248,68 @@ def test_streaming_validation_rejects_extra_fields(tmp_path: Path) -> None:
     with read_portable_workspace(source) as workspace:
         with pytest.raises(PortableInventoryValidationError, match="Extra inputs"):
             validate_portable_workspace(workspace)
+
+
+def test_inventory_write_uses_bounded_batches_without_identity_growth(
+    tmp_path: Path,
+) -> None:
+    raw = _valid_document()
+    stamp = raw["exported_at"]
+    raw["inventory"]["items"] = [
+        {
+            "id": index,
+            "name": f"Item {index}",
+            "description": f"Description {index}",
+            "state": "working",
+            "category_id": 2,
+            "location_id": 1,
+            "location_status": "known",
+            "quantity": 1,
+            "attributes": {"index": index},
+            "aliases": [f"Alias {index}"],
+            "tags": [f"Tag {index % 17}", "Common"],
+            "created_at": stamp,
+            "updated_at": stamp,
+        }
+        for index in range(1, 1001)
+    ]
+    raw["history"]["events"] = []
+    source = tmp_path / "inventory-write.json"
+    source.write_text(json.dumps(raw), encoding="utf-8")
+    database = tmp_path / "working.db"
+    url = f"sqlite:///{database}"
+    upgrade_database(url)
+    engine = create_db_engine(url)
+    statements: list[str] = []
+    sqlalchemy_event.listen(
+        engine,
+        "before_cursor_execute",
+        lambda _connection, _cursor, statement, *_args: statements.append(statement),
+    )
+    batches: list[tuple[str, int]] = []
+    try:
+        with read_portable_workspace(source) as workspace:
+            summary = validate_portable_workspace(workspace)
+            with Session(engine) as session, session.begin():
+                _write_portable_workspace_inventory(
+                    session,
+                    workspace,
+                    summary,
+                    batch_size=127,
+                    _observe_batch=lambda section, size: batches.append((section, size)),
+                )
+                assert len(session.identity_map) == 0
+        with Session(engine) as session:
+            assert session.scalar(select(func.count(Item.id))) == 1000
+            assert session.scalar(select(func.count(Alias.id))) == 1000
+            assert session.scalar(select(func.count(Tag.id))) == 18
+            assert session.scalar(select(func.count(ItemTag.item_id))) == 2000
+            assert session.scalar(select(func.count(Category.id))) == 2
+            assert session.scalar(select(func.count(Location.id))) == 1
+    finally:
+        engine.dispose()
+
+    assert batches
+    assert max(size for _section, size in batches) <= 127
+    inserts = [statement for statement in statements if statement.lstrip().upper().startswith("INSERT")]
+    assert len(inserts) < 40

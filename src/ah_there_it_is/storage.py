@@ -1509,6 +1509,207 @@ def _write_portable_inventory(
     session.flush()
 
 
+def _write_portable_workspace_inventory(
+    session: Session,
+    workspace: PortableInputWorkspace,
+    summary: PortableValidationSummary,
+    *,
+    batch_size: int = 250,
+    _observe_batch: Any = None,
+) -> None:
+    """Replay validated inventory spools with bounded Core batches."""
+    if batch_size < 1:
+        raise ValueError("batch_size must be positive")
+    _write_workspace_tree(
+        session, workspace, "categories", Category, batch_size, _observe_batch
+    )
+    _write_workspace_tree(
+        session, workspace, "locations", Location, batch_size, _observe_batch
+    )
+    item_model = PortableItemV2 if summary.format == PORTABLE_EXPORT_VERSION else PortableItem
+    _execute_batched(
+        session,
+        Item.__table__,
+        (
+            {
+                "id": item.id,
+                "name": item.name,
+                "normalized_name": normalize_name(item.name),
+                "description": item.description,
+                "state": item.state,
+                "category_id": item.category_id,
+                "current_location_id": item.location_id,
+                "location_status": (
+                    item.location_status
+                    if isinstance(item, PortableItemV2)
+                    else _legacy_location_status(item.state, item.location_id)
+                ),
+                "quantity": item.quantity,
+                "attributes": item.attributes,
+                "created_at": _portable_datetime(item.created_at, "item.created_at"),
+                "updated_at": _portable_datetime(item.updated_at, "item.updated_at"),
+            }
+            for item in _workspace_records(workspace, "items", item_model)
+        ),
+        batch_size,
+        "items",
+        _observe_batch,
+    )
+    _execute_batched(
+        session,
+        Alias.__table__,
+        (
+            {
+                "item_id": item.id,
+                "name": alias,
+                "normalized_name": normalize_name(alias),
+            }
+            for item in _workspace_records(workspace, "items", item_model)
+            for alias in item.aliases
+        ),
+        batch_size,
+        "aliases",
+        _observe_batch,
+    )
+    tag_ids, tag_names = _workspace_tag_index(workspace, item_model)
+    _execute_batched(
+        session,
+        Tag.__table__,
+        (
+            {
+                "id": tag_id,
+                "name": tag_names[normalized],
+                "normalized_name": normalized,
+            }
+            for normalized, tag_id in tag_ids.items()
+        ),
+        batch_size,
+        "tags",
+        _observe_batch,
+    )
+    _execute_batched(
+        session,
+        ItemTag.__table__,
+        (
+            {
+                "item_id": item.id,
+                "tag_id": tag_ids[normalize_name(tag)],
+            }
+            for item in _workspace_records(workspace, "items", item_model)
+            for tag in item.tags
+        ),
+        batch_size,
+        "item_tags",
+        _observe_batch,
+    )
+
+
+def _workspace_records(
+    workspace: PortableInputWorkspace,
+    section: str,
+    model: type[_PortableModel],
+) -> Iterator[Any]:
+    for index, raw in enumerate(workspace.iter_records(section)):
+        yield _validate_portable_record(model, raw, f"{section}.{index}")
+
+
+def _write_workspace_tree(
+    session: Session,
+    workspace: PortableInputWorkspace,
+    section: str,
+    table_model: type[Category] | type[Location],
+    batch_size: int,
+    observer: Any,
+) -> None:
+    parents: dict[int, int | None] = {}
+    for node in _workspace_records(workspace, section, PortableTreeNode):
+        parents[node.id] = node.parent_id
+    depths: dict[int, int] = {}
+
+    def depth(node_id: int) -> int:
+        trail: list[int] = []
+        current = node_id
+        while current not in depths:
+            trail.append(current)
+            parent = parents[current]
+            if parent is None:
+                value = 0
+                break
+            current = parent
+        else:
+            value = depths[current] + 1
+        for candidate in reversed(trail):
+            depths[candidate] = value
+            value += 1
+        return depths[node_id]
+
+    for node_id in parents:
+        depth(node_id)
+    for level in range(max(depths.values(), default=-1) + 1):
+        _execute_batched(
+            session,
+            table_model.__table__,
+            (
+                {
+                    "id": node.id,
+                    "parent_id": node.parent_id,
+                    "name": node.name,
+                    "normalized_name": normalize_name(node.name),
+                    "description": node.description,
+                    "created_at": _portable_datetime(node.created_at, f"{section}.created_at"),
+                    "updated_at": _portable_datetime(node.updated_at, f"{section}.updated_at"),
+                }
+                for node in _workspace_records(workspace, section, PortableTreeNode)
+                if depths[node.id] == level
+            ),
+            batch_size,
+            section,
+            observer,
+        )
+
+
+def _workspace_tag_index(
+    workspace: PortableInputWorkspace,
+    item_model: type[PortableItem] | type[PortableItemV2],
+) -> tuple[dict[str, int], dict[str, str]]:
+    order: dict[str, tuple[int, int]] = {}
+    names: dict[str, str] = {}
+    for item in _workspace_records(workspace, "items", item_model):
+        for position, tag in enumerate(item.tags):
+            normalized = normalize_name(tag)
+            names.setdefault(normalized, tag)
+            candidate = (item.id, position)
+            if normalized not in order or candidate < order[normalized]:
+                order[normalized] = candidate
+    normalized_order = sorted(order, key=lambda name: (*order[name], name))
+    return (
+        {name: tag_id for tag_id, name in enumerate(normalized_order, start=1)},
+        names,
+    )
+
+
+def _execute_batched(
+    session: Session,
+    table: Any,
+    rows: Iterable[dict[str, Any]],
+    batch_size: int,
+    section: str,
+    observer: Any,
+) -> None:
+    batch: list[dict[str, Any]] = []
+    for row in rows:
+        batch.append(row)
+        if len(batch) == batch_size:
+            session.execute(table.insert(), batch)
+            if observer is not None:
+                observer(section, len(batch))
+            batch.clear()
+    if batch:
+        session.execute(table.insert(), batch)
+        if observer is not None:
+            observer(section, len(batch))
+
+
 def _portable_tree_order(nodes: list[PortableTreeNode]) -> list[PortableTreeNode]:
     by_id = {node.id: node for node in nodes}
     depths: dict[int, int] = {}
