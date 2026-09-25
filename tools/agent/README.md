@@ -35,6 +35,6 @@ Sandbox normally uses the GitHub connector instead of shell GitHub access.
 ## Legacy v8 helpers
 
 `tools/agent/lifecycle_checkpoints.py` and `tools/agent/process_state.py` are
-retained for batches already issued under v8 and historical verification.
+retained for historical v8 provenance and verification. No active v8 batch remains at v9 adoption.
 
 Do not introduce their seed/control/checkpoint model into new v9 batches.
