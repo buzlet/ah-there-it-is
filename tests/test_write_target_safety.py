@@ -129,7 +129,9 @@ def test_item_identity_change_and_new_collision_reject_stale_write(session: Sess
     dispatcher.execute("search_items", {"query": "Meter"})
     inventory.update_item(item.id, name="Renamed")
     before = _events(session)
-    result = dispatcher.execute("update_item", {"item_id": item.id, "quantity": 2})
+    result = dispatcher.execute(
+        "update_item", {"item_id": item.id, "description": "recounted"}
+    )
     assert result["error"]["type"] == "ToolPreconditionError"
     assert inventory.get_item(item.id).quantity == 1
     assert _events(session) == before
@@ -180,7 +182,9 @@ def test_recheck_holds_sqlite_write_lock_through_mutation(tmp_path) -> None:
         item = inventory.create_item("Meter")
         dispatcher = ToolDispatcher(session, autocommit=False)
         dispatcher.execute("search_items", {"query": "Meter"})
-        result = dispatcher.execute("update_item", {"item_id": item.id, "quantity": 2})
+        result = dispatcher.execute(
+            "update_item", {"item_id": item.id, "description": "recounted"}
+        )
         assert result["ok"] is True
         with sqlite3.connect(database, timeout=0.05) as other:
             with pytest.raises(sqlite3.OperationalError, match="locked"):
@@ -206,7 +210,9 @@ def test_external_alias_collision_after_search_rejects_update(tmp_path) -> None:
         assert dispatcher.execute("search_items", {"query": "Meter"})["ok"] is True
         InventoryService(writer).create_item("Other", aliases=["Meter"])
         before = _events(reader)
-        result = dispatcher.execute("update_item", {"item_id": item.id, "quantity": 2})
+        result = dispatcher.execute(
+            "update_item", {"item_id": item.id, "description": "recounted"}
+        )
         assert result["error"]["type"] == "ToolPreconditionError"
         assert _events(reader) == before
         assert InventoryService(reader).get_item(item.id).quantity == 1
