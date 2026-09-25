@@ -41,5 +41,9 @@ Reviewed head before PR: `50ae030`
   checkpoint commit.
 - Final focused integration and provider-contract checks passed before this
   review; cumulative `seed..HEAD` diff check is clean.
-- Full local v8 gate is required once after this review and is recorded in the
-  completion report.
+- Full local v8 sequence was run once after this review. Its first `make check`
+  exposed a versioned-prompt drift introduced by the photo safety prompt; the
+  only narrow correction synced `prompts/inventory-v1.txt`, after which the
+  focused prompt test (2 passed), compile and diff check were green. The
+  remaining gate steps (migration, corpus, scenario and retrieval) were green
+  in that same sequence; the full gate was intentionally not rerun.
