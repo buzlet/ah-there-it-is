@@ -13,11 +13,12 @@ from fastapi.templating import Jinja2Templates
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
-from ah_there_it_is.agent.runner import AgentRunner
 from ah_there_it_is.agent.errors import AgentTurnFailedError
+from ah_there_it_is.db.models import ItemMedia
 from ah_there_it_is.domain.exceptions import EntityNotFoundError, InventoryError
 from ah_there_it_is.services.activity import ActivityService
 from ah_there_it_is.services.catalog import CatalogService
+from ah_there_it_is.services.chat_application import ChatApplicationService
 from ah_there_it_is.services.chat_requests import (
     ChatRequestNotFoundError,
     ChatRequestService,
@@ -47,6 +48,9 @@ from ah_there_it_is.web.schemas import (
     ItemCreateRequest,
     ItemEditRequest,
     ItemMoveRequest,
+    ItemMediaAttachRequest,
+    ItemMediaResponse,
+    ItemMediaUpdateRequest,
     ItemQuantityChangeRequest,
     ItemRemoveRequest,
     ItemRestoreRequest,
@@ -86,6 +90,19 @@ def _tree_response(node) -> TreeResponse:
     )
 
 
+def _media_response(media: ItemMedia) -> ItemMediaResponse:
+    return ItemMediaResponse(
+        id=media.id,
+        item_id=media.item_id,
+        provider=media.provider,
+        media_reference=media.media_reference,
+        caption=media.caption,
+        position=media.position,
+        created_at=media.created_at,
+        updated_at=media.updated_at,
+    )
+
+
 def _parent_choices(rows: list[dict], edited_id: int) -> list[dict]:
     by_id = {row["id"]: row for row in rows}
     choices = []
@@ -121,31 +138,18 @@ def build_router(templates: Jinja2Templates) -> APIRouter:
     ) -> ChatResponse:
         settings = request.app.state.settings
 
-        def execute_agent(commit_on_success: bool):
-            llm = request.app.state.llm_factory()
-            try:
-                return AgentRunner(
-                    session,
-                    llm,
-                    max_rounds=settings.agent_max_rounds,
-                    system_prompt=request.app.state.system_prompt,
-                    prompt_version=settings.prompt_version,
-                ).run(
-                    payload.message,
-                    conversation_id=payload.conversation_id,
-                    commit_on_success=commit_on_success,
-                )
-            finally:
-                close = getattr(llm, "close", None)
-                if callable(close):
-                    close()
-
         try:
-            execution = ChatRequestService(session).execute(
-                request_key=payload.request_key,
-                message=payload.message,
+            execution = ChatApplicationService(
+                session,
+                request.app.state.llm_factory,
+                max_rounds=settings.agent_max_rounds,
+                system_prompt=request.app.state.system_prompt,
+                prompt_version=settings.prompt_version,
+            ).execute_chat(
+                payload.message,
                 conversation_id=payload.conversation_id,
-                operation=execute_agent,
+                request_key=payload.request_key,
+                source_identity="web",
             )
         except IdempotencyInProgressError as exc:
             raise HTTPException(status_code=425, detail=str(exc)) from exc
@@ -186,6 +190,7 @@ def build_router(templates: Jinja2Templates) -> APIRouter:
             request_key=record.request_key,
             requested_conversation_id=record.requested_conversation_id,
             message=record.message,
+            source_identity=record.source_identity,
             status=record.status,
             agent_run_id=record.agent_run_id,
             error=record.error,
@@ -204,6 +209,7 @@ def build_router(templates: Jinja2Templates) -> APIRouter:
             request_key=record.request_key,
             requested_conversation_id=record.requested_conversation_id,
             message=record.message,
+            source_identity=record.source_identity,
             status=record.status,
             agent_run_id=record.agent_run_id,
             error=record.error,
@@ -287,31 +293,18 @@ def build_router(templates: Jinja2Templates) -> APIRouter:
             raise HTTPException(status_code=404, detail="chat request not found")
         settings = request.app.state.settings
 
-        def execute_agent(commit_on_success: bool):
-            llm = request.app.state.llm_factory()
-            try:
-                return AgentRunner(
-                    session,
-                    llm,
-                    max_rounds=settings.agent_max_rounds,
-                    system_prompt=request.app.state.system_prompt,
-                    prompt_version=settings.prompt_version,
-                ).run(
-                    source.message,
-                    conversation_id=source.requested_conversation_id,
-                    commit_on_success=commit_on_success,
-                )
-            finally:
-                close = getattr(llm, "close", None)
-                if callable(close):
-                    close()
-
         try:
-            execution = service.recover(
+            execution = ChatApplicationService(
+                session,
+                request.app.state.llm_factory,
+                max_rounds=settings.agent_max_rounds,
+                system_prompt=request.app.state.system_prompt,
+                prompt_version=settings.prompt_version,
+            ).recover_chat(
                 source_request_key=source_request_key,
                 new_request_key=payload.new_request_key,
                 recovery_note=payload.note,
-                operation=execute_agent,
+                source_identity="web",
             )
         except ChatRequestNotFoundError as exc:
             raise HTTPException(status_code=404, detail=str(exc)) from exc
@@ -596,6 +589,111 @@ def build_router(templates: Jinja2Templates) -> APIRouter:
             ),
         )
         return ItemResponse(**CatalogService(session).item_dict(item))
+
+    @router.get(
+        "/api/items/{item_id}/media",
+        response_model=list[ItemMediaResponse],
+    )
+    @router.get(
+        "/api/items/{item_id}/photos",
+        response_model=list[ItemMediaResponse],
+        include_in_schema=False,
+    )
+    def list_item_media(
+        item_id: int,
+        session: Session = Depends(get_session),
+    ) -> list[ItemMediaResponse]:
+        try:
+            media = InventoryService(session).list_item_photos(item_id)
+        except EntityNotFoundError as exc:
+            raise HTTPException(status_code=404, detail=str(exc)) from exc
+        return [_media_response(photo) for photo in media]
+
+    @router.post(
+        "/api/items/{item_id}/media",
+        response_model=ItemMediaResponse,
+        status_code=201,
+    )
+    @router.post(
+        "/api/items/{item_id}/photos",
+        response_model=ItemMediaResponse,
+        status_code=201,
+        include_in_schema=False,
+    )
+    def attach_item_media(
+        item_id: int,
+        payload: ItemMediaAttachRequest,
+        session: Session = Depends(get_session),
+    ) -> ItemMediaResponse:
+        inventory = InventoryService(session, autocommit=False)
+        media = _manual_mutation(
+            session,
+            lambda: inventory.attach_item_photo(
+                item_id,
+                **payload.model_dump(mode="python"),
+            ),
+        )
+        return _media_response(media)
+
+    @router.patch(
+        "/api/items/{item_id}/media/{media_id}",
+        response_model=ItemMediaResponse,
+    )
+    @router.patch(
+        "/api/items/{item_id}/photos/{media_id}",
+        response_model=ItemMediaResponse,
+        include_in_schema=False,
+    )
+    def update_item_media(
+        item_id: int,
+        media_id: int,
+        payload: ItemMediaUpdateRequest,
+        session: Session = Depends(get_session),
+    ) -> ItemMediaResponse:
+        inventory = InventoryService(session, autocommit=False)
+
+        def update() -> ItemMedia:
+            parent = inventory.get_item(item_id)
+            media = session.get(ItemMedia, media_id)
+            if media is None or media.item_id != parent.id:
+                raise EntityNotFoundError(
+                    f"item photo id={media_id} is not attached to item id={item_id}"
+                )
+            patch = payload.model_dump(exclude_unset=True, mode="python")
+            if "position" in patch and patch["position"] is None:
+                raise ValueError("position must be a non-negative integer when provided")
+            return inventory.update_item_photo(media_id, **patch)
+
+        media = _manual_mutation(session, update)
+        return _media_response(media)
+
+    @router.delete(
+        "/api/items/{item_id}/media/{media_id}",
+        response_model=ItemMediaResponse,
+    )
+    @router.delete(
+        "/api/items/{item_id}/photos/{media_id}",
+        response_model=ItemMediaResponse,
+        include_in_schema=False,
+    )
+    def detach_item_media(
+        item_id: int,
+        media_id: int,
+        session: Session = Depends(get_session),
+    ) -> ItemMediaResponse:
+        inventory = InventoryService(session, autocommit=False)
+
+        def detach() -> ItemMedia:
+            parent = inventory.get_item(item_id)
+            media = session.get(ItemMedia, media_id)
+            if media is None or media.item_id != parent.id:
+                raise EntityNotFoundError(
+                    f"item photo id={media_id} is not attached to item id={item_id}"
+                )
+            return inventory.detach_item_photo(media_id)
+
+        media = _manual_mutation(session, detach)
+        return _media_response(media)
 
     @router.post("/api/items/{item_id}/move", response_model=ItemResponse)
     def move_item(

@@ -4,7 +4,9 @@
 
 Repository: `buzlet/ah-there-it-is`.
 
-Product stages through Stage 26 and assignments through 0070 are complete.
+Product stages through Stage 26 and assignments through 0080 are complete on this
+implementation branch; provider/model campaign tooling 0081–0083 remains a
+separate sibling lane.
 
 Batch 0061–0070 merged as PR #77 at `33710743ba1d3c7a380cf4a2a37457fb94e89eaa`; its exact PR head was `35ee225e9a9159457a395d0f03bed37c5c6777af`. Authoritative CI was green.
 
@@ -58,7 +60,7 @@ The integrated-batch lifecycle tooling now treats an absolute manifest workdir a
 
 ## Product summary
 
-Current system includes nested inventory trees, deterministic search, explicit location truth, exact/approximate/unknown quantity, generic removed/restore lifecycle, equivalent-lot splits, immediate one-level compensating Undo, historical Event evidence, provider-neutral scenarios, write-target safety, atomic turns/receipts, crash-safe idempotency, bounded conversation context, doctor/FTS repair, hardened backup/restore/rehearsal, projection/streaming portable-v3 export with frozen v1/v2 import compatibility, snapshot-consistent export, bounded/streaming/race-safe portable import and bounded physical/doctor diagnostics.
+Current system includes nested inventory trees, deterministic search, explicit location truth, exact/approximate/unknown quantity, generic removed/restore lifecycle, equivalent-lot splits, immediate one-level compensating Undo, historical Event evidence, provider-neutral scenarios, write-target safety, atomic turns/receipts, crash-safe idempotency, bounded conversation context, doctor/FTS repair, hardened backup/restore/rehearsal, projection/streaming portable-v3 export with frozen v1/v2 import compatibility, snapshot-consistent export, bounded/streaming/race-safe portable import, bounded physical/doctor diagnostics, ordered Item photo references without image bytes, and a single-user/private-text Telegram long-poll adapter with durable conversation mapping, request replay and checkpoints.
 
 ## Quantity / physical-instance decision
 
@@ -124,12 +126,10 @@ Accepted and closed in:
 
 ## Remaining work before MVP acceptance
 
-No unresolved product-semantic gate blocks the next work.
+The media + Telegram core lane (0071–0080) is implemented and documented here.
+Its explicit boundaries remain: no image bytes or vision inference, no Telegram
+webhooks/groups/photo ingestion, and no generic multi-user/channel model.
 
-Two implementation lanes are planned from the same post-0070 main:
-
-- 0071–0080 media + Telegram;
-- 0081–0083 provider/model evaluation campaign tooling.
-
-They are designed to be merge-order independent. After both land, run one final
-correctness audit and fix only concrete findings before MVP acceptance.
+The sibling 0081–0083 lane owns provider/model evaluation campaign tooling. The
+lanes are merge-order independent; after both land, run one final correctness
+audit and fix only concrete findings before MVP acceptance.

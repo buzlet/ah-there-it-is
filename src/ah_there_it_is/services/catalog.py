@@ -303,6 +303,19 @@ class CatalogService:
             "current_location_id": item.current_location_id,
             "location_status": item.location_status,
             "location_path": self.path(item.current_location),
+            "media": [
+                {
+                    "id": media.id,
+                    "item_id": media.item_id,
+                    "provider": media.provider,
+                    "media_reference": media.media_reference,
+                    "caption": media.caption,
+                    "position": media.position,
+                    "created_at": media.created_at,
+                    "updated_at": media.updated_at,
+                }
+                for media in item.media
+            ],
             "created_at": item.created_at,
             "updated_at": item.updated_at,
         }

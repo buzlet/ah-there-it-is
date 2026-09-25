@@ -37,6 +37,7 @@ class ChatRequestRecordResponse(BaseModel):
     request_key: str
     requested_conversation_id: int | None
     message: str
+    source_identity: str | None = None
     status: str
     agent_run_id: int | None
     error: str | None
@@ -242,6 +243,33 @@ class TreeResponse(BaseModel):
     path: str
 
 
+class ItemMediaResponse(BaseModel):
+    id: int
+    item_id: int
+    provider: str
+    media_reference: str
+    caption: str | None
+    position: int
+    created_at: datetime
+    updated_at: datetime
+
+
+class ItemMediaAttachRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    provider: str = Field(min_length=1, max_length=100)
+    media_reference: str = Field(min_length=1, max_length=1000)
+    caption: str | None = Field(default=None, max_length=20_000)
+    position: int = Field(default=0, ge=0)
+
+
+class ItemMediaUpdateRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    caption: str | None = Field(default=None, max_length=20_000)
+    position: int | None = Field(default=None, ge=0)
+
+
 class ItemResponse(BaseModel):
     id: int
     name: str
@@ -259,6 +287,7 @@ class ItemResponse(BaseModel):
     current_location_id: int | None
     location_status: str
     location_path: str | None
+    media: list[ItemMediaResponse] = Field(default_factory=list)
 
 
 class ConversationMessageResponse(BaseModel):

@@ -36,7 +36,11 @@ class RuntimeSchemaStatus:
         return asdict(self)
 
 
-def runtime_schema_gate(database_url: str) -> RuntimeSchemaStatus:
+def runtime_schema_gate(
+    database_url: str,
+    *,
+    command_name: str = "serve",
+) -> RuntimeSchemaStatus:
     """Require an existing SQLite database at exactly the packaged Alembic heads."""
     try:
         database = sqlite_path_from_url(database_url)
@@ -51,14 +55,14 @@ def runtime_schema_gate(database_url: str) -> RuntimeSchemaStatus:
     if not database.is_file():
         raise RuntimeSchemaError(
             f"configured database does not exist: {database}; "
-            f"run {_EXPLICIT_UPGRADE!r} before 'ah-there-it-is serve'"
+            f"run {_EXPLICIT_UPGRADE!r} before 'ah-there-it-is {command_name}'"
         )
 
     database_heads = _read_database_heads(database)
     if not database_heads:
         raise RuntimeSchemaError(
             f"configured database is not initialized with Alembic: {database}; "
-            f"run {_EXPLICIT_UPGRADE!r} before 'ah-there-it-is serve'"
+            f"run {_EXPLICIT_UPGRADE!r} before 'ah-there-it-is {command_name}'"
         )
     if database_heads != packaged_heads:
         raise RuntimeSchemaError(
@@ -114,6 +118,22 @@ def build_parser() -> argparse.ArgumentParser:
         action="store_true",
         help="allow unauthenticated serving beyond loopback",
     )
+    telegram = subparsers.add_parser(
+        "telegram-bot",
+        help="run the explicit single-user Telegram long-polling process",
+    )
+    telegram.add_argument(
+        "--poll-timeout",
+        type=_poll_timeout,
+        default=30,
+        help="Telegram long-poll timeout in seconds (0-50)",
+    )
+    telegram.add_argument(
+        "--limit",
+        type=_telegram_limit,
+        default=100,
+        help="maximum updates requested per poll (1-100)",
+    )
     return parser
 
 
@@ -141,6 +161,26 @@ def _port(value: str) -> int:
     if not 1 <= port <= 65535:
         raise argparse.ArgumentTypeError("port must be between 1 and 65535")
     return port
+
+
+def _poll_timeout(value: str) -> int:
+    try:
+        timeout = int(value)
+    except ValueError as exc:
+        raise argparse.ArgumentTypeError("poll timeout must be an integer") from exc
+    if not 0 <= timeout <= 50:
+        raise argparse.ArgumentTypeError("poll timeout must be between 0 and 50")
+    return timeout
+
+
+def _telegram_limit(value: str) -> int:
+    try:
+        limit = int(value)
+    except ValueError as exc:
+        raise argparse.ArgumentTypeError("Telegram update limit must be an integer") from exc
+    if not 1 <= limit <= 100:
+        raise argparse.ArgumentTypeError("Telegram update limit must be between 1 and 100")
+    return limit
 
 
 def runtime_paths(database_url: str) -> dict[str, object]:
@@ -207,6 +247,26 @@ def main(argv: Sequence[str] | None = None) -> int:
             reload=False,
         )
         return 0
+    if args.command == "telegram-bot":
+        try:
+            runtime_schema_gate(settings.database_url, command_name="telegram-bot")
+        except RuntimeSchemaError as exc:
+            print(f"error: {exc}", file=sys.stderr)
+            return 2
+        from ah_there_it_is.telegram.runtime import (
+            TelegramRuntimeConfigurationError,
+            run_telegram_bot,
+        )
+
+        try:
+            return run_telegram_bot(
+                settings,
+                poll_timeout=args.poll_timeout,
+                limit=args.limit,
+            )
+        except TelegramRuntimeConfigurationError as exc:
+            print(f"error: {exc}", file=sys.stderr)
+            return 2
     raise AssertionError(f"unsupported command: {args.command}")
 
 

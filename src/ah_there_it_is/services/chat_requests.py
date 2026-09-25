@@ -51,6 +51,7 @@ class ChatRequestProjection:
     request_key: str
     requested_conversation_id: int | None
     message: str
+    source_identity: str | None
     status: str
     agent_run_id: int | None
     error: str | None
@@ -85,16 +86,19 @@ class ChatRequestService:
         message: str,
         conversation_id: int | None,
         operation: Callable[[bool], AgentRunResult],
+        source_identity: str | None = None,
     ) -> IdempotentExecution:
         if request_key is None:
             return IdempotentExecution(result=operation(True), replayed=False)
 
         key = request_key.strip()
         text = message.strip()
+        source = self._normalize_source_identity(source_identity)
         record, created = self._reserve(
             request_key=key,
             message=text,
             conversation_id=conversation_id,
+            source_identity=source,
         )
         return self._execute_reserved(record, created, operation)
 
@@ -105,6 +109,7 @@ class ChatRequestService:
         new_request_key: str,
         recovery_note: str,
         operation: Callable[[bool], AgentRunResult],
+        source_identity: str | None = None,
     ) -> IdempotentExecution:
         source = self.get(source_request_key)
         if source is None:
@@ -131,6 +136,11 @@ class ChatRequestService:
             request_key=key,
             message=source.message,
             conversation_id=source.requested_conversation_id,
+            source_identity=(
+                source.source_identity
+                if source_identity is None
+                else self._normalize_source_identity(source_identity)
+            ),
             recovered_from_id=source.id,
             recovery_note=note,
         )
@@ -189,6 +199,7 @@ class ChatRequestService:
                 ChatRequestRecord.request_key,
                 ChatRequestRecord.requested_conversation_id,
                 ChatRequestRecord.message,
+                ChatRequestRecord.source_identity,
                 ChatRequestRecord.status,
                 ChatRequestRecord.agent_run_id,
                 ChatRequestRecord.error,
@@ -221,6 +232,7 @@ class ChatRequestService:
         request_key: str,
         message: str,
         conversation_id: int | None,
+        source_identity: str | None = None,
         recovered_from_id: int | None = None,
         recovery_note: str | None = None,
     ) -> tuple[ChatRequestRecord, bool]:
@@ -239,6 +251,7 @@ class ChatRequestService:
             request_key=request_key,
             requested_conversation_id=conversation_id,
             message=message,
+            source_identity=source_identity,
             status="processing",
             recovered_from_id=recovered_from_id,
             recovery_note=recovery_note,
@@ -281,6 +294,17 @@ class ChatRequestService:
                 f"request key {record.request_key!r} is already bound "
                 "to different chat content"
             )
+
+    @staticmethod
+    def _normalize_source_identity(value: str | None) -> str | None:
+        if value is None:
+            return None
+        normalized = value.strip()
+        if not normalized:
+            raise ValueError("source_identity must not be blank")
+        if len(normalized) > 200:
+            raise ValueError("source_identity must be at most 200 characters")
+        return normalized
 
     def _execute_reserved(
         self,

@@ -8,7 +8,7 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from ah_there_it_is.agent.receipts import MutationReceipt
-from ah_there_it_is.db.models import AgentRunLog, Event, Item, utc_now
+from ah_there_it_is.db.models import AgentRunLog, Event, Item, ItemMedia, utc_now
 from ah_there_it_is.services.inventory import InventoryService
 
 
@@ -20,6 +20,7 @@ class UndoService:
     SUPPORTED = {
         "create_item", "update_item", "change_item_quantity", "move_item",
         "take_item", "mark_item_location_unknown", "remove_item", "restore_item",
+        "attach_item_photo", "update_item_photo", "detach_item_photo",
     }
 
     def __init__(self, session: Session, *, autocommit: bool = False) -> None:
@@ -72,6 +73,9 @@ class UndoService:
         return run, tuple(sorted(set(compensated)))
 
     def _compensate(self, receipt: MutationReceipt, *, undo_of_run_id: int) -> None:
+        if receipt.entity_type == "media":
+            self._compensate_media(receipt, undo_of_run_id=undo_of_run_id)
+            return
         source_id = int(receipt.compensation.get("source_item_id", receipt.entity_id))
         for item_id in receipt.affected_item_ids:
             expected = receipt.after.get(str(item_id))
@@ -110,6 +114,68 @@ class UndoService:
             raise UndoUnavailableError("Undo unavailable: receipt lacks before-state evidence")
         self._restore_snapshot(
             self.inventory.get_item(source_id), before, receipt, undo_of_run_id
+        )
+
+    def _compensate_media(
+        self, receipt: MutationReceipt, *, undo_of_run_id: int
+    ) -> None:
+        media_id = receipt.entity_id
+        operation = receipt.operation
+        item_id = receipt.compensation.get("item_id")
+        if item_id is None or not receipt.affected_item_ids:
+            raise UndoUnavailableError("Undo unavailable: photo receipt lacks its parent Item")
+        item_id = int(item_id)
+        if receipt.affected_item_ids != (item_id,):
+            raise UndoUnavailableError("Undo unavailable: photo receipt parent evidence changed")
+
+        current = self.session.get(ItemMedia, media_id)
+        expected = receipt.after.get(str(media_id))
+        if operation in {"attach_item_photo", "update_item_photo"}:
+            if current is None or self._media_snapshot(current) != expected:
+                raise UndoUnavailableError(
+                    f"Undo unavailable: photo id={media_id} no longer matches the recorded post-state"
+                )
+        elif operation == "detach_item_photo":
+            if current is not None:
+                raise UndoUnavailableError(
+                    f"Undo unavailable: detached photo id={media_id} was recreated or changed"
+                )
+        else:
+            raise UndoUnavailableError(f"Undo unavailable: unsupported photo operation {operation}")
+
+        before = receipt.before.get(str(media_id))
+        parent = self.inventory.get_item(item_id)
+        if operation == "attach_item_photo":
+            self.inventory.detach_item_photo(media_id)
+        elif operation == "update_item_photo":
+            if before is None:
+                raise UndoUnavailableError("Undo unavailable: photo update lacks prior metadata")
+            self.inventory.update_item_photo(
+                media_id, caption=before["caption"], position=before["position"]
+            )
+        elif operation == "detach_item_photo":
+            if before is None:
+                raise UndoUnavailableError("Undo unavailable: photo detach lacks prior metadata")
+            self.inventory.restore_item_photo(
+                media_id,
+                item_id,
+                before["provider"],
+                before["media_reference"],
+                caption=before["caption"],
+                position=before["position"],
+            )
+        self.session.add(
+            Event(
+                event_type="item_undo_compensated",
+                item=parent,
+                payload={
+                    "undo_of_run_id": undo_of_run_id,
+                    "operation": operation,
+                    "media_id": media_id,
+                    "before": before,
+                    "after": receipt.after.get(str(media_id)),
+                },
+            )
         )
 
     def _restore_snapshot(
@@ -170,4 +236,16 @@ class UndoService:
             "attributes": dict(item.attributes),
             "aliases": [alias.name for alias in item.aliases],
             "tags": [link.tag.name for link in item.tag_links],
+        }
+
+    @staticmethod
+    def _media_snapshot(media: ItemMedia) -> dict[str, Any]:
+        return {
+            "id": media.id,
+            "media_id": media.id,
+            "item_id": media.item_id,
+            "provider": media.provider,
+            "media_reference": media.media_reference,
+            "caption": media.caption,
+            "position": media.position,
         }

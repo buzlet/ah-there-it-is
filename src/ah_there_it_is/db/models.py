@@ -10,6 +10,7 @@ from sqlalchemy import (
     CheckConstraint,
     DateTime,
     ForeignKey,
+    BigInteger,
     Index,
     Integer,
     String,
@@ -134,6 +135,49 @@ class Item(Base):
         back_populates="item", cascade="all, delete-orphan"
     )
     events: Mapped[list["Event"]] = relationship(back_populates="item")
+    media: Mapped[list["ItemMedia"]] = relationship(
+        back_populates="item",
+        cascade="all, delete-orphan",
+        order_by="ItemMedia.position, ItemMedia.id",
+    )
+
+
+class ItemMedia(Base):
+    """An opaque external photo reference attached to one Item."""
+
+    __tablename__ = "item_media"
+    __table_args__ = (
+        UniqueConstraint(
+            "item_id",
+            "provider",
+            "media_reference",
+            name="uq_item_media_item_provider_reference",
+        ),
+        CheckConstraint("length(trim(provider)) > 0", name="ck_item_media_provider_nonblank"),
+        CheckConstraint(
+            "length(trim(media_reference)) > 0",
+            name="ck_item_media_reference_nonblank",
+        ),
+        CheckConstraint("position >= 0", name="ck_item_media_position_nonnegative"),
+        Index("ix_item_media_item_position", "item_id", "position", "id"),
+    )
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    item_id: Mapped[int] = mapped_column(
+        ForeignKey("items.id", ondelete="CASCADE"), nullable=False, index=True
+    )
+    provider: Mapped[str] = mapped_column(String(100), nullable=False)
+    media_reference: Mapped[str] = mapped_column(String(1000), nullable=False)
+    caption: Mapped[str | None] = mapped_column(Text, nullable=True)
+    position: Mapped[int] = mapped_column(Integer, nullable=False, default=0, server_default="0")
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=utc_now, nullable=False
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=utc_now, onupdate=utc_now, nullable=False
+    )
+
+    item: Mapped[Item] = relationship(back_populates="media")
 
 
 class Alias(Base):
@@ -226,6 +270,42 @@ class Conversation(Base):
     )
 
 
+class TelegramChatBinding(Base):
+    """Private Telegram chat to application conversation mapping."""
+
+    __tablename__ = "telegram_chat_bindings"
+    __table_args__ = (
+        UniqueConstraint("conversation_id", name="uq_telegram_binding_conversation"),
+    )
+
+    chat_id: Mapped[int] = mapped_column(BigInteger, primary_key=True)
+    conversation_id: Mapped[int] = mapped_column(
+        ForeignKey("conversations.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=utc_now, nullable=False
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=utc_now, onupdate=utc_now, nullable=False
+    )
+
+
+class TelegramPollingState(Base):
+    """Singleton durable polling checkpoint; Telegram update IDs need 64 bits."""
+
+    __tablename__ = "telegram_polling_state"
+
+    id: Mapped[int] = mapped_column(primary_key=True, default=1)
+    next_offset: Mapped[int] = mapped_column(
+        BigInteger, nullable=False, default=0, server_default="0"
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=utc_now, onupdate=utc_now, nullable=False
+    )
+
+
 class Message(Base):
     __tablename__ = "messages"
 
@@ -304,6 +384,7 @@ class ChatRequestRecord(Base):
         Integer, nullable=True
     )
     message: Mapped[str] = mapped_column(Text, nullable=False)
+    source_identity: Mapped[str | None] = mapped_column(String(200), nullable=True)
     status: Mapped[str] = mapped_column(
         String(20), nullable=False, default="processing", index=True
     )

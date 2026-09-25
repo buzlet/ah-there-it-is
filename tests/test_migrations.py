@@ -37,10 +37,12 @@ def test_initial_migration_round_trip(tmp_path: Path) -> None:
             "experiment_runs",
             "experiment_reviews",
             "chat_requests",
+            "telegram_chat_bindings",
+            "telegram_polling_state",
         } <= tables
         inspector = inspect(engine)
         chat_columns = {column["name"] for column in inspector.get_columns("chat_requests")}
-        assert {"recovered_from_id", "recovery_note"} <= chat_columns
+        assert {"recovered_from_id", "recovery_note", "source_identity"} <= chat_columns
         chat_indexes = {index["name"] for index in inspector.get_indexes("chat_requests")}
         assert "ix_chat_requests_recovered_from_id" in chat_indexes
         chat_foreign_keys = inspector.get_foreign_keys("chat_requests")
@@ -49,6 +51,14 @@ def test_initial_migration_round_trip(tmp_path: Path) -> None:
             and foreign_key["constrained_columns"] == ["recovered_from_id"]
             for foreign_key in chat_foreign_keys
         )
+        binding_columns = {
+            column["name"] for column in inspector.get_columns("telegram_chat_bindings")
+        }
+        assert {"chat_id", "conversation_id", "created_at", "updated_at"} <= binding_columns
+        checkpoint_columns = {
+            column["name"] for column in inspector.get_columns("telegram_polling_state")
+        }
+        assert {"id", "next_offset", "updated_at"} <= checkpoint_columns
         with engine.connect() as connection:
             assert connection.scalar(text("PRAGMA foreign_keys")) == 1
             assert connection.scalar(

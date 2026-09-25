@@ -32,6 +32,17 @@
   </section>
 </div>
 
+<section class="card">
+  <h2>Attached photo references</h2>
+  {% if item.media %}
+  <ol>
+    {% for media in item.media %}
+    <li><code>{{ media.provider }}:{{ media.media_reference }}</code>{% if media.caption %} · {{ media.caption }}{% endif %} · position {{ media.position }}</li>
+    {% endfor %}
+  </ol>
+  {% else %}<p class="muted">No photo references attached.</p>{% endif %}
+</section>
+
 {% if item.state != "removed" %}
 <section class="card">
   <h2>Location actions</h2>

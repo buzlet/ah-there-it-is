@@ -10,7 +10,17 @@ from typing import Any, Generic, TypeVar
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session, selectinload
 
-from ah_there_it_is.db.models import Alias, Category, Event, Item, ItemTag, Location, Tag, utc_now
+from ah_there_it_is.db.models import (
+    Alias,
+    Category,
+    Event,
+    Item,
+    ItemMedia,
+    ItemTag,
+    Location,
+    Tag,
+    utc_now,
+)
 from ah_there_it_is.domain.exceptions import DuplicateEntityError, EntityNotFoundError
 from ah_there_it_is.domain.names import normalize_name
 from ah_there_it_is.domain.quantity import Portion, QuantityValue, ReasonSource, validated_reason
@@ -359,6 +369,143 @@ class InventoryService:
             )
             self._commit(item)
         return item
+
+    def attach_item_photo(
+        self,
+        item_id: int,
+        provider: str,
+        media_reference: str,
+        *,
+        caption: str | None = None,
+        position: int = 0,
+    ) -> ItemMedia:
+        """Attach one opaque external photo reference to an Item."""
+        item = self.get_item(item_id)
+        provider = self._validated_media_text(provider, "provider", 100)
+        media_reference = self._validated_media_text(
+            media_reference, "media_reference", 1000
+        )
+        position = self._validated_media_position(position)
+        self._ensure_media_reference_available(item.id, provider, media_reference)
+
+        media = ItemMedia(
+            item=item,
+            provider=provider,
+            media_reference=media_reference,
+            caption=caption,
+            position=position,
+        )
+        self.session.add(media)
+        self.session.flush()
+        metadata = self._media_metadata(media)
+        self.session.add(
+            Event(
+                event_type="item_photo_attached",
+                item=item,
+                payload={"media": metadata, "after": metadata},
+            )
+        )
+        self._commit(media)
+        return media
+
+    def list_item_photos(self, item_id: int) -> list[ItemMedia]:
+        """List an Item's photo associations in stable display order."""
+        self.get_item(item_id)
+        return list(
+            self.session.scalars(
+                select(ItemMedia)
+                .where(ItemMedia.item_id == item_id)
+                .order_by(ItemMedia.position.asc(), ItemMedia.id.asc())
+            )
+        )
+
+    def update_item_photo(
+        self,
+        media_id: int,
+        *,
+        caption: str | None | _Unset = _UNSET,
+        position: int | _Unset = _UNSET,
+    ) -> ItemMedia:
+        """Update mutable photo metadata while retaining its stable ID."""
+        media = self._get_required(ItemMedia, media_id, "item photo")
+        target_caption = media.caption if isinstance(caption, _Unset) else caption
+        target_position = media.position if isinstance(position, _Unset) else position
+        target_position = self._validated_media_position(target_position)
+        if target_caption == media.caption and target_position == media.position:
+            return media
+
+        before = self._media_metadata(media)
+        media.caption = target_caption
+        media.position = target_position
+        media.updated_at = utc_now()
+        self.session.flush()
+        after = self._media_metadata(media)
+        self.session.add(
+            Event(
+                event_type="item_photo_updated",
+                item=media.item,
+                payload={"before": before, "after": after},
+            )
+        )
+        self._commit(media)
+        return media
+
+    def detach_item_photo(self, media_id: int) -> ItemMedia:
+        """Detach an association without touching any external media bytes."""
+        media = self._get_required(ItemMedia, media_id, "item photo")
+        item = media.item
+        metadata = self._media_metadata(media)
+        self.session.add(
+            Event(
+                event_type="item_photo_detached",
+                item=item,
+                payload={"media": metadata, "before": metadata},
+            )
+        )
+        self.session.delete(media)
+        self._commit(item)
+        return media
+
+    def restore_item_photo(
+        self,
+        media_id: int,
+        item_id: int,
+        provider: str,
+        media_reference: str,
+        *,
+        caption: str | None = None,
+        position: int = 0,
+    ) -> ItemMedia:
+        """Restore a detached association with its original stable ID for Undo."""
+        item = self.get_item(item_id)
+        provider = self._validated_media_text(provider, "provider", 100)
+        media_reference = self._validated_media_text(
+            media_reference, "media_reference", 1000
+        )
+        position = self._validated_media_position(position)
+        if self.session.get(ItemMedia, media_id) is not None:
+            raise DuplicateEntityError(f"item photo id={media_id} already exists")
+        self._ensure_media_reference_available(item.id, provider, media_reference)
+        media = ItemMedia(
+            id=media_id,
+            item=item,
+            provider=provider,
+            media_reference=media_reference,
+            caption=caption,
+            position=position,
+        )
+        self.session.add(media)
+        self.session.flush()
+        metadata = self._media_metadata(media)
+        self.session.add(
+            Event(
+                event_type="item_photo_attached",
+                item=item,
+                payload={"media": metadata, "after": metadata, "undo_restore": True},
+            )
+        )
+        self._commit(media)
+        return media
 
     def change_item_quantity(
         self,
@@ -876,6 +1023,51 @@ class InventoryService:
             raise DuplicateEntityError(
                 f"{label} with this name already exists under the same parent"
             )
+
+    def _ensure_media_reference_available(
+        self, item_id: int, provider: str, media_reference: str
+    ) -> None:
+        existing = self.session.scalar(
+            select(ItemMedia.id).where(
+                ItemMedia.item_id == item_id,
+                ItemMedia.provider == provider,
+                ItemMedia.media_reference == media_reference,
+            )
+        )
+        if existing is not None:
+            raise DuplicateEntityError(
+                "this photo reference is already attached to the item"
+            )
+
+    @staticmethod
+    def _validated_media_text(value: str, field: str, max_length: int) -> str:
+        if not isinstance(value, str):
+            raise ValueError(f"{field} must be text")
+        normalized = value.strip()
+        if not normalized:
+            raise ValueError(f"{field} must not be blank")
+        if len(normalized) > max_length:
+            raise ValueError(f"{field} must be at most {max_length} characters")
+        return normalized
+
+    @staticmethod
+    def _validated_media_position(value: int) -> int:
+        if isinstance(value, bool) or not isinstance(value, int):
+            raise ValueError("position must be a non-negative integer")
+        if value < 0:
+            raise ValueError("position must be a non-negative integer")
+        return value
+
+    @staticmethod
+    def _media_metadata(media: ItemMedia) -> dict[str, Any]:
+        return {
+            "media_id": media.id,
+            "item_id": media.item_id,
+            "provider": media.provider,
+            "media_reference": media.media_reference,
+            "caption": media.caption,
+            "position": media.position,
+        }
 
     @staticmethod
     def _normalized_nonblank(name: str) -> str:
