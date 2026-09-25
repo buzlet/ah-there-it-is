@@ -51,15 +51,17 @@ No voice-specific inventory semantics are introduced.
 
 ## Images/photos
 
-Future photo support is desirable.
+Item photo-reference support is required before core MVP completion.
 
-One Item may eventually reference one or more photos/images.
+One Item may reference zero, one or multiple externally stored photos.
 
-Image bytes do not need to live in the core SQLite database. A future external media application/service may store images and return references in a defined request/response contract.
+The core stores only provider/reference associations and minimal metadata. Image bytes, thumbnails, external retention/deletion and vision recognition remain outside inventory persistence.
 
-The inventory application should eventually need only enough structured metadata to associate media references with an Item. Vision recognition, image understanding and media storage are separate concerns and are not part of the current core implementation.
+Accepted detailed semantics are recorded temporarily during the active 0061-0070 batch in:
 
-The exact media-reference contract is future implementation design, not a blocker for the current core MVP.
+`agent-tasks/parallel/core-media-telegram-decision.md`
+
+and will be reconciled into normal design context before the media/Telegram implementation batch is issued.
 
 ## QR codes and barcodes
 
@@ -67,7 +69,7 @@ QR/barcode support is not implemented and is not on the current roadmap.
 
 ## Telegram and external chat transports
 
-A Telegram bot is a desirable optional transport after core MVP.
+A single-user Telegram bot text adapter is required before core MVP completion.
 
 Expected architecture:
 
@@ -83,6 +85,8 @@ Telegram bot
 Telegram-specific security/account binding is handled by the Telegram bot/infrastructure, configured for one allowed user/account.
 
 The inventory domain must not acquire Telegram-specific commands or authorization semantics.
+
+The first implementation uses Telegram Bot API long polling, private text messages from one configured allowed Telegram user, the existing application request-key idempotency boundary, and a shared Web/Telegram chat execution service.
 
 Other transports such as WhatsApp are not designed now. The product merely preserves the principle that an external adapter may submit ordinary text to the application.
 
@@ -140,16 +144,19 @@ The following are explicitly outside the application's planned responsibility un
 - multilingual support;
 - generic transport abstraction for hypothetical channels.
 
-## Future optional implementation areas
+## Remaining core-MVP implementation areas
 
-The following remain valid future work but do not block core MVP:
+After the active quantity/lifecycle/Undo batch, core MVP still requires:
 
-- Telegram bot adapter;
 - Item photo/media-reference support;
-- provider/model evaluation tooling and reports.
+- single-user Telegram bot text adapter;
+- final correctness audit/fixes;
+- provider/model evaluation/promotion tooling based on the existing evaluation stack.
 
 ## Remaining decision gates
 
-This document does not decide generic Undo/correction UX or destructive hard-delete/purge semantics. Those remain separate questions in `agent-tasks/designs/future-decision-gates.md`.
+There are no unresolved product-semantic decision gates required for core MVP. Undo/correction and hard-delete/purge semantics are already closed in:
 
-Neither is required merely to implement the already-accepted quantity/physical-instance model.
+`agent-tasks/designs/undo-correction-decision.md`
+
+The remaining work is implementation and verification.
