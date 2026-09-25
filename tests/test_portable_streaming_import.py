@@ -20,6 +20,7 @@ from ah_there_it_is.storage import (
     PortableInventoryValidationError,
     _write_portable_workspace_inventory,
     _write_portable_workspace_events,
+    import_portable_inventory,
     validate_portable_workspace,
 )
 
@@ -404,3 +405,47 @@ def test_late_history_event_failure_rolls_back_inventory_and_events(tmp_path: Pa
             assert session.scalar(select(func.count(Category.id))) == 0
     finally:
         engine.dispose()
+
+
+def test_portable_import_integration_never_uses_complete_document_parser(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    import ah_there_it_is.storage as storage
+
+    source = tmp_path / "bounded-import.json"
+    source.write_text(json.dumps(_valid_document()), encoding="utf-8")
+    active = tmp_path / "active.db"
+    destination = tmp_path / "destination.db"
+    active_url = f"sqlite:///{active}"
+    upgrade_database(active_url)
+    monkeypatch.setattr(
+        storage,
+        "load_portable_inventory",
+        lambda _source: (_ for _ in ()).throw(AssertionError("complete parser used")),
+    )
+
+    result = import_portable_inventory(active_url, source, destination)
+
+    assert result.items == result.events == 1
+    assert result.categories == 2
+    assert result.locations == 1
+    assert destination.is_file()
+
+
+def test_portable_import_validation_failure_precedes_destination_creation(
+    tmp_path: Path,
+) -> None:
+    raw = _valid_document()
+    raw["inventory"]["items"][0]["category_id"] = 999
+    source = tmp_path / "invalid-before-working.json"
+    source.write_text(json.dumps(raw), encoding="utf-8")
+    active = tmp_path / "active.db"
+    active_url = f"sqlite:///{active}"
+    upgrade_database(active_url)
+    destination = tmp_path / "absent-parent" / "destination.db"
+
+    with pytest.raises(PortableInventoryValidationError, match="missing category"):
+        import_portable_inventory(active_url, source, destination)
+
+    assert not destination.parent.exists()

@@ -7,6 +7,7 @@ import json
 import os
 import sqlite3
 import tempfile
+from contextlib import contextmanager
 from dataclasses import asdict, dataclass
 from datetime import datetime, timezone
 from pathlib import Path
@@ -31,7 +32,12 @@ from ah_there_it_is.db.models import (
 from ah_there_it_is.db.session import create_db_engine, create_session_factory
 from ah_there_it_is.domain.names import normalize_name
 from ah_there_it_is.domain.states import ItemState, LocationStatus
-from ah_there_it_is.portable_stream import PortableInputWorkspace, SpoolMarker
+from ah_there_it_is.portable_stream import (
+    PortableInputError,
+    PortableInputWorkspace,
+    SpoolMarker,
+    read_portable_workspace,
+)
 
 
 PORTABLE_V1_VERSION = "inventory-portable-v1"
@@ -422,6 +428,17 @@ def validate_portable_workspace(
         items=workspace.counts["items"],
         events=workspace.counts["events"],
     )
+
+
+@contextmanager
+def _validated_portable_workspace(
+    source: str | Path,
+) -> Iterator[tuple[PortableInputWorkspace, PortableValidationSummary]]:
+    try:
+        with read_portable_workspace(source) as workspace:
+            yield workspace, validate_portable_workspace(workspace)
+    except PortableInputError as exc:
+        raise PortableInventoryValidationError(str(exc)) from exc
 
 
 def _validate_portable_record(model: type[_PortableModel], value: Any, path: str):
@@ -1329,60 +1346,62 @@ def import_portable_inventory(
     destination: str | Path,
 ) -> PortableImportResult:
     """Reconstruct portable inventory/history into a brand-new migrated database."""
-    document = load_portable_inventory(source)
     target = validate_portable_import_target(database_url, destination)
-    target.parent.mkdir(parents=True, exist_ok=True)
-
-    working = _temporary_sibling(target, "portable-work")
-    publish = _temporary_sibling(target, "portable-final")
-    try:
-        _migrate_new_database(working)
-        working_url = f"sqlite:///{working}"
-        engine = create_db_engine(working_url)
-        factory = create_session_factory(engine)
+    with _validated_portable_workspace(source) as (workspace, summary):
+        target.parent.mkdir(parents=True, exist_ok=True)
+        working = _temporary_sibling(target, "portable-work")
+        publish = _temporary_sibling(target, "portable-final")
         try:
-            with factory() as session:
-                try:
-                    _write_portable_inventory(session, document)
-                    session.flush()
-                    _validate_imported_search_state(session)
-                    session.commit()
-                except Exception:
-                    session.rollback()
-                    raise
-        finally:
-            engine.dispose()
+            _migrate_new_database(working)
+            working_url = f"sqlite:///{working}"
+            engine = create_db_engine(working_url)
+            factory = create_session_factory(engine)
+            try:
+                with factory() as session:
+                    try:
+                        _write_portable_workspace_inventory(
+                            session, workspace, summary
+                        )
+                        _write_portable_workspace_events(session, workspace)
+                        session.flush()
+                        _validate_imported_search_state(session)
+                        session.commit()
+                    except Exception:
+                        session.rollback()
+                        raise
+            finally:
+                engine.dispose()
 
-        validate_database(working)
-        _copy_sqlite_snapshot(working, publish)
-        staged = validate_database(publish)
-        # Re-check immediately before publication so a path created during the
-        # longer migration/import work is never silently overwritten.
-        validate_portable_import_target(database_url, target)
-        _publish_new_database(publish, target)
-        _fsync_path(target)
-        _fsync_directory(target.parent)
-        database = DatabaseValidation(
-            path=str(target),
-            size_bytes=target.stat().st_size,
-            sha256=_sha256(target),
-            alembic_revision=staged.alembic_revision,
-            integrity_check=staged.integrity_check,
-            foreign_key_violations=staged.foreign_key_violations,
-        )
-        return PortableImportResult(
-            imported_path=str(target),
-            format=document.format,
-            source_alembic_revision=document.source.alembic_revision,
-            categories=len(document.inventory.categories),
-            locations=len(document.inventory.locations),
-            items=len(document.inventory.items),
-            events=len(document.history.events),
-            database=database,
-        )
-    finally:
-        _unlink_sqlite_files(working)
-        _unlink_sqlite_files(publish)
+            validate_database(working)
+            _copy_sqlite_snapshot(working, publish)
+            staged = validate_database(publish)
+            # Re-check immediately before publication so a path created during the
+            # longer migration/import work is never silently overwritten.
+            validate_portable_import_target(database_url, target)
+            _publish_new_database(publish, target)
+            _fsync_path(target)
+            _fsync_directory(target.parent)
+            database = DatabaseValidation(
+                path=str(target),
+                size_bytes=target.stat().st_size,
+                sha256=_sha256(target),
+                alembic_revision=staged.alembic_revision,
+                integrity_check=staged.integrity_check,
+                foreign_key_violations=staged.foreign_key_violations,
+            )
+            return PortableImportResult(
+                imported_path=str(target),
+                format=summary.format,
+                source_alembic_revision=summary.source_alembic_revision,
+                categories=summary.categories,
+                locations=summary.locations,
+                items=summary.items,
+                events=summary.events,
+                database=database,
+            )
+        finally:
+            _unlink_sqlite_files(working)
+            _unlink_sqlite_files(publish)
 
 
 def _migrate_new_database(path: Path) -> None:

@@ -1413,7 +1413,10 @@ def test_portable_import_batches_target_scale_and_rolls_back_before_publication(
     ]
     assert len(insert_statements) < 40
     assert sum("INTO tags" in statement for statement in insert_statements) <= 1
-    assert sum("INTO item_tags" in statement for statement in insert_statements) <= 1
+    item_tag_inserts = sum(
+        "INTO item_tags" in statement for statement in insert_statements
+    )
+    assert 1 < item_tag_inserts <= 8
 
     monkeypatch.setattr(
         storage,
