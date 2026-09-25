@@ -9,7 +9,7 @@ from sqlalchemy import event as sqlalchemy_event, func, select
 from sqlalchemy.orm import Session
 
 from ah_there_it_is.db.migrations import upgrade_database
-from ah_there_it_is.db.models import Alias, Category, Item, ItemTag, Location, Tag
+from ah_there_it_is.db.models import Alias, Category, Event, Item, ItemTag, Location, Tag
 from ah_there_it_is.db.session import create_db_engine
 from ah_there_it_is.portable_stream import (
     PortableInputError,
@@ -19,6 +19,7 @@ from ah_there_it_is.portable_stream import (
 from ah_there_it_is.storage import (
     PortableInventoryValidationError,
     _write_portable_workspace_inventory,
+    _write_portable_workspace_events,
     validate_portable_workspace,
 )
 
@@ -313,3 +314,93 @@ def test_inventory_write_uses_bounded_batches_without_identity_growth(
     assert max(size for _section, size in batches) <= 127
     inserts = [statement for statement in statements if statement.lstrip().upper().startswith("INSERT")]
     assert len(inserts) < 40
+
+
+def test_history_event_write_is_bounded_and_preserves_fields(tmp_path: Path) -> None:
+    raw = _valid_document()
+    stamp = raw["exported_at"]
+    raw["history"]["events"] = [
+        {
+            "id": index,
+            "event_type": "item_updated",
+            "item_id": 1,
+            "from_location_id": 1 if index % 2 else None,
+            "to_location_id": None if index % 2 else 1,
+            "payload": {"index": index, "body": "x" * 2048},
+            "original_text": f"event {index} " + "y" * 512,
+            "created_at": stamp,
+        }
+        for index in range(2500, 0, -1)
+    ]
+    source = tmp_path / "history.json"
+    source.write_text(json.dumps(raw), encoding="utf-8")
+    database = tmp_path / "history.db"
+    url = f"sqlite:///{database}"
+    upgrade_database(url)
+    engine = create_db_engine(url)
+    batches: list[tuple[str, int]] = []
+    try:
+        with read_portable_workspace(source) as workspace:
+            summary = validate_portable_workspace(workspace)
+            with Session(engine) as session, session.begin():
+                _write_portable_workspace_inventory(session, workspace, summary)
+                _write_portable_workspace_events(
+                    session,
+                    workspace,
+                    batch_size=113,
+                    _observe_batch=lambda section, size: batches.append((section, size)),
+                )
+                assert len(session.identity_map) == 0
+        with Session(engine) as session:
+            assert session.scalar(select(func.count(Event.id))) == 2500
+            first = session.get(Event, 1)
+            last = session.get(Event, 2500)
+            assert first.payload == {"index": 1, "body": "x" * 2048}
+            assert first.original_text == "event 1 " + "y" * 512
+            assert (last.from_location_id, last.to_location_id) == (None, 1)
+    finally:
+        engine.dispose()
+
+    assert batches and max(size for section, size in batches if section == "events") <= 113
+
+
+def test_late_history_event_failure_rolls_back_inventory_and_events(tmp_path: Path) -> None:
+    raw = _valid_document()
+    event = raw["history"]["events"][0]
+    raw["history"]["events"] = [
+        {**event, "id": index, "payload": {"index": index, "body": "z" * 1024}}
+        for index in range(1, 1001)
+    ]
+    source = tmp_path / "late-history-failure.json"
+    source.write_text(json.dumps(raw), encoding="utf-8")
+    database = tmp_path / "rollback.db"
+    url = f"sqlite:///{database}"
+    upgrade_database(url)
+    engine = create_db_engine(url)
+    observed = 0
+
+    def fail_late(section: str, _size: int) -> None:
+        nonlocal observed
+        if section == "events":
+            observed += 1
+            if observed == 7:
+                raise RuntimeError("late event write failure")
+
+    try:
+        with read_portable_workspace(source) as workspace:
+            summary = validate_portable_workspace(workspace)
+            with pytest.raises(RuntimeError, match="late event write failure"):
+                with Session(engine) as session, session.begin():
+                    _write_portable_workspace_inventory(session, workspace, summary)
+                    _write_portable_workspace_events(
+                        session,
+                        workspace,
+                        batch_size=100,
+                        _observe_batch=fail_late,
+                    )
+        with Session(engine) as session:
+            assert session.scalar(select(func.count(Item.id))) == 0
+            assert session.scalar(select(func.count(Event.id))) == 0
+            assert session.scalar(select(func.count(Category.id))) == 0
+    finally:
+        engine.dispose()

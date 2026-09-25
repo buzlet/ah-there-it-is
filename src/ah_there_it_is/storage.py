@@ -1604,6 +1604,38 @@ def _write_portable_workspace_inventory(
     )
 
 
+def _write_portable_workspace_events(
+    session: Session,
+    workspace: PortableInputWorkspace,
+    *,
+    batch_size: int = 250,
+    _observe_batch: Any = None,
+) -> None:
+    """Replay validated history without retaining the complete Event stream."""
+    if batch_size < 1:
+        raise ValueError("batch_size must be positive")
+    _execute_batched(
+        session,
+        Event.__table__,
+        (
+            {
+                "id": event.id,
+                "event_type": event.event_type,
+                "item_id": event.item_id,
+                "from_location_id": event.from_location_id,
+                "to_location_id": event.to_location_id,
+                "payload": event.payload,
+                "original_text": event.original_text,
+                "created_at": _portable_datetime(event.created_at, "event.created_at"),
+            }
+            for event in _workspace_records(workspace, "events", PortableEvent)
+        ),
+        batch_size,
+        "events",
+        _observe_batch,
+    )
+
+
 def _workspace_records(
     workspace: PortableInputWorkspace,
     section: str,
