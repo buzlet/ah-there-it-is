@@ -165,10 +165,10 @@ sandbox-preflight:
 sandbox-bootstrap: sandbox-preflight
 	rm -rf .venv
 	"$(SANDBOX_PYTHON)" -m venv .venv
-	@parent_site="$("$(SANDBOX_PYTHON)" -c 'import site; print(site.getsitepackages()[0])')"; \
-	 child_site="$(.venv/bin/python -c 'import site; print(site.getsitepackages()[0])')"; \
-	 printf '%s\n' "$parent_site" > "$child_site/chatgpt-sandbox-parent.pth"
+	@parent_site="$$("$(SANDBOX_PYTHON)" -c 'import site; print(site.getsitepackages()[0])')"; \
+	 child_site="$$(.venv/bin/python -c 'import site; print(site.getsitepackages()[0])')"; \
+	 printf '%s\n' "$${parent_site}" > "$${child_site}/chatgpt-sandbox-parent.pth"
 	PIP_NO_INDEX=1 PIP_NO_CACHE_DIR=1 PIP_DISABLE_PIP_VERSION_CHECK=1 \
 	  .venv/bin/python -m pip install --no-index --no-build-isolation --no-deps .
-	PIP_NO_INDEX=1 PIP_NO_CACHE_DIR=1 .venv/bin/python -m pip check
+	.venv/bin/python tools/sandbox/check_requirements.py
 	@.venv/bin/python -c 'import sys; print("sandbox environment ready:", sys.version)'

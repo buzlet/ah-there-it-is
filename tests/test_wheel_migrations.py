@@ -1,7 +1,6 @@
 # test_wheel_migrations.py
 from __future__ import annotations
 
-import importlib.util
 import json
 import os
 import signal
@@ -78,19 +77,11 @@ def test_wheel_contains_and_runs_packaged_migrations_and_runtime(
         "pip",
         "wheel",
         "--no-deps",
+        "--no-build-isolation",
         "--wheel-dir",
         str(wheelhouse),
         str(repo),
     ]
-    # U24 is intentionally provisioned with the build backend toolchain and
-    # must exercise the no-build-isolation path. Generic CI only installs the
-    # project/test dependencies, so let pip isolate pyproject build requirements
-    # there instead of adding wheel/setuptools as application dependencies.
-    if (
-        importlib.util.find_spec("setuptools") is not None
-        and importlib.util.find_spec("wheel") is not None
-    ):
-        build_command.insert(4, "--no-build-isolation")
 
     subprocess.run(
         build_command,

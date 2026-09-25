@@ -64,7 +64,7 @@ That target:
 - creates a local `.venv`;
 - bridges the preinstalled `/opt/pyvenv` site-packages into that venv through a local `.pth` file;
 - installs only this project from local source with `--no-index --no-build-isolation --no-deps`;
-- runs `pip check`.
+- runs a project-scoped requirement check against `pyproject.toml`.
 
 No dependency wheelhouse is shipped in the artifact. The sandbox's existing
 `setuptools` backend is sufficient to build the project wheel; the Python
@@ -73,7 +73,11 @@ No dependency wheelhouse is shipped in the artifact. The sandbox's existing
 Do not use online pip/uv, curl/wget, shell GitHub access or ad-hoc dependency
 downloads.
 
-If bootstrap reports a missing or incompatible preinstalled dependency, stop and
+The requirement check intentionally ignores unrelated conflicts elsewhere in the
+large preinstalled sandbox environment and validates only this project's runtime,
+test and build-system requirements.
+
+If bootstrap reports a missing or incompatible declared dependency, stop and
 report the sandbox-image mismatch. Do not conceal it by changing project
 dependencies or downloading a replacement package unless the task explicitly
 authorizes that change.

@@ -20,4 +20,6 @@ Start with:
 make sandbox-bootstrap
 ```
 
+Bootstrap validates only dependencies declared by this project; unrelated conflicts elsewhere in the shared sandbox image do not block it.
+
 See `agent-tasks/common/sandbox-execution.md`.
