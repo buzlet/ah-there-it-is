@@ -120,7 +120,7 @@ class CatalogService:
         if location_status not in {"all", "unknown"}:
             raise ValueError("location_status must be all or unknown")
 
-        terminal_states = (ItemState.DISCARDED.value, ItemState.SOLD.value)
+        terminal_states = (ItemState.REMOVED.value,)
         filters: list[Any] = []
         if lifecycle == "active":
             filters.append(Item.state.not_in(terminal_states))

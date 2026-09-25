@@ -200,12 +200,13 @@ class InventoryService:
             self._ensure_item_name_available(normalized, category_id)
 
         item_state = self._coerce_state(state)
-        terminal_states = {ItemState.DISCARDED.value, ItemState.SOLD.value}
-        if item_state in terminal_states and location is not None:
-            raise ValueError("terminal items cannot have a current location")
-        if item_state in terminal_states:
-            location_status = LocationStatus.NOT_APPLICABLE
-        elif location is not None:
+        if item_state in {
+            ItemState.REMOVED.value,
+            ItemState.DISCARDED.value,
+            ItemState.SOLD.value,
+        }:
+            raise ValueError("terminal items must be created active and explicitly removed")
+        if location is not None:
             location_status = LocationStatus.KNOWN
         else:
             location_status = LocationStatus.UNKNOWN
@@ -273,13 +274,15 @@ class InventoryService:
             else self._get_optional(Category, category_id, "category")
         )
         target_state = self._coerce_state(state) if state is not None else item.state
-        terminal_states = {ItemState.DISCARDED.value, ItemState.SOLD.value}
+        terminal_states = {
+            ItemState.REMOVED.value,
+            ItemState.DISCARDED.value,
+            ItemState.SOLD.value,
+        }
         if item.state in terminal_states and target_state != item.state:
-            raise ValueError("terminal state changes require explicit reactivation")
-        if target_state == ItemState.SOLD.value and target_state != item.state:
-            raise ValueError("sold transitions must use mark_item_sold")
-        if target_state == ItemState.DISCARDED.value and target_state != item.state:
-            raise ValueError("discard transitions must use discard_item")
+            raise ValueError("terminal state changes require explicit restore")
+        if target_state in terminal_states and target_state != item.state:
+            raise ValueError("terminal transitions must use remove_item")
         if not allow_duplicate and (
             target_normalized_name != item.normalized_name
             or target_category_id != item.category_id
@@ -406,7 +409,7 @@ class InventoryService:
         if location_id is None:
             raise ValueError("move_item requires a Location; use take_item to mark in-use")
         item = self.get_item(item_id)
-        if item.state in {ItemState.DISCARDED.value, ItemState.SOLD.value}:
+        if item.state == ItemState.REMOVED.value:
             raise ValueError("terminal items cannot be moved")
         destination = self._get_optional(Location, location_id, "location")
         if item.current_location_id == destination.id:
@@ -577,48 +580,64 @@ class InventoryService:
         return item
 
     def discard_item(self, item_id: int, *, original_text: str | None = None) -> Item:
-        return self._mark_terminal(
-            item_id, ItemState.DISCARDED, "item_discarded", original_text=original_text
+        return self.remove_item(
+            item_id,
+            reason="discarded",
+            reason_source=ReasonSource.EXPLICIT,
+            original_text=original_text,
         )
 
     def mark_item_sold(self, item_id: int, *, original_text: str | None = None) -> Item:
-        return self._mark_terminal(
-            item_id, ItemState.SOLD, "item_sold", original_text=original_text
-        )
-
-    def _mark_terminal(
-        self,
-        item_id: int,
-        target_state: ItemState,
-        event_type: str,
-        *,
-        original_text: str | None,
-    ) -> Item:
-        item = self.get_item(item_id)
-        terminal_states = {ItemState.DISCARDED.value, ItemState.SOLD.value}
-        if item.state in terminal_states:
-            if item.state == target_state.value:
-                return item
-            raise ValueError("terminal items must be reactivated before another terminal transition")
-
-        old_location = item.current_location
-        old_state = item.state
-        old_status = item.location_status
-        item.state = target_state.value
-        item.current_location = None
-        item.location_status = LocationStatus.NOT_APPLICABLE.value
-        self._record_location_transition(
-            item,
-            event_type=event_type,
-            from_location=old_location,
-            to_location=None,
-            from_status=old_status,
-            to_status=LocationStatus.NOT_APPLICABLE.value,
-            state_change={"from": old_state, "to": target_state.value},
+        return self.remove_item(
+            item_id,
+            reason="sold",
+            reason_source=ReasonSource.EXPLICIT,
             original_text=original_text,
         )
-        self._commit(item)
-        return item
+
+    def remove_item(
+        self,
+        item_id: int,
+        *,
+        reason: str,
+        reason_source: ReasonSource | str,
+        portion: Portion | QuantityValue | dict[str, object] | None = None,
+        original_text: str | None = None,
+    ) -> Item:
+        compact_reason, source = validated_reason(reason, reason_source)
+        item = self.get_item(item_id)
+        self._ensure_nonterminal(item, "be removed")
+        requested = Portion.coerce(portion) if portion is not None else None
+        try:
+            affected = self._split_for_portion(item, requested, original_text=original_text)
+            old_location = affected.current_location
+            old_state = affected.state
+            old_status = affected.location_status
+            affected.state = ItemState.REMOVED.value
+            affected.current_location = None
+            affected.location_status = LocationStatus.NOT_APPLICABLE.value
+            affected.removal_reason = compact_reason
+            self._record_location_transition(
+                affected,
+                event_type="item_removed",
+                from_location=old_location,
+                to_location=None,
+                from_status=old_status,
+                to_status=LocationStatus.NOT_APPLICABLE.value,
+                state_change={"from": old_state, "to": ItemState.REMOVED.value},
+                original_text=original_text,
+                extra_payload={
+                    "removal_reason": {"from": None, "to": compact_reason},
+                    "reason": compact_reason,
+                    "reason_source": source.value,
+                },
+            )
+            self._commit(affected)
+            return affected
+        except Exception:
+            if self.autocommit:
+                self.session.rollback()
+            raise
 
     def reactivate_item(
         self,
@@ -628,15 +647,33 @@ class InventoryService:
         location_id: int | None,
         original_text: str | None = None,
     ) -> Item:
-        item = self.get_item(item_id)
-        if item.state not in {ItemState.DISCARDED.value, ItemState.SOLD.value}:
-            raise ValueError("only sold or discarded items can be reactivated")
-        target_state = self._coerce_state(state)
-        if target_state in {ItemState.DISCARDED.value, ItemState.SOLD.value}:
-            raise ValueError("reactivation requires a non-terminal target state")
-        destination = self._get_optional(Location, location_id, "location")
+        return self.restore_item(
+            item_id,
+            state=state,
+            location_id=location_id,
+            original_text=original_text,
+        )
 
-        old_state = item.state
+    def restore_item(
+        self,
+        item_id: int,
+        *,
+        state: ItemState | str,
+        location_id: int | None,
+        original_text: str | None = None,
+    ) -> Item:
+        item = self.get_item(item_id)
+        if item.state != ItemState.REMOVED.value:
+            raise ValueError("only removed items can be restored")
+        target_state = self._coerce_state(state)
+        if target_state in {
+            ItemState.REMOVED.value,
+            ItemState.DISCARDED.value,
+            ItemState.SOLD.value,
+        }:
+            raise ValueError("restore requires a non-terminal target state")
+        destination = self._get_optional(Location, location_id, "location")
+        old_reason = item.removal_reason
         old_status = item.location_status
         item.state = target_state
         item.current_location = destination
@@ -645,22 +682,24 @@ class InventoryService:
             if destination is not None
             else LocationStatus.UNKNOWN.value
         )
+        item.removal_reason = None
         self._record_location_transition(
             item,
-            event_type="item_reactivated",
+            event_type="item_restored",
             from_location=None,
             to_location=destination,
             from_status=old_status,
             to_status=item.location_status,
-            state_change={"from": old_state, "to": target_state},
+            state_change={"from": ItemState.REMOVED.value, "to": target_state},
             original_text=original_text,
+            extra_payload={"removal_reason": {"from": old_reason, "to": None}},
         )
         self._commit(item)
         return item
 
     def _ensure_nonterminal(self, item: Item, operation: str) -> None:
-        if item.state in {ItemState.DISCARDED.value, ItemState.SOLD.value}:
-            raise ValueError(f"terminal items cannot {operation}; reactivate first")
+        if item.state == ItemState.REMOVED.value:
+            raise ValueError(f"removed items cannot {operation}; restore first")
 
     def _record_location_transition(
         self,
@@ -673,6 +712,7 @@ class InventoryService:
         to_status: str,
         original_text: str | None,
         state_change: dict[str, str] | None = None,
+        extra_payload: dict[str, Any] | None = None,
     ) -> None:
         payload: dict[str, Any] = {
             "_history_evidence": self._history_evidence(
@@ -683,6 +723,8 @@ class InventoryService:
         if state_change is not None:
             payload["state"] = state_change
             payload["location_status"] = {"from": from_status, "to": to_status}
+        if extra_payload:
+            payload.update(extra_payload)
         self.session.add(
             Event(
                 event_type=event_type,

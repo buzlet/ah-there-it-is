@@ -75,9 +75,9 @@ def validated_reason(
 ) -> tuple[str, ReasonSource]:
     compact = reason.strip()
     if not compact:
-        raise ValueError("quantity change reason must not be blank")
+        raise ValueError("reason must not be blank")
     if len(compact) > 500:
-        raise ValueError("quantity change reason must be at most 500 characters")
+        raise ValueError("reason must be at most 500 characters")
     try:
         source = ReasonSource(reason_source)
     except ValueError as exc:
