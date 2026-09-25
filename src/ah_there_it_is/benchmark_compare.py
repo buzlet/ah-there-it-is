@@ -46,7 +46,9 @@ def _attempts(campaign: Mapping[str, Any]) -> list[dict[str, Any]]:
     raw = campaign.get("attempts")
     if not isinstance(raw, list):
         raise ValueError("campaign attempts must be a list")
-    attempts = [attempt for attempt in raw if isinstance(attempt, dict)]
+    if any(not isinstance(attempt, dict) for attempt in raw):
+        raise ValueError("every benchmark attempt must be an object")
+    attempts = list(raw)
     slot_ids = [attempt.get("slot_id") for attempt in attempts]
     if any(not isinstance(slot, str) for slot in slot_ids):
         raise ValueError("every benchmark attempt must have a slot_id")
@@ -58,13 +60,26 @@ def _attempts(campaign: Mapping[str, Any]) -> list[dict[str, Any]]:
 def _identity(campaign: Mapping[str, Any]) -> dict[str, Any]:
     provider = campaign.get("provider")
     provider = provider if isinstance(provider, dict) else {}
+    manifest = campaign.get("campaign")
+    manifest = manifest if isinstance(manifest, dict) else {}
+    live = manifest.get("live_eval")
+    live = live if isinstance(live, dict) else {}
+    probe = manifest.get("model_probe")
+    probe = probe if isinstance(probe, dict) else {}
     return {
-        "campaign_id": (campaign.get("campaign") or {}).get("campaign_id")
-        if isinstance(campaign.get("campaign"), dict)
-        else None,
-        "campaign_version": (campaign.get("campaign") or {}).get("campaign_version")
-        if isinstance(campaign.get("campaign"), dict)
-        else None,
+        "campaign_id": manifest.get("campaign_id"),
+        "campaign_version": manifest.get("campaign_version"),
+        "live_case_ids": (
+            list(live.get("case_ids"))
+            if isinstance(live.get("case_ids"), list)
+            else None
+        ),
+        "probe_case_ids": (
+            list(probe.get("case_ids"))
+            if isinstance(probe.get("case_ids"), list)
+            else None
+        ),
+        "repetitions": manifest.get("repetitions"),
         "provider": provider.get("provider"),
         "model": provider.get("model"),
         "config_label": provider.get("config_label"),
@@ -111,15 +126,21 @@ def _hard_failure_categories(attempt: Mapping[str, Any]) -> set[str]:
     provider_error = _provider_error_text(evidence)
 
     if pipeline == "model_probe":
-        if evidence.get("passed") is False or provider_error:
+        if evidence.get("passed") is not True or provider_error:
             categories.add("provider_tool_contract")
         return categories
 
     if pipeline != "live_eval":
+        categories.add("application_checks")
         return categories
 
     failed_checks = _check_failures(evidence)
-    if provider_error or evidence.get("checks_passed") is False or failed_checks:
+    if (
+        provider_error
+        or evidence.get("status") != "completed"
+        or evidence.get("checks_passed") is not True
+        or failed_checks
+    ):
         categories.add("application_checks")
     for check in failed_checks:
         kind = check.get("kind")
@@ -188,24 +209,45 @@ def _trace_metrics(evidence: Mapping[str, Any]) -> dict[str, Any]:
             metadata = metadata if isinstance(metadata, dict) else {}
             usage = metadata.get("usage")
             usage = usage if isinstance(usage, dict) else {}
-            for names, target in (
-                (("prompt_tokens", "promptTokenCount", "input_tokens"), "prompt"),
-                (("completion_tokens", "candidatesTokenCount", "output_tokens"), "completion"),
-                (("total_tokens", "totalTokenCount"), "total"),
+            prompt_value = next(
+                (
+                    usage[name]
+                    for name in ("prompt_tokens", "promptTokenCount", "input_tokens")
+                    if isinstance(usage.get(name), (int, float))
+                ),
+                None,
+            )
+            completion_value = next(
+                (
+                    usage[name]
+                    for name in (
+                        "completion_tokens",
+                        "candidatesTokenCount",
+                        "output_tokens",
+                    )
+                    if isinstance(usage.get(name), (int, float))
+                ),
+                None,
+            )
+            total_value = next(
+                (
+                    usage[name]
+                    for name in ("total_tokens", "totalTokenCount")
+                    if isinstance(usage.get(name), (int, float))
+                ),
+                None,
+            )
+            if any(
+                value is not None
+                for value in (prompt_value, completion_value, total_value)
             ):
-                value = next(
-                    (usage[name] for name in names if isinstance(usage.get(name), (int, float))),
-                    None,
-                )
-                if value is None:
-                    continue
                 token_observed = True
-                if target == "prompt":
-                    prompt_tokens += int(value)
-                elif target == "completion":
-                    completion_tokens += int(value)
+                prompt_tokens += int(prompt_value or 0)
+                completion_tokens += int(completion_value or 0)
+                if total_value is not None:
+                    total_tokens += int(total_value)
                 else:
-                    total_tokens += int(value)
+                    total_tokens += int(prompt_value or 0) + int(completion_value or 0)
             for key in ("cost_usd", "estimated_cost_usd"):
                 value = metadata.get(key)
                 if isinstance(value, (int, float)):
@@ -224,8 +266,6 @@ def _trace_metrics(evidence: Mapping[str, Any]) -> dict[str, Any]:
                     if status == 429 or "rate" in kind:
                         rate_limit_events += 1
 
-    if token_observed and total_tokens == 0:
-        total_tokens = prompt_tokens + completion_tokens
     return {
         "rounds": rounds,
         "tool_calls": tool_calls,
@@ -465,8 +505,22 @@ def compare_campaigns(
     candidate_agg = aggregate_campaign(candidate)
     b_id = baseline_agg["identity"]
     c_id = candidate_agg["identity"]
-    for field in ("prompt_version", "prompt_hash", "corpus_version", "corpus_hash", "probe_suite_version", "probe_suite_hash"):
-        if b_id.get(field) != c_id.get(field):
+    for field in (
+        "prompt_version",
+        "prompt_hash",
+        "corpus_version",
+        "corpus_hash",
+        "probe_suite_version",
+        "probe_suite_hash",
+        "live_case_ids",
+        "probe_case_ids",
+        "repetitions",
+    ):
+        baseline_value = b_id.get(field)
+        candidate_value = c_id.get(field)
+        if baseline_value is None or candidate_value is None:
+            raise ValueError(f"campaigns are not comparable: {field} is missing")
+        if baseline_value != candidate_value:
             raise ValueError(f"campaigns are not comparable: {field} differs")
 
     hard_regressions = []

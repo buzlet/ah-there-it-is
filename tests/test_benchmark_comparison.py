@@ -74,7 +74,13 @@ def _attempt(
 def _campaign(*attempts: dict, provider: str = "fake", model: str = "m1") -> dict:
     return {
         "schema_version": "benchmark-result-v1",
-        "campaign": {"campaign_id": "bench", "campaign_version": "1"},
+        "campaign": {
+            "campaign_id": "bench",
+            "campaign_version": "1",
+            "live_eval": {"case_ids": ["quantity-ru-immediate-undo"]},
+            "model_probe": {"case_ids": ["tool-basic"]},
+            "repetitions": 1,
+        },
         "execution_identity_hash": "x" * 64,
         "provider": {
             "provider": provider,
@@ -146,6 +152,52 @@ def test_compare_hard_regression_fails_gate_even_when_latency_and_cost_improve()
     assert "score" not in comparison
     assert "winner" not in json.dumps(comparison).casefold()
 
+
+
+def test_unsupported_fact_evidence_is_a_hard_failure() -> None:
+    attempt = _attempt("live:unsupported", passed=True)
+    attempt["evidence"]["unsupported_fact_failures"] = 1
+    aggregate = aggregate_campaign(_campaign(attempt))
+
+    assert aggregate["hard_correctness"]["passed"] is False
+    assert aggregate["hard_correctness"]["categories"]["unsupported_facts"]["attempt_refs"] == [
+        "live:unsupported"
+    ]
+
+
+def test_comparison_rejects_different_workload_selection_or_repetitions() -> None:
+    baseline = _campaign(_attempt("base:1"))
+    candidate = _campaign(_attempt("cand:1"), model="m2")
+    candidate["campaign"]["live_eval"]["case_ids"] = ["different-case"]
+    with pytest.raises(ValueError, match="live_case_ids"):
+        compare_campaigns(baseline, candidate)
+
+    candidate = _campaign(_attempt("cand:1"), model="m2")
+    candidate["campaign"]["repetitions"] = 2
+    with pytest.raises(ValueError, match="repetitions"):
+        compare_campaigns(baseline, candidate)
+
+
+def test_trace_metrics_sum_mixed_explicit_and_derived_total_tokens() -> None:
+    first = _attempt("live:1", passed=True)
+    first["evidence"]["turns"] = [
+        {
+            "rounds": 1,
+            "tool_trace": [
+                {"assistant": {"metadata": {"usage": {"total_tokens": 100}}, "tool_calls": []}},
+                {
+                    "assistant": {
+                        "metadata": {"usage": {"prompt_tokens": 40, "completion_tokens": 20}},
+                        "tool_calls": [],
+                    }
+                },
+            ],
+        }
+    ]
+    aggregate = aggregate_campaign(_campaign(first))
+    assert aggregate["operations"]["total_tokens"] == 160
+    assert aggregate["operations"]["prompt_tokens"] == 40
+    assert aggregate["operations"]["completion_tokens"] == 20
 
 def test_unavailable_cost_and_tokens_are_null_not_zero() -> None:
     aggregate = aggregate_campaign(_campaign(_attempt("live:1", passed=True)))

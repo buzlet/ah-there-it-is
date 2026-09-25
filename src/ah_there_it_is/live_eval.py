@@ -148,6 +148,12 @@ def run_case(
                 )
                 for check in case.checks
             ]
+            assistant_text = "\n".join(
+                str(turn.get("assistant") or "") for turn in turns
+            ).casefold()
+            unsupported_fact_matches = [
+                fact for fact in case.unsupported_facts if fact.casefold() in assistant_text
+            ]
             close = getattr(llm, "close", None)
             if callable(close):
                 close()
@@ -159,10 +165,14 @@ def run_case(
                 "error": error,
                 "turns": turns,
                 "checks": checks,
+                "unsupported_fact_failures": len(unsupported_fact_matches),
+                "unsupported_fact_matches": unsupported_fact_matches,
                 "wall_seconds": round(time.perf_counter() - case_started, 6),
                 "checks_passed": (
-                    status == "completed" and all(check["ok"] for check in checks)
-                    if checks
+                    status == "completed"
+                    and all(check["ok"] for check in checks)
+                    and not unsupported_fact_matches
+                    if checks or case.unsupported_facts
                     else None
                 ),
             }

@@ -92,18 +92,41 @@ def test_campaign_manifest_is_strict_versioned_and_rejects_secret_fields(tmp_pat
         BenchmarkCampaignManifest.model_validate(
             {**manifest.model_dump(), "unexpected": True}
         )
-    with pytest.raises(ValidationError):
-        BenchmarkCampaignManifest.model_validate(
-            {
-                **manifest.model_dump(),
-                "candidate": {
-                    "provider": "fake",
-                    "model": "fake-1",
-                    "config_label": "Bearer abc.def.secret",
-                },
-            }
-        )
+    for secret_label in (
+        "Bearer abc.def.secret",
+        "api_key=sk-supersecret123",
+        "Authorization: Basic dXNlcjpwYXNz",
+    ):
+        with pytest.raises(ValidationError):
+            BenchmarkCampaignManifest.model_validate(
+                {
+                    **manifest.model_dump(),
+                    "candidate": {
+                        "provider": "fake",
+                        "model": "fake-1",
+                        "config_label": secret_label,
+                    },
+                }
+            )
 
+
+
+def test_campaign_rejects_incompatible_fixture(tmp_path: Path) -> None:
+    manifest = _manifest(tmp_path)
+    corpus_path = tmp_path / "corpus.json"
+    corpus = json.loads(corpus_path.read_text(encoding="utf-8"))
+    corpus["fixture"] = "wrong-fixture"
+    corpus_path.write_text(json.dumps(corpus), encoding="utf-8")
+
+    with pytest.raises(ValueError, match="fixture mismatch"):
+        run_campaign(
+            manifest,
+            provider_info=_provider(temperature=0),
+            live_executor=lambda case, prompt, version: {"case_id": case.id},
+            probe_executor=lambda case: {"case_id": case.id, "passed": True},
+            base_dir=tmp_path,
+            result_path=tmp_path / "fixture.json",
+        )
 
 def test_campaign_repeated_order_is_declared_and_incrementally_persisted(tmp_path: Path) -> None:
     manifest = _manifest(tmp_path)
@@ -229,13 +252,23 @@ def test_campaign_result_does_not_persist_provider_or_evidence_secrets(tmp_path:
         provider_info={
             "provider": "fake",
             "model": "fake-1",
-            "config": {"temperature": 0, "api_key": "top-secret"},
+            "config": {
+                "temperature": 0,
+                "max_tokens": 512,
+                "token_limit": 1024,
+                "api_key": "top-secret",
+                "token": "generic-provider-token",
+            },
             "authorization": "Bearer provider-secret",
         },
         live_executor=lambda case, prompt, version: {
             "case_id": case.id,
             "headers": {"Authorization": "Bearer attempt-secret"},
-            "error": "Bearer tokenvalue",
+            "error": (
+                "Bearer tokenvalue; api_key=sk-errorsecret123; "
+                "Authorization: Basic dXNlcjpwYXNz; "
+                "https://host.invalid/?token=querysecret"
+            ),
         },
         probe_executor=lambda case: {"case_id": case.id, "passed": True},
         base_dir=tmp_path,
@@ -246,8 +279,40 @@ def test_campaign_result_does_not_persist_provider_or_evidence_secrets(tmp_path:
     assert "provider-secret" not in text
     assert "attempt-secret" not in text
     assert "tokenvalue" not in text
+    assert "generic-provider-token" not in text
+    assert "sk-errorsecret123" not in text
+    assert "dXNlcjpwYXNz" not in text
+    assert "querysecret" not in text
     assert "temperature" in text
+    assert '"max_tokens": 512' in text
+    assert '"token_limit": 1024' in text
 
+
+
+def test_campaign_sanitizes_provider_exception_messages(tmp_path: Path) -> None:
+    manifest = _manifest(tmp_path)
+    output = tmp_path / "exception-safe.json"
+
+    def failing_live(case, prompt, version):
+        raise RuntimeError(
+            "request failed api_key=sk-exceptionsecret123 "
+            "Authorization: Basic dXNlcjpwYXNz token=querysecret"
+        )
+
+    run_campaign(
+        manifest,
+        provider_info=_provider(temperature=0),
+        live_executor=failing_live,
+        probe_executor=lambda case: {"case_id": case.id, "passed": True},
+        base_dir=tmp_path,
+        result_path=output,
+    )
+
+    text = output.read_text(encoding="utf-8")
+    assert "sk-exceptionsecret123" not in text
+    assert "dXNlcjpwYXNz" not in text
+    assert "querysecret" not in text
+    assert "[redacted]" in text
 
 def test_campaign_request_throttle_delays_between_underlying_provider_calls() -> None:
     from ah_there_it_is.agent.protocol import LLMClientInfo, LLMResponse

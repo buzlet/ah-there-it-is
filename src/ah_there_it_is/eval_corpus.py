@@ -93,7 +93,18 @@ class EvaluationCase(BaseModel):
     turns: list[str] = Field(min_length=1)
     focus: str
     checks: list[ExpectedCheck] = Field(default_factory=list)
+    unsupported_facts: list[str] = Field(default_factory=list)
     expected_error: str | None = None
+
+    @model_validator(mode="after")
+    def _validate_unsupported_facts(self) -> "EvaluationCase":
+        normalized = [value.strip() for value in self.unsupported_facts]
+        if any(not value for value in normalized):
+            raise ValueError("unsupported_facts entries must be nonblank")
+        if len({value.casefold() for value in normalized}) != len(normalized):
+            raise ValueError("unsupported_facts entries must be unique")
+        self.unsupported_facts = normalized
+        return self
 
 
 class EvaluationCorpus(BaseModel):

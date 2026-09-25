@@ -23,16 +23,23 @@ from ah_there_it_is.agent.protocol import (
     ToolDefinition,
 )
 from ah_there_it_is.eval_corpus import EvaluationCase, load_corpus
+from ah_there_it_is.eval_fixture import FIXTURE_VERSION
 from ah_there_it_is.model_probe import ModelProbeCase, load_probe_suite
 
 
 CAMPAIGN_SCHEMA_VERSION = "benchmark-campaign-v1"
 RESULT_SCHEMA_VERSION = "benchmark-result-v1"
 _SECRET_KEY_RE = re.compile(
-    r"(?:api[_-]?key|authorization|credential|password|secret|access[_-]?token|refresh[_-]?token)",
+    r"(?:api[_-]?key|authorization|credential|password|secret|access[_-]?token|refresh[_-]?token|(?:^|[._-])token$)",
     re.IGNORECASE,
 )
 _BEARER_RE = re.compile(r"(?i)\bBearer\s+[A-Za-z0-9._~+/=-]+")
+_BASIC_AUTH_RE = re.compile(r"(?i)\bBasic\s+[A-Za-z0-9+/=]{4,}")
+_SECRET_ASSIGNMENT_RE = re.compile(
+    r"(?i)\b(api[_-]?key|access[_-]?token|refresh[_-]?token|token|password|secret|credential|authorization)"
+    r"(\s*[:=]\s*)([^\s,;&]+)"
+)
+_SK_TOKEN_RE = re.compile(r"\bsk-[A-Za-z0-9_-]{8,}\b")
 
 
 class PromptIdentity(BaseModel):
@@ -108,8 +115,8 @@ class BenchmarkCampaignManifest(BaseModel):
         for path, value in _walk_scalars(payload):
             if _SECRET_KEY_RE.search(path):
                 raise ValueError(f"secret-bearing campaign field is forbidden: {path}")
-            if isinstance(value, str) and _BEARER_RE.search(value):
-                raise ValueError(f"secret-looking bearer token is forbidden at {path}")
+            if isinstance(value, str) and _sanitize_text(value) != value:
+                raise ValueError(f"secret-looking text is forbidden at {path}")
         return self
 
 
@@ -168,6 +175,16 @@ def _walk_scalars(value: Any, prefix: str = "") -> list[tuple[str, Any]]:
     return found
 
 
+def _sanitize_text(value: str) -> str:
+    sanitized = _BEARER_RE.sub("Bearer [redacted]", value)
+    sanitized = _BASIC_AUTH_RE.sub("Basic [redacted]", sanitized)
+    sanitized = _SECRET_ASSIGNMENT_RE.sub(
+        lambda match: f"{match.group(1)}{match.group(2)}[redacted]", sanitized
+    )
+    sanitized = _SK_TOKEN_RE.sub("[redacted-token]", sanitized)
+    return sanitized
+
+
 def _safe_value(value: Any) -> Any:
     if isinstance(value, Mapping):
         return {
@@ -178,7 +195,7 @@ def _safe_value(value: Any) -> Any:
     if isinstance(value, (list, tuple)):
         return [_safe_value(item) for item in value]
     if isinstance(value, str):
-        return _BEARER_RE.sub("Bearer [redacted]", value)
+        return _sanitize_text(value)
     return value
 
 
@@ -229,6 +246,11 @@ def validate_campaign_inputs(
         raise ValueError(
             f"live corpus version mismatch: expected {manifest.live_eval.version!r}, "
             f"got {corpus.version!r}"
+        )
+    if corpus.fixture != FIXTURE_VERSION:
+        raise ValueError(
+            f"live corpus fixture mismatch: expected {FIXTURE_VERSION!r}, "
+            f"got {corpus.fixture!r}"
         )
     corpus_by_id = {case.id: case for case in corpus.cases}
     missing_live = [
