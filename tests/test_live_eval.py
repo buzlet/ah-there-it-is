@@ -96,7 +96,7 @@ def test_offline_live_eval_plumbing_can_move_without_touching_external_state(mon
 def test_fixture_seed_creates_history_events(session) -> None:
     seed_inventory_fixture(session)
     count = session.scalar(select(func.count(Event.id)))
-    assert count == 8
+    assert count == 13
 
 
 def test_case_without_automated_checks_is_not_reported_as_passed(monkeypatch) -> None:
