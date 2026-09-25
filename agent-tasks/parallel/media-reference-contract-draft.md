@@ -1,66 +1,148 @@
-# Item media-reference contract draft
+# Item media-reference contract
 
-Status: optional post-MVP design draft. Not implementation authority.
+Status: **accepted core-MVP design** on 2026-09-25. Stored on the temporary planning branch until 0061-0070 merges.
+
+Authoritative umbrella decision:
+`agent-tasks/parallel/core-media-telegram-decision.md`
 
 ## Goal
 
-Allow one Item to be associated with zero, one or many photos while keeping media storage and image understanding outside the inventory core.
+Associate zero, one or many externally stored photos with an Item without storing image bytes or image-model behavior in the inventory core.
 
-## Boundary
+## Record
 
-Inventory should store a reference plus minimal metadata, not image bytes.
-
-Conceptual record:
+Implementation target:
 
 ```text
 ItemMedia
   id
   item_id
+  provider
   media_reference
-  media_type
-  caption/comment
+  caption
+  position
   created_at
+  updated_at
 ```
 
-The exact schema is intentionally deferred.
+Constraints:
 
-## Requirements
+- Item FK required;
+- provider nonblank, bounded string;
+- media_reference nonblank, bounded opaque string;
+- caption nullable;
+- position nonnegative integer;
+- unique association per `(item_id, provider, media_reference)`;
+- deterministic ordering by position then stable media-link ID.
 
-- one Item may have multiple media references;
-- deleting/removing an Item from active inventory does not implicitly destroy external media;
-- stable Item ID is the association key on the inventory side;
-- media_reference is opaque to inventory business logic;
-- inventory must not infer filesystem/cloud-provider semantics from the reference;
-- a future media adapter/service is responsible for storing/retrieving bytes;
-- vision/model analysis is separate from attachment storage.
+Do not create a provider registry table for core MVP.
 
-## Candidate external operations
+## Domain operations
 
-A future media service may expose operations conceptually equivalent to:
+Required inventory-side operations:
 
 ```text
-store_media(bytes/stream, metadata) -> media_reference
-get_media(media_reference) -> media
-delete_media(media_reference)       # external lifecycle, not inventory purge
+attach_item_photo(item_id, provider, media_reference, caption?, position?)
+list_item_photos(item_id)
+update_item_photo(media_id, caption?, position?)
+detach_item_photo(media_id)
 ```
 
-Inventory needs only attachment-management operations such as:
+Write operations resolve the parent Item by stable ID.
+
+Detach deletes only the association; external bytes remain untouched.
+
+Record structured Item Events:
+
+- `item_photo_attached`;
+- `item_photo_updated`;
+- `item_photo_detached`.
+
+Events preserve enough before/after data for history and immediate one-level compensation without retaining image bytes.
+
+## Item lifecycle
+
+- removed Item retains media associations;
+- restore leaves associations unchanged;
+- hard-delete does not exist;
+- duplicate/equivalent lots each own independent association lists.
+
+## Split rule
+
+Media references are **not copied** to a split child.
+
+Source/remainder keeps all existing photo references.
+
+The split child begins with none.
+
+No automatic media inference based on copied name/comment/attributes.
+
+## Undo
+
+Immediate one-level Undo should support:
+
+- attach -> detach association;
+- detach -> recreate the same association with prior metadata;
+- caption/order update -> restore previous metadata.
+
+Undo never calls external media delete.
+
+## Web/API surface
+
+Core application should expose structured media association endpoints and show references/captions in Item detail.
+
+The web surface may render a resolved preview only when a configured external media resolver safely supplies one. Persistence/API correctness must not depend on resolver availability.
+
+## External service boundary
+
+The inventory application understands only:
 
 ```text
-attach_media(item_id, media_reference, caption?)
-detach_media(item_id, media_reference)
-list_media(item_id)
+provider + media_reference
 ```
 
-## Open implementation choices for later
+A separate media application/service owns:
 
-Not blockers for MVP:
+- upload;
+- byte storage;
+- image MIME validation;
+- thumbnails;
+- byte retrieval;
+- external delete/retention;
+- optional future vision metadata.
 
-- whether ItemMedia is its own table or a constrained JSON/reference list;
-- whether references are URI-like strings or provider+opaque-id pairs;
-- thumbnail handling;
-- external media garbage collection;
-- whether Telegram-origin images can be attached directly;
-- whether captions are user text only or may include generated descriptions.
+If a resolver abstraction is implemented, keep it narrow, e.g.:
 
-Do not choose these until the media service boundary is concrete.
+```text
+resolve(provider, media_reference, purpose) -> display/fetch descriptor
+```
+
+Do not make external media availability part of database transactional correctness.
+
+## Agent surface
+
+Agent may:
+
+- list attached photo references/captions;
+- attach/detach when a trusted upstream adapter/user supplies an explicit media reference;
+- edit caption/order.
+
+Agent may not:
+
+- invent media references;
+- claim visual facts from a reference;
+- request vision analysis in core MVP.
+
+## Search
+
+Do not index image content.
+
+Caption search is optional and should be added only if it fits existing deterministic retrieval without weakening write-target safety.
+
+## Portable/backup
+
+- portable v3 does not carry ItemMedia references;
+- full SQLite backup includes association rows;
+- external media bytes require external backup.
+
+No portable-v4 in this core batch.
