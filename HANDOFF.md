@@ -4,7 +4,9 @@
 
 Repository: `buzlet/ah-there-it-is`.
 
-Product stages through Stage 26 and assignments through 0050 are complete.
+Product stages through Stage 26 and assignments through 0060 are complete.
+
+Batch 0051–0060 merged as PR #71 at `c07f5a95f844f10f58f13b44e8e43978d966803a`; its exact PR head was `6518c0761cfe1a2d738a6aa95cec9ad843f67d88`.
 
 Active implementation protocol:
 
@@ -39,6 +41,8 @@ One coherent issued batch:
 - one authoritative full CI;
 - full local regression only when manifest sets `full_local_required: true`.
 
+The integrated-batch lifecycle tooling now treats an absolute manifest workdir as execution-host metadata; actual checkout identity is verified through the explicit runtime checkout parameter rather than requiring CI to use the U24 absolute path.
+
 ## Useful process tools
 
 - `tools/agent/lifecycle_checkpoints.py`;
@@ -47,10 +51,27 @@ One coherent issued batch:
 
 ## Product summary
 
-Current system includes nested inventory trees, deterministic search, explicit location truth, sold/discarded lifecycle + reactivation, historical Event path evidence, provider-neutral scenarios, write-target safety, atomic turns/receipts, crash-safe idempotency, bounded conversation context, doctor/FTS repair, hardened backup/restore/rehearsal, projection/streaming portable-v2 export, snapshot-consistent export, batched/race-safe portable import and bounded doctor diagnostics.
+Current system includes nested inventory trees, deterministic search, explicit location truth, sold/discarded lifecycle + reactivation, historical Event path evidence, provider-neutral scenarios, write-target safety, atomic turns/receipts, crash-safe idempotency, bounded conversation context, doctor/FTS repair, hardened backup/restore/rehearsal, projection/streaming portable-v2 export, snapshot-consistent export, bounded/streaming/race-safe portable import and bounded physical/doctor diagnostics.
 
-## Next decision
+## Quantity / physical-instance decision
 
-Quantity / physical-instance semantics remain unresolved. Do not implement partial quantity moves/sales/disposal or Item split/merge until explicitly decided.
+The main direction is accepted and recorded in:
 
-See `agent-tasks/designs/future-decision-gates.md`.
+`agent-tasks/designs/quantity-physical-instance-decision.md`
+
+Accepted:
+
+- Item is a homogeneous physical lot;
+- Item may represent one object or interchangeable units;
+- quantity precision is exact / approximate / unknown;
+- partial operations use split;
+- source/remainder keeps its stable ID and the separated lot gets a new stable ID;
+- merge is not implemented;
+- split copies Item description/comment and the user may edit either copy;
+- free-text comments may hold measurements such as cable meters without making them structured quantity truth.
+
+Before implementation, resolve the explicit open questions in that decision document, especially approximate split arithmetic, semantic quantity operations, lineage persistence, duplicate-lot policy, portable-format evolution, existing-data migration and agent/API operation shape.
+
+## Other future decisions
+
+See `agent-tasks/designs/future-decision-gates.md` for correction/undo, purge, trace retention, automated backups, remote/multi-user access, optional integrations and provider/model promotion.
