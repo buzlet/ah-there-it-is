@@ -50,7 +50,8 @@ For new v9 work:
 - one pre-created implementation branch from that SHA;
 - ordinary task commits as recovery checkpoints;
 - one PR and authoritative exact-head CI;
-- independent reviewer may append correction commits to the same branch;
+- independent reviewer receives the exact implementation head but does not read the implementer's self-review, handoff, conclusions or remaining-risk list;
+- reviewer may append correction commits to the same branch only from independently established findings;
 - implementer/reviewer never merge;
 - orchestrator owns current-main compatibility, merge and post-merge verification.
 
