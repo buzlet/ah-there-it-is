@@ -193,24 +193,21 @@ def test_tool_schema_mutations_are_id_based(session: Session) -> None:
     assert item.id in dispatcher.state.resolved["item"]
     assert location.id in dispatcher.state.resolved["location"]
     move_props = definitions["move_item"].input_schema["properties"]
-    assert set(move_props) == {"item_id", "location_id"}
+    assert set(move_props) == {"item_id", "location_id", "portion"}
     assert "item" not in move_props
     assert "location" not in move_props
     assert move_props["location_id"]["type"] == "integer"
     assert set(definitions["move_item"].input_schema["required"]) == {
         "item_id", "location_id"
     }
-    for name in (
-        "take_item", "mark_item_location_unknown", "discard_item",
-        "mark_item_sold",
-    ):
-        assert definitions[name].input_schema["required"] == ["item_id"]
-    reactivate = definitions["reactivate_item"].input_schema
-    assert set(reactivate["required"]) == {"item_id", "state", "location_id"}
-    assert {option["type"] for option in reactivate["properties"]["location_id"]["anyOf"]} == {
+    assert definitions["mark_item_location_unknown"].input_schema["required"] == ["item_id"]
+    assert definitions["take_item"].input_schema["required"] == ["item_id"]
+    restore = definitions["restore_item"].input_schema
+    assert set(restore["required"]) == {"item_id", "state", "location_id"}
+    assert {option["type"] for option in restore["properties"]["location_id"]["anyOf"]} == {
         "integer", "null"
     }
-    assert set(reactivate["properties"]["state"]["enum"]).isdisjoint(
+    assert set(restore["properties"]["state"]["enum"]).isdisjoint(
         {"discarded", "sold"}
     )
     update_state = definitions["update_item"].input_schema["properties"]["state"]
@@ -267,8 +264,8 @@ def test_tool_definitions_expand_from_backend_capabilities(session: Session) -> 
     after_item = {tool.name for tool in dispatcher.definitions()}
     assert {
         "get_item", "get_item_history", "update_item", "take_item",
-        "mark_item_location_unknown", "discard_item", "mark_item_sold",
-        "reactivate_item",
+        "mark_item_location_unknown", "change_item_quantity", "remove_item",
+        "restore_item",
     } <= after_item
     assert "move_item" not in after_item
     assert "create_item" not in after_item
@@ -337,8 +334,8 @@ def test_agent_refreshes_tool_definitions_after_search(session: Session) -> None
     }
     assert {
         "get_item", "get_item_history", "update_item", "take_item",
-        "mark_item_location_unknown", "discard_item", "mark_item_sold",
-        "reactivate_item",
+        "mark_item_location_unknown", "change_item_quantity", "remove_item",
+        "restore_item",
     } <= second_tools
     assert "move_item" not in second_tools
 

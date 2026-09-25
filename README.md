@@ -5,9 +5,9 @@ Local-first inventory memory with deterministic browser tools and a provider-neu
 ## Current capabilities
 
 - nested Locations and Categories;
-- Items with stable IDs, aliases, tags, attributes, quantity and state;
+- Items with stable IDs, aliases, tags, attributes and exact / approximate / unknown quantity;
 - known / unknown / in-use / not-applicable location truth;
-- sold/discarded lifecycle and reactivation;
+- generic removed / restore lifecycle with explicit reasons;
 - immutable Item Event history;
 - deterministic exact/normalized/FTS retrieval;
 - browser catalog/search/admin and Activity;
@@ -15,7 +15,8 @@ Local-first inventory memory with deterministic browser tools and a provider-neu
 - atomic turns, mutation receipts and request idempotency;
 - doctor/FTS repair;
 - backup/restore/rehearsal;
-- portable-v2 with frozen v1 import support;
+- portable-v3 with frozen v1/v2 import support;
+- immediate one-level compensating Undo for the preceding committed chat mutation;
 - deterministic scenario/retrieval/provider evaluation.
 
 The LLM never writes the database directly.

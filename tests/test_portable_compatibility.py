@@ -16,6 +16,7 @@ from ah_there_it_is.services.search import SearchService
 from ah_there_it_is.storage import (
     CURRENT_SCHEMA_REVISION,
     PORTABLE_EXPORT_VERSION,
+    PORTABLE_V2_VERSION,
     PORTABLE_V1_VERSION,
     PortableItem,
     PortableInventoryValidationError,
@@ -101,15 +102,17 @@ def test_inventory_portable_v1_fixture_contract(tmp_path: Path, monkeypatch) -> 
         engine.dispose()
 
     reconstructed = export_portable_inventory(imported_url, reexported)
-    expected_v2 = deepcopy(expected)
-    expected_v2["format"] = PORTABLE_EXPORT_VERSION
-    for item in expected_v2["inventory"]["items"]:
+    expected_v3 = deepcopy(expected)
+    expected_v3["format"] = PORTABLE_EXPORT_VERSION
+    for item in expected_v3["inventory"]["items"]:
         item["location_status"] = (
             "known" if item["location_id"] is not None
             else "not_applicable" if item["state"] == "discarded"
             else "unknown"
         )
-    assert _semantic_portable(reconstructed) == _semantic_portable(expected_v2)
+        item["quantity_mode"] = "exact"
+        item["removal_reason"] = None
+    assert _semantic_portable(reconstructed) == _semantic_portable(expected_v3)
 
 
 
@@ -126,7 +129,7 @@ def test_portable_v1_contract_stays_frozen_and_v2_adds_location_truth() -> None:
         parse_portable_inventory(with_new_field)
 
     raw_v2 = deepcopy(raw_v1)
-    raw_v2["format"] = PORTABLE_EXPORT_VERSION
+    raw_v2["format"] = PORTABLE_V2_VERSION
     for item in raw_v2["inventory"]["items"]:
         item["location_status"] = (
             "known" if item["location_id"] is not None
@@ -140,7 +143,7 @@ def test_portable_v1_contract_stays_frozen_and_v2_adds_location_truth() -> None:
     )
     raw_v2["inventory"]["items"].append(sold_item)
     parsed_v2 = parse_portable_inventory(raw_v2)
-    assert parsed_v2.format == PORTABLE_EXPORT_VERSION
+    assert parsed_v2.format == PORTABLE_V2_VERSION
     assert parsed_v2.inventory.items[0].location_status == "known"
     assert parsed_v2.inventory.items[-1].state == "sold"
 
@@ -150,6 +153,7 @@ def test_portable_v1_contract_stays_frozen_and_v2_adds_location_truth() -> None:
         parse_portable_inventory(contradictory)
 
     sold_in_v1 = deepcopy(raw_v1)
-    sold_in_v1["inventory"]["items"][0]["state"] = "sold"
-    with pytest.raises(PortableInventoryValidationError, match="state has invalid"):
-        parse_portable_inventory(sold_in_v1)
+    sold_in_v1["inventory"]["items"][0].update(
+        state="sold", location_id=None
+    )
+    assert parse_portable_inventory(sold_in_v1).inventory.items[0].state == "sold"

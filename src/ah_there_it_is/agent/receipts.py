@@ -3,7 +3,7 @@
 
 from __future__ import annotations
 
-from typing import Literal
+from typing import Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field
 
@@ -13,8 +13,8 @@ class MutationReceipt(BaseModel):
 
     operation: Literal[
         "create_item", "create_location", "create_category", "update_item", "move_item",
-        "take_item", "mark_item_location_unknown", "discard_item", "mark_item_sold",
-        "reactivate_item",
+        "take_item", "mark_item_location_unknown", "change_item_quantity",
+        "remove_item", "restore_item", "undo_last_action",
     ]
     entity_type: Literal["item", "location", "category"]
     entity_id: int = Field(gt=0)
@@ -22,3 +22,9 @@ class MutationReceipt(BaseModel):
     before_ids: dict[str, int | None] = Field(default_factory=dict)
     after_ids: dict[str, int | None] = Field(default_factory=dict)
     event_ids: tuple[int, ...] = ()
+    affected_item_ids: tuple[int, ...] = ()
+    before: dict[str, Any] = Field(default_factory=dict)
+    after: dict[str, Any] = Field(default_factory=dict)
+    split: dict[str, Any] | None = None
+    compensation: dict[str, Any] = Field(default_factory=dict)
+    undo_of_run_id: int | None = Field(default=None, gt=0)

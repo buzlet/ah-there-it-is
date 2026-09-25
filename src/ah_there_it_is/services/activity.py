@@ -40,6 +40,11 @@ class ActivityService:
         "item_discarded": "Item discarded",
         "item_sold": "Item sold",
         "item_reactivated": "Item reactivated",
+        "item_quantity_changed": "Item quantity changed",
+        "item_split": "Item lot split",
+        "item_removed": "Item removed",
+        "item_restored": "Item restored",
+        "item_undo_compensated": "Item action undone",
     }
 
     def __init__(self, session: Session) -> None:

@@ -507,7 +507,15 @@ def test_inventory_views_and_manual_correction_use_service_layer() -> None:
                 json={
                     "description": "исправленное описание",
                     "state": "working",
+                },
+            )
+            quantity_changed = client.post(
+                f"/api/items/{item_id}/quantity",
+                json={
+                    "quantity_mode": "exact",
                     "quantity": 2,
+                    "reason": "manual count",
+                    "reason_source": "explicit",
                 },
             )
             taken = client.post(f"/api/items/{item_id}/take")
@@ -519,9 +527,10 @@ def test_inventory_views_and_manual_correction_use_service_layer() -> None:
         assert "DT-830B" in items_page.text
         assert "старое описание" in detail_page.text
         assert edited.status_code == 200
+        assert quantity_changed.status_code == 200
         assert edited.json()["description"] == "исправленное описание"
         assert edited.json()["state"] == "working"
-        assert edited.json()["quantity"] == 2
+        assert quantity_changed.json()["quantity"] == 2
         assert edited.json()["location_id"] == shelf.id
         assert taken.status_code == 200
         assert taken.json()["location_id"] is None
@@ -529,8 +538,9 @@ def test_inventory_views_and_manual_correction_use_service_layer() -> None:
 
         with factory() as session:
             history = InventoryService(session).get_item_history(item_id)
-            assert [event.event_type for event in history][-2:] == [
+            assert [event.event_type for event in history][-3:] == [
                 "item_updated",
+                "item_quantity_changed",
                 "item_taken",
             ]
             assert history[-1].original_text == "[manual web take]"

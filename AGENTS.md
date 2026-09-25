@@ -33,7 +33,7 @@ Local-first personal inventory memory for roughly 100–250 nested Locations and
 - `in_use` → intentionally outside storage;
 - `not_applicable` → terminal Item.
 
-`sold` and `discarded` are the current runtime terminal states. The accepted next quantity/lifecycle implementation replaces them with one generic `removed` terminal state plus textual removal reason; historical sold/discarded Events remain evidence during migration.
+`removed` is the runtime terminal state and carries a textual removal reason. Historical sold/discarded Events remain evidence after migration.
 
 ### Quantity / physical instances
 
@@ -50,7 +50,7 @@ Key direction:
 - quantity ambiguity normally does not block a safe operation; uncertainty may degrade to unknown and be shown/refined afterwards;
 - equivalent lots are allowed but accidental duplicate creation remains guarded by service policy;
 - Item merge is not implemented;
-- the future terminal lifecycle is one generic `removed` state with textual reason, requiring user intent rather than arithmetic inference;
+- the terminal lifecycle is one generic `removed` state with textual reason, requiring user intent rather than arithmetic inference;
 - split copies the free-text description/comment, which remains user-editable and is not structured measurement truth;
 - portable export advances to v3 while frozen v1/v2 imports map integer quantities to exact.
 
@@ -66,7 +66,7 @@ Retrieval is deterministic and bounded. Do not add multilingual normalization, l
 
 ### Recovery
 
-Full SQLite backup/restore is separate from portable inventory import. Current runtime portable format is v2 with frozen v1 import support; the accepted quantity implementation advances export to v3 while retaining v1/v2 import compatibility. Bootstrap is separate onboarding. Doctor is read-only except explicit derived FTS repair.
+Full SQLite backup/restore is separate from portable inventory import. Current runtime portable format is v3 with frozen v1/v2 import compatibility. Bootstrap is separate onboarding. Doctor is read-only except explicit derived FTS repair.
 
 Backup scheduling, retention and off-machine copying are external infrastructure and are not application features.
 

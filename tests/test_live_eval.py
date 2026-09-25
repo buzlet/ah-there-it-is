@@ -20,7 +20,7 @@ def test_corpus_v1_is_versioned_unique_and_large_enough() -> None:
     corpus = load_corpus(CORPUS)
     assert corpus.version == "inventory-corpus-v1"
     assert corpus.fixture == FIXTURE_VERSION
-    assert len(corpus.cases) == 58
+    assert len(corpus.cases) == 71
     assert len({case.id for case in corpus.cases}) == len(corpus.cases)
     assert {case.group for case in corpus.cases} >= {
         "find",
@@ -96,7 +96,7 @@ def test_offline_live_eval_plumbing_can_move_without_touching_external_state(mon
 def test_fixture_seed_creates_history_events(session) -> None:
     seed_inventory_fixture(session)
     count = session.scalar(select(func.count(Event.id)))
-    assert count == 8
+    assert count == 13
 
 
 def test_case_without_automated_checks_is_not_reported_as_passed(monkeypatch) -> None:

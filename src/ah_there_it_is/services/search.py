@@ -129,7 +129,7 @@ class SearchService:
         }
 
         ranked: dict[int, _Ranked] = {}
-        terminal_states = {ItemState.DISCARDED.value, ItemState.SOLD.value}
+        terminal_states = {ItemState.REMOVED.value}
         for item_id, item in items_by_id.items():
             if lifecycle == "active" and item.state in terminal_states:
                 continue

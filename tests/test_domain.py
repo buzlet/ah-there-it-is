@@ -146,7 +146,7 @@ def test_location_transitions_are_explicit_and_noop_safe(session: Session) -> No
     ]
 
 
-def test_terminal_transitions_and_reactivation_are_atomic_and_explicit(
+def test_removed_and_restore_transitions_are_atomic_and_explicit(
     session: Session,
 ) -> None:
     service = InventoryService(session)
@@ -154,71 +154,65 @@ def test_terminal_transitions_and_reactivation_are_atomic_and_explicit(
     shelf = service.create_location("Shelf", parent_id=room.id)
     item = service.create_item("Probe", state=ItemState.WORKING, location_id=shelf.id)
 
-    service.discard_item(item.id)
-    assert item.state == ItemState.DISCARDED.value
+    service.remove_item(
+        item.id, reason="broken beyond repair", reason_source="explicit"
+    )
+    assert item.state == ItemState.REMOVED.value
+    assert item.removal_reason == "broken beyond repair"
     assert item.current_location_id is None
     assert item.location_status == LocationStatus.NOT_APPLICABLE.value
-    discarded = service.get_item_history(item.id)[-1]
-    assert discarded.event_type == "item_discarded"
-    assert discarded.from_location_id == shelf.id
-    assert discarded.to_location_id is None
-    assert discarded.payload["state"] == {"from": "working", "to": "discarded"}
-    assert discarded.payload["location_status"] == {
+    removed = service.get_item_history(item.id)[-1]
+    assert removed.event_type == "item_removed"
+    assert removed.from_location_id == shelf.id
+    assert removed.to_location_id is None
+    assert removed.payload["state"] == {"from": "working", "to": "removed"}
+    assert removed.payload["location_status"] == {
         "from": "known", "to": "not_applicable"
     }
-    assert discarded.payload["_history_evidence"]["from_location_path"] == [
+    assert removed.payload["_history_evidence"]["from_location_path"] == [
         {"location_id": room.id, "name": "Room"},
         {"location_id": shelf.id, "name": "Shelf"},
     ]
-    event_count = len(service.get_item_history(item.id))
-    service.discard_item(item.id)
-    assert len(service.get_item_history(item.id)) == event_count
-    with pytest.raises(ValueError, match="another terminal transition"):
-        service.mark_item_sold(item.id)
+    with pytest.raises(ValueError, match="removed items cannot be removed"):
+        service.remove_item(item.id, reason="sold", reason_source="explicit")
     with pytest.raises(ValueError, match="terminal state changes"):
         service.update_item(item.id, state=ItemState.WORKING)
-    with pytest.raises(ValueError, match="terminal state changes"):
-        service.update_item(item.id, state=ItemState.SOLD)
-    service.update_item(item.id, state=ItemState.DISCARDED)
-    still_discarded = service.create_item("Other probe", state=ItemState.WORKING)
-    with pytest.raises(ValueError, match="discard transitions"):
-        service.update_item(still_discarded.id, state=ItemState.DISCARDED)
-    assert still_discarded.state == ItemState.WORKING.value
 
-    service.reactivate_item(item.id, state=ItemState.USED, location_id=None)
+    service.restore_item(item.id, state=ItemState.USED, location_id=None)
     assert item.state == ItemState.USED.value
+    assert item.removal_reason is None
     assert item.current_location_id is None
     assert item.location_status == LocationStatus.UNKNOWN.value
-    reactivated_unknown = service.get_item_history(item.id)[-1]
-    assert reactivated_unknown.event_type == "item_reactivated"
-    assert reactivated_unknown.from_location_id is None
-    assert reactivated_unknown.to_location_id is None
-    assert reactivated_unknown.payload["state"] == {"from": "discarded", "to": "used"}
-    assert reactivated_unknown.payload["location_status"] == {
+    restored_unknown = service.get_item_history(item.id)[-1]
+    assert restored_unknown.event_type == "item_restored"
+    assert restored_unknown.from_location_id is None
+    assert restored_unknown.to_location_id is None
+    assert restored_unknown.payload["state"] == {"from": "removed", "to": "used"}
+    assert restored_unknown.payload["location_status"] == {
         "from": "not_applicable", "to": "unknown"
     }
-    with pytest.raises(ValueError, match="only sold or discarded"):
-        service.reactivate_item(item.id, state=ItemState.WORKING, location_id=shelf.id)
+    with pytest.raises(ValueError, match="only removed"):
+        service.restore_item(item.id, state=ItemState.WORKING, location_id=shelf.id)
 
-    service.mark_item_sold(item.id)
-    assert item.state == ItemState.SOLD.value
+    service.remove_item(item.id, reason="sold", reason_source="context")
+    assert item.state == ItemState.REMOVED.value
     assert item.location_status == LocationStatus.NOT_APPLICABLE.value
-    sold = service.get_item_history(item.id)[-1]
-    assert sold.event_type == "item_sold"
-    assert sold.payload["state"] == {"from": "used", "to": "sold"}
-    assert sold.payload["location_status"] == {
+    removed_again = service.get_item_history(item.id)[-1]
+    assert removed_again.event_type == "item_removed"
+    assert removed_again.payload["state"] == {"from": "used", "to": "removed"}
+    assert removed_again.payload["location_status"] == {
         "from": "unknown", "to": "not_applicable"
     }
     with pytest.raises(ValueError, match="invalid item state"):
-        service.reactivate_item(item.id, state="in_use", location_id=None)
-    service.reactivate_item(item.id, state=ItemState.NEEDS_TEST, location_id=shelf.id)
+        service.restore_item(item.id, state="in_use", location_id=None)
+    service.restore_item(item.id, state=ItemState.NEEDS_TEST, location_id=shelf.id)
     assert item.state == ItemState.NEEDS_TEST.value
     assert item.current_location_id == shelf.id
     assert item.location_status == LocationStatus.KNOWN.value
-    reactivated_known = service.get_item_history(item.id)[-1]
-    assert reactivated_known.event_type == "item_reactivated"
-    assert reactivated_known.to_location_id == shelf.id
-    assert reactivated_known.payload["_history_evidence"]["to_location_path"] == [
+    restored_known = service.get_item_history(item.id)[-1]
+    assert restored_known.event_type == "item_restored"
+    assert restored_known.to_location_id == shelf.id
+    assert restored_known.payload["_history_evidence"]["to_location_path"] == [
         {"location_id": room.id, "name": "Room"},
         {"location_id": shelf.id, "name": "Shelf"},
     ]
@@ -335,7 +329,7 @@ def test_event_history_evidence_is_immutable_across_tree_changes(session: Sessio
     ]
     assert created.payload == {
         "name": "USB adapter",
-        "quantity": 1,
+        "quantity": {"mode": "exact", "value": 1},
         "_history_evidence": {
             "version": 1,
             "to_location_path": original_home_path,
@@ -443,7 +437,10 @@ def test_event_history_evidence_omits_null_paths_and_keeps_legacy_events(
         ],
     }
 
-    service.update_item(item.id, quantity=2)
+    service.change_item_quantity(
+        item.id, quantity_mode="exact", quantity=2,
+        reason="manual recount", reason_source="explicit",
+    )
     ordinary_update = service.get_item_history(item.id)[-1]
     assert "_history_evidence" not in ordinary_update.payload
 
@@ -467,21 +464,18 @@ def test_location_truth_is_set_on_creation_and_existing_writes(session: Session)
     shelf = service.create_location("Shelf")
     unknown = service.create_item("Unknown item")
     known = service.create_item("Known item", location_id=shelf.id)
-    discarded = service.create_item(
-        "Discarded item", state=ItemState.DISCARDED
-    )
-    sold = service.create_item("Imported sold item", state=ItemState.SOLD)
+    removed = service.create_item("Removed item")
+    service.remove_item(removed.id, reason="discarded", reason_source="explicit")
 
     assert unknown.location_status == LocationStatus.UNKNOWN.value
     assert known.location_status == LocationStatus.KNOWN.value
-    assert discarded.location_status == LocationStatus.NOT_APPLICABLE.value
-    assert sold.location_status == LocationStatus.NOT_APPLICABLE.value
+    assert removed.location_status == LocationStatus.NOT_APPLICABLE.value
 
     service.take_item(known.id)
     assert known.location_status == LocationStatus.IN_USE.value
     with pytest.raises(ValueError, match="terminal items cannot be moved"):
-        service.move_item(discarded.id, shelf.id)
+        service.move_item(removed.id, shelf.id)
     with pytest.raises(ValueError, match="terminal state changes"):
-        service.update_item(discarded.id, state=ItemState.WORKING)
-    with pytest.raises(ValueError, match="sold transitions"):
-        service.update_item(unknown.id, state=ItemState.SOLD)
+        service.update_item(removed.id, state=ItemState.WORKING)
+    with pytest.raises(ValueError, match="terminal transitions"):
+        service.update_item(unknown.id, state=ItemState.REMOVED)

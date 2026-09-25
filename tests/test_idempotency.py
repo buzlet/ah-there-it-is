@@ -9,7 +9,7 @@ from sqlalchemy.orm import Session
 
 from ah_there_it_is.agent import LLMResponse, ScriptedLLMClient, ToolCall
 from ah_there_it_is.agent.runner import AgentRunner
-from ah_there_it_is.db.models import ChatRequestRecord, Event, Message
+from ah_there_it_is.db.models import ChatRequestRecord, Event, Item, Message
 from ah_there_it_is.services.chat_requests import (
     ChatRequestService,
     IdempotencyConflictError,
@@ -124,6 +124,73 @@ def test_move_retry_does_not_duplicate_history_event(session: Session) -> None:
     assert inventory.get_item(item.id).current_location_id == drawer.id
     assert after_first == before + 1
     assert event_count(session) == after_first
+
+
+def test_partial_split_retry_does_not_create_another_child(session: Session) -> None:
+    inventory = InventoryService(session)
+    source = inventory.create_item("Bolts", quantity=10)
+    drawer = inventory.create_location("Middle drawer")
+    llm = ScriptedLLMClient([
+        LLMResponse(tool_calls=(call("1", "search_items", query="Bolts"),)),
+        LLMResponse(tool_calls=(call("2", "search_locations", query="Middle drawer"),)),
+        LLMResponse(tool_calls=(call(
+            "3", "move_item", item_id=source.id, location_id=drawer.id,
+            portion={"mode": "exact", "value": 3},
+        ),)),
+        LLMResponse(content="Moved."),
+    ])
+    service = ChatRequestService(session)
+    first = service.execute(
+        request_key="partial-split-retry-0069",
+        message="Move three Bolts",
+        conversation_id=None,
+        operation=lambda commit: AgentRunner(session, llm).run(
+            "Move three Bolts", commit_on_success=commit
+        ),
+    )
+    after_items = session.scalar(select(func.count()).select_from(Item))
+    after_events = event_count(session)
+    replay = service.execute(
+        request_key="partial-split-retry-0069",
+        message="Move three Bolts",
+        conversation_id=None,
+        operation=lambda commit: (_ for _ in ()).throw(AssertionError("must not run")),
+    )
+    assert replay.replayed is True and replay.result == first.result
+    assert session.scalar(select(func.count()).select_from(Item)) == after_items == 2
+    assert event_count(session) == after_events
+
+
+def test_removed_retry_does_not_duplicate_event(session: Session) -> None:
+    inventory = InventoryService(session)
+    item = inventory.create_item("Cable")
+    llm = ScriptedLLMClient([
+        LLMResponse(tool_calls=(call("1", "search_items", query="Cable"),)),
+        LLMResponse(tool_calls=(call(
+            "2", "remove_item", item_id=item.id,
+            reason="given away", reason_source="explicit",
+        ),)),
+        LLMResponse(content="Removed."),
+    ])
+    service = ChatRequestService(session)
+    first = service.execute(
+        request_key="removed-retry-0069",
+        message="Give Cable away",
+        conversation_id=None,
+        operation=lambda commit: AgentRunner(session, llm).run(
+            "Give Cable away", commit_on_success=commit
+        ),
+    )
+    after_events = event_count(session)
+    replay = service.execute(
+        request_key="removed-retry-0069",
+        message="Give Cable away",
+        conversation_id=None,
+        operation=lambda commit: (_ for _ in ()).throw(AssertionError("must not run")),
+    )
+    assert replay.replayed is True and replay.result == first.result
+    assert inventory.get_item(item.id).state == "removed"
+    assert event_count(session) == after_events
 
 
 def test_update_retry_does_not_duplicate_history_event(session: Session) -> None:

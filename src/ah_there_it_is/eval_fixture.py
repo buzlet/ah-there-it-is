@@ -184,4 +184,43 @@ def seed_inventory_fixture(session: Session) -> FixtureIds:
     )
     items["hdmi2m"] = item.id
 
+    item = inventory.create_item(
+        "Крепёжные болты",
+        description="Набор одинаковых крепёжных болтов.",
+        location_id=right_drawer.id,
+        quantity=10,
+        original_text="fixture",
+    )
+    items["bolts"] = item.id
+
+    item = inventory.create_item(
+        "Шайбы россыпью",
+        description="Приблизительный остаток шайб.",
+        location_id=right_drawer.id,
+        quantity_mode="approximate",
+        quantity=8,
+        original_text="fixture",
+    )
+    items["washers"] = item.id
+
+    item = inventory.create_item(
+        "Безымянные клипсы",
+        description="Количество клипс не подсчитано.",
+        location_id=right_drawer.id,
+        quantity_mode="unknown",
+        quantity=None,
+        original_text="fixture",
+    )
+    items["clips"] = item.id
+
+    for location in (right_drawer, middle_drawer):
+        item = inventory.create_item(
+            "Type-C шнур запасной",
+            description="Обычный запасной кабель Type-C.",
+            location_id=location.id,
+            allow_duplicate=True,
+            original_text="fixture",
+        )
+        items[f"usb_c_{location.id}"] = item.id
+
     return FixtureIds(categories=categories, locations=locations, items=items)

@@ -214,10 +214,12 @@ def test_suggestions_are_eligible_only_for_unknown_location_truth(session: Sessi
     location = inventory.create_location("Bench")
     related = inventory.create_item("Related meter", location_id=location.id)
     in_use = inventory.create_item("In use meter", location_id=location.id)
-    terminal = inventory.create_item("Discarded meter", state="discarded")
+    terminal = inventory.create_item("Removed meter")
 
     inventory.take_item(in_use.id)
-    inventory.discard_item(terminal.id)
+    inventory.remove_item(
+        terminal.id, reason="discarded", reason_source="explicit"
+    )
     suggestions = LocationSuggestionService(session)
 
     assert suggestions.suggest_item_locations(related.id) == []

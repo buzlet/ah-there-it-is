@@ -47,7 +47,10 @@ from ah_there_it_is.web.schemas import (
     ItemCreateRequest,
     ItemEditRequest,
     ItemMoveRequest,
-    ItemReactivateRequest,
+    ItemQuantityChangeRequest,
+    ItemRemoveRequest,
+    ItemRestoreRequest,
+    ItemTakeRequest,
     ItemResponse,
     TreeCreateRequest,
     TreeEditRequest,
@@ -606,6 +609,7 @@ def build_router(templates: Jinja2Templates) -> APIRouter:
             lambda: inventory.move_item(
                 item_id,
                 payload.location_id,
+                portion=payload.portion.model_dump() if payload.portion else None,
                 original_text="[manual web move]",
             ),
         )
@@ -614,13 +618,20 @@ def build_router(templates: Jinja2Templates) -> APIRouter:
     @router.post("/api/items/{item_id}/take", response_model=ItemResponse)
     def take_item(
         item_id: int,
+        payload: ItemTakeRequest | None = None,
         session: Session = Depends(get_session),
     ) -> ItemResponse:
         inventory = InventoryService(session, autocommit=False)
         item = _manual_mutation(
             session,
             lambda: inventory.take_item(
-                item_id, original_text="[manual web take]"
+                item_id,
+                portion=(
+                    payload.portion.model_dump()
+                    if payload is not None and payload.portion is not None
+                    else None
+                ),
+                original_text="[manual web take]",
             ),
         )
         return ItemResponse(**CatalogService(session).item_dict(item))
@@ -639,48 +650,56 @@ def build_router(templates: Jinja2Templates) -> APIRouter:
         )
         return ItemResponse(**CatalogService(session).item_dict(item))
 
-    @router.post("/api/items/{item_id}/discard", response_model=ItemResponse)
-    def discard_item(
+    @router.post("/api/items/{item_id}/quantity", response_model=ItemResponse)
+    def change_item_quantity(
         item_id: int,
+        payload: ItemQuantityChangeRequest,
         session: Session = Depends(get_session),
     ) -> ItemResponse:
         inventory = InventoryService(session, autocommit=False)
         item = _manual_mutation(
             session,
-            lambda: inventory.discard_item(
-                item_id, original_text="[manual web discard]"
+            lambda: inventory.change_item_quantity(
+                item_id,
+                **payload.model_dump(mode="python"),
+                original_text="[manual web quantity change]",
             ),
         )
         return ItemResponse(**CatalogService(session).item_dict(item))
 
-    @router.post("/api/items/{item_id}/sold", response_model=ItemResponse)
-    def mark_item_sold(
+    @router.post("/api/items/{item_id}/remove", response_model=ItemResponse)
+    def remove_item(
         item_id: int,
+        payload: ItemRemoveRequest,
         session: Session = Depends(get_session),
     ) -> ItemResponse:
         inventory = InventoryService(session, autocommit=False)
         item = _manual_mutation(
             session,
-            lambda: inventory.mark_item_sold(
-                item_id, original_text="[manual web sold]"
+            lambda: inventory.remove_item(
+                item_id,
+                portion=payload.portion.model_dump() if payload.portion else None,
+                reason=payload.reason,
+                reason_source=payload.reason_source,
+                original_text="[manual web remove]",
             ),
         )
         return ItemResponse(**CatalogService(session).item_dict(item))
 
-    @router.post("/api/items/{item_id}/reactivate", response_model=ItemResponse)
-    def reactivate_item(
+    @router.post("/api/items/{item_id}/restore", response_model=ItemResponse)
+    def restore_item(
         item_id: int,
-        payload: ItemReactivateRequest,
+        payload: ItemRestoreRequest,
         session: Session = Depends(get_session),
     ) -> ItemResponse:
         inventory = InventoryService(session, autocommit=False)
         item = _manual_mutation(
             session,
-            lambda: inventory.reactivate_item(
+            lambda: inventory.restore_item(
                 item_id,
                 state=payload.state,
                 location_id=payload.location_id,
-                original_text="[manual web reactivate]",
+                original_text="[manual web restore]",
             ),
         )
         return ItemResponse(**CatalogService(session).item_dict(item))

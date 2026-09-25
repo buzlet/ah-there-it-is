@@ -663,28 +663,29 @@ def test_location_truth_tools_export_safe_provider_schemas(session) -> None:
     dispatcher.execute("search_locations", {"query": "Shelf"})
     definitions = {tool.name: tool for tool in dispatcher.definitions()}
 
-    explicit = {
+    lifecycle = {
         "take_item",
         "mark_item_location_unknown",
-        "discard_item",
-        "mark_item_sold",
-        "reactivate_item",
+        "change_item_quantity",
+        "remove_item",
+        "restore_item",
     }
-    assert explicit <= definitions.keys()
-    for name in explicit - {"reactivate_item"}:
-        assert definitions[name].input_schema["required"] == ["item_id"]
+    assert lifecycle <= definitions.keys()
+    assert {"discard_item", "mark_item_sold", "reactivate_item"}.isdisjoint(definitions)
+    for name in {"take_item", "mark_item_location_unknown"}:
+        assert "item_id" in definitions[name].input_schema["required"]
 
     move_schema = definitions["move_item"].input_schema
     assert set(move_schema["required"]) == {"item_id", "location_id"}
     assert move_schema["properties"]["location_id"]["type"] == "integer"
 
-    reactivate_schema = definitions["reactivate_item"].input_schema
-    assert set(reactivate_schema["required"]) == {"item_id", "state", "location_id"}
-    assert {option["type"] for option in reactivate_schema["properties"]["location_id"]["anyOf"]} == {
+    restore_schema = definitions["restore_item"].input_schema
+    assert set(restore_schema["required"]) == {"item_id", "state", "location_id"}
+    assert {option["type"] for option in restore_schema["properties"]["location_id"]["anyOf"]} == {
         "integer", "null"
     }
-    assert set(reactivate_schema["properties"]["state"]["enum"]).isdisjoint(
-        {"discarded", "sold"}
+    assert set(restore_schema["properties"]["state"]["enum"]).isdisjoint(
+        {"removed", "discarded", "sold"}
     )
 
     update_state = definitions["update_item"].input_schema["properties"]["state"]["anyOf"][0]
@@ -692,14 +693,14 @@ def test_location_truth_tools_export_safe_provider_schemas(session) -> None:
 
     openai = {
         name: OpenAICompatibleLLMClient._tool_payload(definitions[name])["function"]["parameters"]
-        for name in {"move_item", "reactivate_item", *explicit}
+        for name in {"move_item", "restore_item", *lifecycle}
     }
-    for name in explicit:
+    for name in lifecycle:
         assert name in openai
         assert "item_id" in openai[name]["required"]
     assert openai["move_item"]["properties"]["location_id"]["type"] == "integer"
     assert "location_id" in openai["move_item"]["required"]
-    assert {option["type"] for option in openai["reactivate_item"]["properties"]["location_id"]["anyOf"]} == {
+    assert {option["type"] for option in openai["restore_item"]["properties"]["location_id"]["anyOf"]} == {
         "integer", "null"
     }
 
@@ -712,12 +713,12 @@ def test_location_truth_tools_export_safe_provider_schemas(session) -> None:
         tool["name"]: tool["parametersJsonSchema"]
         for tool in request["tools"][0]["functionDeclarations"]
     }
-    for name in explicit:
+    for name in lifecycle:
         assert name in gemini_schemas
         assert "item_id" in gemini_schemas[name]["required"]
     assert gemini_schemas["move_item"]["properties"]["location_id"]["type"] == "integer"
     assert "location_id" in gemini_schemas["move_item"]["required"]
-    assert gemini_schemas["reactivate_item"]["properties"]["location_id"]["type"] == [
+    assert gemini_schemas["restore_item"]["properties"]["location_id"]["type"] == [
         "integer", "null"
     ]
-    assert "location_id" in gemini_schemas["reactivate_item"]["required"]
+    assert "location_id" in gemini_schemas["restore_item"]["required"]

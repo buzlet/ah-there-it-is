@@ -197,7 +197,7 @@ def test_backup_restore_round_trip_preserves_application_state(tmp_path: Path) -
             event_count = int(
                 session.scalar(select(func.count(Event.id))) or 0
             )
-            assert event_count == 8
+            assert event_count == 13
     finally:
         engine.dispose()
 
@@ -877,7 +877,9 @@ def _minimal_portable_document() -> dict:
                     "category_id": 1,
                     "location_id": 2,
                     "location_status": "known",
+                    "quantity_mode": "exact",
                     "quantity": 1,
+                    "removal_reason": None,
                     "attributes": {"model": "CH341A"},
                     "aliases": ["CH341A"],
                     "tags": ["SPI"],
@@ -921,7 +923,7 @@ def test_portable_parser_accepts_valid_document() -> None:
 
 @pytest.mark.parametrize(
     "value",
-    [None, "inventory-portable-v3", 12],
+    [None, "inventory-portable-v4", 12],
 )
 def test_portable_parser_rejects_unknown_or_invalid_format(value: object) -> None:
     raw = _minimal_portable_document()
@@ -1219,7 +1221,7 @@ def test_portable_roundtrip_target_scale_preserves_semantics(tmp_path: Path) -> 
             for index in range(1, 1001):
                 mode = index % 4
                 state, location_status, location_id = (
-                    ("sold", "not_applicable", None) if mode == 0
+                    ("removed", "not_applicable", None) if mode == 0
                     else ("working", "known", (index % 120) + 1) if mode == 1
                     else ("used", "in_use", None) if mode == 2
                     else ("unknown", "unknown", None)
@@ -1234,6 +1236,7 @@ def test_portable_roundtrip_target_scale_preserves_semantics(tmp_path: Path) -> 
                     "current_location_id": location_id,
                     "location_status": location_status,
                     "quantity": (index % 3) + 1,
+                    "removal_reason": "sold" if state == "removed" else None,
                     "attributes": {"index": index, "group": index % 7},
                     "created_at": stamp,
                     "updated_at": stamp,

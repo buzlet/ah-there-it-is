@@ -5,7 +5,7 @@ from datetime import datetime, timezone
 import re
 
 from fastapi.testclient import TestClient
-from sqlalchemy import event, select
+from sqlalchemy import event, func, select
 from sqlalchemy.orm import Session
 
 from ah_there_it_is.app import create_app
@@ -91,6 +91,56 @@ def test_target_scale_search_semantics_and_bounded_item_loading(session: Session
     assert duplicates[0].id == scale.duplicate_location_ids[0]
 
 
+def test_target_scale_quantity_split_removed_and_equivalent_lots_are_bounded(
+    session: Session,
+) -> None:
+    scale = build_target_scale_inventory(session)
+    inventory = InventoryService(session)
+    baseline_events = int(session.scalar(select(func.count(Event.id))) or 0)
+    split_destination = inventory.create_location("Scale split destination")
+    sources = list(session.scalars(select(Item).order_by(Item.id).limit(60)))
+    for index, item in enumerate(sources):
+        mode, value = (
+            ("exact", 12) if index % 3 == 0
+            else ("approximate", 12) if index % 3 == 1
+            else ("unknown", None)
+        )
+        inventory.change_item_quantity(
+            item.id,
+            quantity_mode=mode,
+            quantity=value,
+            reason="scale fixture",
+            reason_source="context",
+        )
+    for item in sources[:10]:
+        inventory.move_item(
+            item.id,
+            split_destination.id,
+            portion={"mode": "exact", "value": 2},
+        )
+
+    equivalent_ids = []
+    for _ in range(40):
+        equivalent_ids.append(inventory.create_item(
+            "Equivalent Scale Lot",
+            location_id=scale.suggestion_location_id,
+            quantity=5,
+            allow_duplicate=True,
+        ).id)
+    for item_id in equivalent_ids[:20]:
+        inventory.remove_item(
+            item_id, reason="scale retirement", reason_source="context"
+        )
+
+    session.expunge_all()
+    with _count_loaded_items(session) as loaded:
+        matches = SearchService(session).search_items("Equivalent Scale Lot", limit=5)
+    assert [candidate.id for candidate in matches] == equivalent_ids[:5]
+    assert loaded() < 100
+    assert session.scalar(select(func.count(Item.id))) == 1050
+    assert int(session.scalar(select(func.count(Event.id))) or 0) > baseline_events + 100
+
+
 def test_target_scale_suggestions_do_not_load_unrelated_item_population(
     session: Session,
 ) -> None:
@@ -159,7 +209,9 @@ def test_target_scale_lifecycle_and_location_filters_preserve_pages(
     session: Session,
 ) -> None:
     scale = build_target_scale_inventory(session)
-    InventoryService(session).mark_item_sold(scale.exact_name_id)
+    InventoryService(session).remove_item(
+        scale.exact_name_id, reason="sold", reason_source="explicit"
+    )
 
     catalog = CatalogService(session)
     active = catalog.item_page(lifecycle="active")
@@ -178,7 +230,7 @@ def test_target_scale_lifecycle_and_location_filters_preserve_pages(
     )
     assert active.total == 999
     assert terminal.total == 1
-    assert terminal.items[0]["state"] == "sold"
+    assert terminal.items[0]["state"] == "removed"
     assert unknown_first.total == 4
     assert unknown_first.next_page == 2
     assert len(unknown_first.items) == 2
@@ -213,7 +265,7 @@ def test_target_scale_lifecycle_and_location_filters_preserve_pages(
     assert "Page 2" in unknown_page_two.text
     assert "Scale Exact Name Target" in terminal_catalog.text
     assert "Scale Exact Name Target" in terminal_search.text
-    assert "sold" in terminal_search.text and "Not applicable" in terminal_search.text
+    assert "removed" in terminal_search.text and "Not applicable" in terminal_search.text
     assert f'href="/items/{scale.exact_name_id}"' not in active_search.text
 
 

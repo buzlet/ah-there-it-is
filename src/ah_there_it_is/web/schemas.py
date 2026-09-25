@@ -90,7 +90,8 @@ class ItemCreateRequest(BaseModel):
     name: str = Field(min_length=1, max_length=300)
     description: str | None = Field(default=None, max_length=20_000)
     state: ItemState = ItemState.UNKNOWN
-    quantity: int = Field(default=1, ge=1)
+    quantity_mode: Literal["exact", "approximate", "unknown"] = "exact"
+    quantity: int | None = Field(default=1, ge=1)
     category_id: int | None = Field(default=None, gt=0)
     location_id: int | None = Field(default=None, gt=0)
     attributes: dict[str, Any] = Field(default_factory=dict)
@@ -111,6 +112,11 @@ class ItemCreateRequest(BaseModel):
             raise ValueError("aliases and tags must not contain blank entries")
         return values
 
+    @model_validator(mode="after")
+    def valid_quantity(self) -> "ItemCreateRequest":
+        _validate_quantity(self.quantity_mode, self.quantity)
+        return self
+
 
 class ItemEditRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
@@ -118,7 +124,6 @@ class ItemEditRequest(BaseModel):
     name: str | None = Field(default=None, min_length=1, max_length=300)
     description: str | None = Field(default=None, max_length=20_000)
     state: ItemState | None = None
-    quantity: int | None = Field(default=None, ge=1)
     category_id: int | None = Field(default=None, gt=0)
     attributes: dict[str, Any] | None = None
     aliases: list[AliasName] | None = None
@@ -126,7 +131,7 @@ class ItemEditRequest(BaseModel):
 
     @model_validator(mode="after")
     def require_nonnull_fields(self) -> "ItemEditRequest":
-        for key in ("name", "state", "quantity", "attributes", "aliases", "tags"):
+        for key in ("name", "state", "attributes", "aliases", "tags"):
             if key in self.model_fields_set and getattr(self, key) is None:
                 raise ValueError(f"{key} cannot be null")
         if self.name is not None and not self.name.strip():
@@ -141,9 +146,45 @@ class ItemMoveRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     location_id: int = Field(gt=0)
+    portion: "ItemPortionRequest | None" = None
 
 
-class ItemReactivateRequest(BaseModel):
+class ItemPortionRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    mode: Literal["exact", "approximate", "unknown"]
+    value: int | None = Field(default=None, ge=1)
+
+    @model_validator(mode="after")
+    def valid_quantity(self) -> "ItemPortionRequest":
+        _validate_quantity(self.mode, self.value)
+        return self
+
+
+class ItemTakeRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    portion: ItemPortionRequest | None = None
+
+
+class ItemQuantityChangeRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    quantity_mode: Literal["exact", "approximate", "unknown"]
+    quantity: int | None = Field(default=None, ge=1)
+    reason: str = Field(min_length=1, max_length=500)
+    reason_source: Literal["explicit", "context"]
+
+    @model_validator(mode="after")
+    def valid_quantity(self) -> "ItemQuantityChangeRequest":
+        _validate_quantity(self.quantity_mode, self.quantity)
+        return self
+
+
+class ItemRemoveRequest(ItemTakeRequest):
+    reason: str = Field(min_length=1, max_length=500)
+    reason_source: Literal["explicit", "context"]
+
+
+class ItemRestoreRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     state: ItemState
@@ -152,9 +193,16 @@ class ItemReactivateRequest(BaseModel):
     @field_validator("state")
     @classmethod
     def require_nonterminal_state(cls, value: ItemState) -> ItemState:
-        if value in {ItemState.DISCARDED, ItemState.SOLD}:
-            raise ValueError("reactivation requires a non-terminal state")
+        if value in {ItemState.REMOVED, ItemState.DISCARDED, ItemState.SOLD}:
+            raise ValueError("restore requires a non-terminal state")
         return value
+
+
+def _validate_quantity(mode: str, value: int | None) -> None:
+    if mode == "unknown" and value is not None:
+        raise ValueError("unknown quantity requires a null value")
+    if mode != "unknown" and value is None:
+        raise ValueError(f"{mode} quantity requires a value")
 
 
 class TreeCreateRequest(BaseModel):
@@ -199,7 +247,9 @@ class ItemResponse(BaseModel):
     name: str
     description: str | None
     state: str
-    quantity: int
+    quantity_mode: str
+    quantity: int | None
+    removal_reason: str | None
     attributes: dict[str, Any]
     aliases: list[str]
     tags: list[str]

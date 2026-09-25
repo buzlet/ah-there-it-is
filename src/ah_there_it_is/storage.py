@@ -31,6 +31,7 @@ from ah_there_it_is.db.models import (
 )
 from ah_there_it_is.db.session import create_db_engine, create_session_factory
 from ah_there_it_is.domain.names import normalize_name
+from ah_there_it_is.domain.quantity import QuantityValue
 from ah_there_it_is.domain.states import ItemState, LocationStatus
 from ah_there_it_is.portable_stream import (
     PortableInputError,
@@ -41,8 +42,9 @@ from ah_there_it_is.portable_stream import (
 
 
 PORTABLE_V1_VERSION = "inventory-portable-v1"
-PORTABLE_EXPORT_VERSION = "inventory-portable-v2"
-CURRENT_SCHEMA_REVISION = "a4b7c9d2e610"
+PORTABLE_V2_VERSION = "inventory-portable-v2"
+PORTABLE_EXPORT_VERSION = "inventory-portable-v3"
+CURRENT_SCHEMA_REVISION = "6f2b1c9d4e80"
 _VALIDATION_SAMPLE_LIMIT = 20
 
 
@@ -140,7 +142,30 @@ class PortableInventoryDocumentV2(_PortableModel):
     excluded: list[str]
 
 
-PortableDocument = PortableInventoryDocument | PortableInventoryDocumentV2
+class PortableItemV3(PortableItemV2):
+    quantity_mode: str
+    quantity: int | None = Field(ge=1)
+    removal_reason: str | None
+
+
+class PortableInventoryV3(_PortableModel):
+    categories: list[PortableTreeNode]
+    locations: list[PortableTreeNode]
+    items: list[PortableItemV3]
+
+
+class PortableInventoryDocumentV3(_PortableModel):
+    format: str
+    exported_at: str
+    source: PortableSource
+    inventory: PortableInventoryV3
+    history: PortableHistory
+    excluded: list[str]
+
+
+PortableDocument = (
+    PortableInventoryDocument | PortableInventoryDocumentV2 | PortableInventoryDocumentV3
+)
 
 
 @dataclass(frozen=True)
@@ -242,7 +267,9 @@ class _PortableItemProjection:
     category_id: int | None
     location_id: int | None
     location_status: str
-    quantity: int
+    quantity_mode: str
+    quantity: int | None
+    removal_reason: str | None
     attributes: dict[str, Any]
     created_at: datetime
     updated_at: datetime
@@ -282,7 +309,8 @@ def parse_portable_inventory(data: Any) -> PortableDocument:
     if parser is None:
         raise PortableInventoryValidationError(
             f"unsupported portable format {data['format']!r}; "
-            f"expected {PORTABLE_V1_VERSION!r} or {PORTABLE_EXPORT_VERSION!r}"
+            f"expected {PORTABLE_V1_VERSION!r}, {PORTABLE_V2_VERSION!r}, "
+            f"or {PORTABLE_EXPORT_VERSION!r}"
         )
     return parser(data)
 
@@ -325,9 +353,28 @@ def _parse_portable_inventory_v2(
     return document
 
 
+def _parse_portable_inventory_v3(
+    data: dict[str, Any],
+) -> PortableInventoryDocumentV3:
+    """Validate the current inventory-portable-v3 contract."""
+    try:
+        document = PortableInventoryDocumentV3.model_validate(data)
+    except ValidationError as exc:
+        details = []
+        for error in exc.errors():
+            location = ".".join(str(part) for part in error["loc"]) or "<document>"
+            details.append(f"{location}: {error['msg']}")
+        raise PortableInventoryValidationError(
+            "invalid portable document structure: " + "; ".join(details)
+        ) from exc
+    _validate_portable_semantics(document)
+    return document
+
+
 _PORTABLE_FORMAT_PARSERS = {
     PORTABLE_V1_VERSION: _parse_portable_inventory_v1,
-    PORTABLE_EXPORT_VERSION: _parse_portable_inventory_v2,
+    PORTABLE_V2_VERSION: _parse_portable_inventory_v2,
+    PORTABLE_EXPORT_VERSION: _parse_portable_inventory_v3,
 }
 
 
@@ -386,10 +433,13 @@ def validate_portable_workspace(
         workspace.structure,
         "<document>",
     )
-    if envelope.format not in (PORTABLE_V1_VERSION, PORTABLE_EXPORT_VERSION):
+    if envelope.format not in (
+        PORTABLE_V1_VERSION, PORTABLE_V2_VERSION, PORTABLE_EXPORT_VERSION
+    ):
         raise PortableInventoryValidationError(
             f"unsupported portable format {envelope.format!r}; "
-            f"expected {PORTABLE_V1_VERSION!r} or {PORTABLE_EXPORT_VERSION!r}"
+            f"expected {PORTABLE_V1_VERSION!r}, {PORTABLE_V2_VERSION!r}, "
+            f"or {PORTABLE_EXPORT_VERSION!r}"
         )
     _require_spool_members(
         envelope.inventory,
@@ -415,7 +465,7 @@ def validate_portable_workspace(
     _validate_stream_hierarchy(location_parents, "location")
     item_ids = _validate_stream_items(
         workspace,
-        is_v2=envelope.format == PORTABLE_EXPORT_VERSION,
+        version=envelope.format,
         category_ids=category_ids,
         location_ids=location_ids,
     )
@@ -544,15 +594,25 @@ def _validate_stream_hierarchy(
 def _validate_stream_items(
     workspace: PortableInputWorkspace,
     *,
-    is_v2: bool,
+    version: str,
     category_ids: set[int],
     location_ids: set[int],
 ) -> set[int]:
-    model = PortableItemV2 if is_v2 else PortableItem
+    model: type[PortableItem] | type[PortableItemV2] | type[PortableItemV3]
+    if version == PORTABLE_EXPORT_VERSION:
+        model = PortableItemV3
+    elif version == PORTABLE_V2_VERSION:
+        model = PortableItemV2
+    else:
+        model = PortableItem
+    legacy = version != PORTABLE_EXPORT_VERSION
     allowed_states = {state.value for state in ItemState}
-    if not is_v2:
-        allowed_states.discard(ItemState.SOLD.value)
-    terminal_states = {ItemState.DISCARDED.value, ItemState.SOLD.value}
+    if not legacy:
+        allowed_states -= {ItemState.DISCARDED.value, ItemState.SOLD.value}
+    terminal_states = (
+        {ItemState.DISCARDED.value, ItemState.SOLD.value}
+        if legacy else {ItemState.REMOVED.value}
+    )
     allowed_location_statuses = {status.value for status in LocationStatus}
     item_ids: set[int] = set()
     known_tags: dict[str, str] = {}
@@ -571,7 +631,7 @@ def _validate_stream_items(
             )
         location_status = (
             item.location_status
-            if is_v2
+            if version != PORTABLE_V1_VERSION
             else _legacy_location_status(item.state, item.location_id)
         )
         if location_status not in allowed_location_statuses:
@@ -587,6 +647,23 @@ def _validate_stream_items(
             raise PortableInventoryValidationError(
                 f"{path} has contradictory state, location_id, and location_status"
             )
+        if isinstance(item, PortableItemV3):
+            try:
+                QuantityValue.coerce(item.quantity_mode, item.quantity)
+            except ValueError as exc:
+                raise PortableInventoryValidationError(
+                    f"{path} has contradictory quantity_mode and quantity: {exc}"
+                ) from exc
+            if (item.state == ItemState.REMOVED.value) != (
+                item.removal_reason is not None
+            ):
+                raise PortableInventoryValidationError(
+                    f"{path} has contradictory state and removal_reason"
+                )
+            if item.removal_reason is not None and not item.removal_reason.strip():
+                raise PortableInventoryValidationError(
+                    f"{path}.removal_reason must not be blank"
+                )
         if item.category_id is not None and item.category_id not in category_ids:
             raise PortableInventoryValidationError(
                 f"{path}.category_id references missing category id={item.category_id}"
@@ -638,11 +715,15 @@ def _validate_stream_events(
 
 
 def _validate_portable_semantics(document: PortableDocument) -> None:
-    is_v2 = document.format == PORTABLE_EXPORT_VERSION
+    legacy = document.format != PORTABLE_EXPORT_VERSION
+    has_location_status = document.format != PORTABLE_V1_VERSION
     allowed_states = {state.value for state in ItemState}
-    if not is_v2:
-        allowed_states.discard(ItemState.SOLD.value)
-    terminal_states = {ItemState.DISCARDED.value, ItemState.SOLD.value}
+    if not legacy:
+        allowed_states -= {ItemState.DISCARDED.value, ItemState.SOLD.value}
+    terminal_states = (
+        {ItemState.DISCARDED.value, ItemState.SOLD.value}
+        if legacy else {ItemState.REMOVED.value}
+    )
     allowed_location_statuses = {status.value for status in LocationStatus}
     _portable_datetime(document.exported_at, "exported_at")
     if not document.source.alembic_revision.strip():
@@ -672,7 +753,7 @@ def _validate_portable_semantics(document: PortableDocument) -> None:
             )
         location_status = (
             item.location_status
-            if is_v2
+            if has_location_status
             else _legacy_location_status(item.state, item.location_id)
         )
         if location_status not in allowed_location_statuses:
@@ -688,6 +769,23 @@ def _validate_portable_semantics(document: PortableDocument) -> None:
             raise PortableInventoryValidationError(
                 f"{path} has contradictory state, location_id, and location_status"
             )
+        if isinstance(item, PortableItemV3):
+            try:
+                QuantityValue.coerce(item.quantity_mode, item.quantity)
+            except ValueError as exc:
+                raise PortableInventoryValidationError(
+                    f"{path} has contradictory quantity_mode and quantity: {exc}"
+                ) from exc
+            if (item.state == ItemState.REMOVED.value) != (
+                item.removal_reason is not None
+            ):
+                raise PortableInventoryValidationError(
+                    f"{path} has contradictory state and removal_reason"
+                )
+            if item.removal_reason is not None and not item.removal_reason.strip():
+                raise PortableInventoryValidationError(
+                    f"{path}.removal_reason must not be blank"
+                )
         if item.category_id is not None and item.category_id not in categories:
             raise PortableInventoryValidationError(
                 f"{path}.category_id references missing category id={item.category_id}"
@@ -728,7 +826,7 @@ def _validate_portable_semantics(document: PortableDocument) -> None:
 def _legacy_location_status(state: str, location_id: int | None) -> str:
     if location_id is not None:
         return LocationStatus.KNOWN.value
-    if state == ItemState.DISCARDED.value:
+    if state in {ItemState.DISCARDED.value, ItemState.SOLD.value}:
         return LocationStatus.NOT_APPLICABLE.value
     return LocationStatus.UNKNOWN.value
 
@@ -1296,7 +1394,8 @@ def _stream_item_dicts(session: Session) -> Iterator[dict[str, Any]]:
                 select(
                     Item.id, Item.name, Item.description, Item.state,
                     Item.category_id, Item.current_location_id,
-                    Item.location_status, Item.quantity, Item.attributes,
+                    Item.location_status, Item.quantity_mode, Item.quantity,
+                    Item.removal_reason, Item.attributes,
                     Item.created_at, Item.updated_at,
                 )
                 .where(Item.id > after_id)
@@ -1452,15 +1551,13 @@ def _write_portable_inventory(
                 name=item.name,
                 normalized_name=normalize_name(item.name),
                 description=item.description,
-                state=item.state,
+                state=_portable_import_truth(item)[0],
                 category_id=item.category_id,
                 current_location_id=item.location_id,
-                location_status=(
-                    item.location_status
-                    if isinstance(item, PortableItemV2)
-                    else _legacy_location_status(item.state, item.location_id)
-                ),
+                location_status=_portable_import_truth(item)[1],
+                quantity_mode=_portable_import_truth(item)[2],
                 quantity=item.quantity,
+                removal_reason=_portable_import_truth(item)[3],
                 attributes=item.attributes,
                 created_at=_portable_datetime(item.created_at, "item.created_at"),
                 updated_at=_portable_datetime(item.updated_at, "item.updated_at"),
@@ -1545,7 +1642,12 @@ def _write_portable_workspace_inventory(
     _write_workspace_tree(
         session, workspace, "locations", Location, batch_size, _observe_batch
     )
-    item_model = PortableItemV2 if summary.format == PORTABLE_EXPORT_VERSION else PortableItem
+    if summary.format == PORTABLE_EXPORT_VERSION:
+        item_model = PortableItemV3
+    elif summary.format == PORTABLE_V2_VERSION:
+        item_model = PortableItemV2
+    else:
+        item_model = PortableItem
     _execute_batched(
         session,
         Item.__table__,
@@ -1555,15 +1657,13 @@ def _write_portable_workspace_inventory(
                 "name": item.name,
                 "normalized_name": normalize_name(item.name),
                 "description": item.description,
-                "state": item.state,
+                "state": _portable_import_truth(item)[0],
                 "category_id": item.category_id,
                 "current_location_id": item.location_id,
-                "location_status": (
-                    item.location_status
-                    if isinstance(item, PortableItemV2)
-                    else _legacy_location_status(item.state, item.location_id)
-                ),
+                "location_status": _portable_import_truth(item)[1],
+                "quantity_mode": _portable_import_truth(item)[2],
                 "quantity": item.quantity,
+                "removal_reason": _portable_import_truth(item)[3],
                 "attributes": item.attributes,
                 "created_at": _portable_datetime(item.created_at, "item.created_at"),
                 "updated_at": _portable_datetime(item.updated_at, "item.updated_at"),
@@ -1721,7 +1821,7 @@ def _write_workspace_tree(
 
 def _workspace_tag_index(
     workspace: PortableInputWorkspace,
-    item_model: type[PortableItem] | type[PortableItemV2],
+    item_model: type[PortableItem] | type[PortableItemV2] | type[PortableItemV3],
 ) -> tuple[dict[str, int], dict[str, str]]:
     order: dict[str, tuple[int, int]] = {}
     names: dict[str, str] = {}
@@ -1737,6 +1837,29 @@ def _workspace_tag_index(
         {name: tag_id for tag_id, name in enumerate(normalized_order, start=1)},
         names,
     )
+
+
+def _portable_import_truth(
+    item: PortableItem | PortableItemV2 | PortableItemV3,
+) -> tuple[str, str, str, str | None]:
+    if isinstance(item, PortableItemV3):
+        return (
+            item.state,
+            item.location_status,
+            item.quantity_mode,
+            item.removal_reason,
+        )
+    state = item.state
+    removal_reason = None
+    if state in {ItemState.SOLD.value, ItemState.DISCARDED.value}:
+        removal_reason = state
+        state = ItemState.REMOVED.value
+    location_status = (
+        item.location_status
+        if isinstance(item, PortableItemV2)
+        else _legacy_location_status(item.state, item.location_id)
+    )
+    return state, location_status, "exact", removal_reason
 
 
 def _execute_batched(
@@ -1831,7 +1954,8 @@ def _portable_document(session: Session, alembic_revision: str) -> dict[str, Any
             select(
                 Item.id, Item.name, Item.description, Item.state,
                 Item.category_id, Item.current_location_id, Item.location_status,
-                Item.quantity, Item.attributes, Item.created_at, Item.updated_at,
+                Item.quantity_mode, Item.quantity, Item.removal_reason,
+                Item.attributes, Item.created_at, Item.updated_at,
             ).order_by(Item.id)
         )
     ]
@@ -1910,7 +2034,8 @@ def _item_projection_dict(
         "id": item.id, "name": item.name, "description": item.description,
         "state": item.state, "category_id": item.category_id,
         "location_id": item.location_id, "location_status": item.location_status,
-        "quantity": item.quantity, "attributes": item.attributes,
+        "quantity_mode": item.quantity_mode, "quantity": item.quantity,
+        "removal_reason": item.removal_reason, "attributes": item.attributes,
         "aliases": aliases, "tags": tags, "created_at": _iso(item.created_at),
         "updated_at": _iso(item.updated_at),
     }

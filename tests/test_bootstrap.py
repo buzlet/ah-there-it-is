@@ -113,9 +113,10 @@ def test_hand_authored_fixture_is_valid() -> None:
         ),
         (
             lambda raw: raw["items"][0].update(
-                state="discarded", location_path=raw["locations"][0]["path"]
+                state="removed", removal_reason="discarded",
+                location_path=raw["locations"][0]["path"]
             ),
-            "location_path must be null for terminal items",
+            "location_path must be null for removed items",
         ),
         (
             lambda raw: raw["items"][0].update(quantity=0),
@@ -308,7 +309,7 @@ def test_successful_bootstrap_uses_domain_services_search_and_portable_export(
                     )
                 assert event.payload == {
                     "name": item.name,
-                    "quantity": item.quantity,
+                    "quantity": {"mode": item.quantity_mode, "value": item.quantity},
                     "_history_evidence": evidence,
                 }
 
@@ -329,7 +330,7 @@ def test_successful_bootstrap_uses_domain_services_search_and_portable_export(
         engine.dispose()
 
     portable = export_portable_inventory(url, exported)
-    assert portable["format"] == "inventory-portable-v2"
+    assert portable["format"] == "inventory-portable-v3"
     loaded = load_portable_inventory(exported)
     assert len(loaded.inventory.items) == 3
     assert len(loaded.history.events) == 3
@@ -343,7 +344,8 @@ def test_bootstrap_applies_conservative_location_statuses(
     source = tmp_path / "bootstrap-location-truth.json"
     url = _migrate(database)
     raw = _fixture_document()
-    raw["items"][0]["state"] = "discarded"
+    raw["items"][0]["state"] = "removed"
+    raw["items"][0]["removal_reason"] = "discarded"
     raw["items"][0]["location_path"] = None
     raw["items"][1]["location_path"] = None
     raw["items"][2]["location_path"] = raw["locations"][0]["path"]
@@ -356,6 +358,7 @@ def test_bootstrap_applies_conservative_location_statuses(
         with Session(engine) as session:
             items = list(session.scalars(select(Item).order_by(Item.id)))
             assert items[0].location_status == "not_applicable"
+            assert items[0].removal_reason == "discarded"
             assert items[0].current_location_id is None
             assert items[1].location_status == "unknown"
             assert items[1].current_location_id is None

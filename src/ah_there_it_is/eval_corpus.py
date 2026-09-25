@@ -19,6 +19,7 @@ class ExpectedCheck(BaseModel):
         "item_exists",
         "item_state",
         "item_quantity",
+        "item_quantity_truth",
         "item_description_contains",
         "item_history_min_events",
         "item_attribute_equals",
@@ -32,6 +33,7 @@ class ExpectedCheck(BaseModel):
     location_status: str | None = None
     state: str | None = None
     quantity: int | None = Field(default=None, ge=1)
+    quantity_mode: Literal["exact", "approximate", "unknown"] | None = None
     text: str | None = None
     min_events: int | None = Field(default=None, ge=0)
     attribute_key: str | None = None
@@ -51,6 +53,7 @@ class ExpectedCheck(BaseModel):
             "item_exists",
             "item_state",
             "item_quantity",
+            "item_quantity_truth",
             "item_description_contains",
             "item_history_min_events",
             "item_attribute_equals",
@@ -67,6 +70,8 @@ class ExpectedCheck(BaseModel):
             raise ValueError("item_state requires state")
         if self.kind == "item_quantity" and self.quantity is None:
             raise ValueError("item_quantity requires quantity")
+        if self.kind == "item_quantity_truth" and self.quantity_mode is None:
+            raise ValueError("item_quantity_truth requires quantity_mode")
         if self.kind == "item_description_contains" and not self.text:
             raise ValueError("item_description_contains requires text")
         if self.kind == "item_history_min_events" and self.min_events is None:

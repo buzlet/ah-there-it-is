@@ -12,11 +12,12 @@ from sqlalchemy.orm import Session
 from ah_there_it_is.agent import AgentRunner, LLMResponse, ScriptedLLMClient, ToolCall
 from ah_there_it_is.agent.errors import AgentTurnFailedError
 from ah_there_it_is.agent.tools import ToolDispatcher
-from ah_there_it_is.db.models import Event
+from ah_there_it_is.db.models import Event, Item
 from ah_there_it_is.services.chat_requests import ChatRequestService
 from ah_there_it_is.services.conversations import ConversationService
 from ah_there_it_is.services.evaluation import EvaluationService
 from ah_there_it_is.services.inventory import InventoryService
+from ah_there_it_is.services.undo import UndoService
 
 
 def call(call_id: str, tool_name: str, **arguments: object) -> ToolCall:
@@ -98,7 +99,7 @@ def test_empty_final_after_mutation_rolls_back(session: Session) -> None:
     assert EvaluationService(session).recent_runs()[0].mutation_receipts == []
 
 
-def test_noop_update_and_move_have_false_receipts_without_events(session: Session) -> None:
+def test_noop_quantity_and_move_have_false_receipts_without_events(session: Session) -> None:
     inventory = InventoryService(session)
     desk = inventory.create_location("Desk")
     item = inventory.create_item("Meter", location_id=desk.id, quantity=2)
@@ -106,14 +107,17 @@ def test_noop_update_and_move_have_false_receipts_without_events(session: Sessio
     llm = ScriptedLLMClient([
         LLMResponse(tool_calls=(call("1", "search_items", query="Meter"),)),
         LLMResponse(tool_calls=(call("2", "search_locations", query="Desk"),)),
-        LLMResponse(tool_calls=(call("3", "update_item", item_id=item.id, quantity=2),)),
+        LLMResponse(tool_calls=(call(
+            "3", "change_item_quantity", item_id=item.id,
+            quantity_mode="exact", quantity=2, reason="counted", reason_source="explicit",
+        ),)),
         LLMResponse(tool_calls=(call("4", "move_item", item_id=item.id, location_id=desk.id),)),
         LLMResponse(content="Already correct."),
     ])
     result = AgentRunner(session, llm).run("Check Meter")
     assert result.changes_applied is False
     assert [(receipt.operation, receipt.changed, receipt.event_ids) for receipt in result.receipts] == [
-        ("update_item", False, ()), ("move_item", False, ())
+        ("change_item_quantity", False, ()), ("move_item", False, ())
     ]
     assert result.receipts[1].before_ids == {"location_id": desk.id}
     assert result.receipts[1].after_ids == {"location_id": desk.id}
@@ -152,7 +156,7 @@ def test_explicit_take_transition_receipts_track_event_and_noop(session: Session
 
 
 
-def test_all_explicit_transition_operations_have_location_receipts(session: Session) -> None:
+def test_removed_and_restore_operations_have_location_receipts(session: Session) -> None:
     inventory = InventoryService(session)
     desk = inventory.create_location("Desk")
     item = inventory.create_item("Meter", location_id=desk.id)
@@ -179,39 +183,160 @@ def test_all_explicit_transition_operations_have_location_receipts(session: Sess
     assert unknown.before_ids == {"location_id": None}
     assert unknown.after_ids == {"location_id": None}
 
-    discarded = apply("discard_item", lambda: dispatcher.inventory.discard_item(item.id))
-    assert discarded.changed is True and discarded.event_ids
-    assert discarded.before_ids == {"location_id": None}
-    assert discarded.after_ids == {"location_id": None}
-    discard_noop = apply("discard_item", lambda: dispatcher.inventory.discard_item(item.id))
-    assert discard_noop.changed is False and discard_noop.event_ids == ()
+    removed = apply(
+        "remove_item",
+        lambda: dispatcher.inventory.remove_item(
+            item.id, reason="discarded", reason_source="explicit"
+        ),
+    )
+    assert removed.changed is True and removed.event_ids
+    assert removed.before_ids == {"location_id": None}
+    assert removed.after_ids == {"location_id": None}
 
-    reactivated_unknown = apply(
-        "reactivate_item",
-        lambda: dispatcher.inventory.reactivate_item(
+    restored_unknown = apply(
+        "restore_item",
+        lambda: dispatcher.inventory.restore_item(
             item.id, state="used", location_id=None
         ),
     )
-    assert reactivated_unknown.changed is True and reactivated_unknown.event_ids
-    assert reactivated_unknown.before_ids == {"location_id": None}
-    assert reactivated_unknown.after_ids == {"location_id": None}
+    assert restored_unknown.changed is True and restored_unknown.event_ids
+    assert restored_unknown.before_ids == {"location_id": None}
+    assert restored_unknown.after_ids == {"location_id": None}
 
-    sold = apply("mark_item_sold", lambda: dispatcher.inventory.mark_item_sold(item.id))
-    assert sold.changed is True and sold.event_ids
-    assert sold.before_ids == {"location_id": None}
-    assert sold.after_ids == {"location_id": None}
-    sold_noop = apply("mark_item_sold", lambda: dispatcher.inventory.mark_item_sold(item.id))
-    assert sold_noop.changed is False and sold_noop.event_ids == ()
+    apply(
+        "remove_item",
+        lambda: dispatcher.inventory.remove_item(
+            item.id, reason="sold", reason_source="explicit"
+        ),
+    )
 
-    reactivated_known = apply(
-        "reactivate_item",
-        lambda: dispatcher.inventory.reactivate_item(
+    restored_known = apply(
+        "restore_item",
+        lambda: dispatcher.inventory.restore_item(
             item.id, state="working", location_id=desk.id
         ),
     )
-    assert reactivated_known.changed is True and reactivated_known.event_ids
-    assert reactivated_known.before_ids == {"location_id": None}
-    assert reactivated_known.after_ids == {"location_id": desk.id}
+    assert restored_known.changed is True and restored_known.event_ids
+    assert restored_known.before_ids == {"location_id": None}
+    assert restored_known.after_ids == {"location_id": desk.id}
+
+
+def test_partial_move_receipt_records_source_child_and_compensation(session: Session) -> None:
+    inventory = InventoryService(session)
+    shelf = inventory.create_location("Shelf")
+    bin_ = inventory.create_location("Bin")
+    item = inventory.create_item("Bolts", location_id=shelf.id, quantity=10)
+    dispatcher = ToolDispatcher(session, autocommit=False)
+    args = SimpleNamespace(item_id=item.id)
+    before = dispatcher._mutation_before("move_item", args)
+    child = dispatcher.inventory.move_item(
+        item.id, bin_.id, portion={"mode": "exact", "value": 3}
+    )
+    receipt = dispatcher._mutation_receipt(
+        "move_item", args, dispatcher._item_dict(child), before
+    )
+    assert receipt.affected_item_ids == (item.id, child.id)
+    assert receipt.before[str(item.id)]["quantity"] == 10
+    assert receipt.after[str(item.id)]["quantity"] == 7
+    assert receipt.after[str(child.id)]["quantity"] == 3
+    assert receipt.split == {
+        "source_item_id": item.id,
+        "child_item_id": child.id,
+        "copied_description": None,
+        "event_ids": receipt.split["event_ids"],
+    }
+    assert receipt.compensation["created_item_ids"] == [child.id]
+
+
+@pytest.mark.parametrize("operation", ["move", "remove"])
+def test_split_failure_rolls_back_source_child_and_events(
+    session: Session, monkeypatch: pytest.MonkeyPatch, operation: str,
+) -> None:
+    inventory = InventoryService(session)
+    shelf = inventory.create_location("Shelf")
+    bin_ = inventory.create_location("Bin")
+    source = inventory.create_item("Bolts", location_id=shelf.id, quantity=10)
+    before_events = events(session)
+
+    def fail_commit(_item) -> None:
+        raise RuntimeError("injected split failure")
+
+    monkeypatch.setattr(inventory, "_commit", fail_commit)
+    with pytest.raises(RuntimeError, match="injected"):
+        if operation == "move":
+            inventory.move_item(
+                source.id, bin_.id, portion={"mode": "exact", "value": 3}
+            )
+        else:
+            inventory.remove_item(
+                source.id,
+                portion={"mode": "exact", "value": 3},
+                reason="given away",
+                reason_source="explicit",
+            )
+
+    assert session.scalar(select(func.count(Item.id))) == 1
+    restored = inventory.get_item(source.id)
+    assert (restored.quantity_mode, restored.quantity) == ("exact", 10)
+    assert events(session) == before_events
+
+
+def test_quantity_change_failure_leaves_before_state_intact(
+    session: Session, monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    inventory = InventoryService(session)
+    item = inventory.create_item("Washers", quantity=12)
+    before_events = events(session)
+
+    def fail_commit(_item) -> None:
+        raise RuntimeError("injected quantity failure")
+
+    monkeypatch.setattr(inventory, "_commit", fail_commit)
+    with pytest.raises(RuntimeError, match="injected"):
+        inventory.change_item_quantity(
+            item.id,
+            quantity_mode="approximate",
+            quantity=9,
+            reason="estimate",
+            reason_source="explicit",
+        )
+
+    restored = inventory.get_item(item.id)
+    assert (restored.quantity_mode, restored.quantity) == ("exact", 12)
+    assert events(session) == before_events
+
+
+def test_undo_failure_rolls_back_every_compensation(
+    session: Session, monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    created = AgentRunner(session, ScriptedLLMClient([
+        LLMResponse(tool_calls=(call("1", "search_items", query="First"),)),
+        LLMResponse(tool_calls=(call("2", "create_item", name="First"),)),
+        LLMResponse(tool_calls=(call("3", "search_items", query="Second"),)),
+        LLMResponse(tool_calls=(call("4", "create_item", name="Second"),)),
+        LLMResponse(content="Created both."),
+    ])).run("Create First and Second")
+    before_events = events(session)
+    original = UndoService._restore_snapshot
+    calls = 0
+
+    def fail_second(self, *args, **kwargs):
+        nonlocal calls
+        calls += 1
+        if calls == 2:
+            raise RuntimeError("injected undo failure")
+        return original(self, *args, **kwargs)
+
+    monkeypatch.setattr(UndoService, "_restore_snapshot", fail_second)
+    with pytest.raises(AgentTurnFailedError, match="undo_last_action"):
+        AgentRunner(session, ScriptedLLMClient([
+            LLMResponse(tool_calls=(call("u", "undo_last_action"),)),
+        ])).run("Undo", conversation_id=created.conversation_id)
+
+    assert [item.state for item in session.scalars(select(Item).order_by(Item.id))] == [
+        "unknown", "unknown"
+    ]
+    assert events(session) == before_events
 
 
 def test_failed_turn_is_absent_from_later_conversation_context(session: Session) -> None:

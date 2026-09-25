@@ -39,6 +39,7 @@ def active(tmp_path: Path) -> tuple[Path, str]:
 
 def _sql(path: Path, statement: str, parameters: tuple = ()) -> None:
     with closing(sqlite3.connect(path)) as connection, connection:
+        connection.execute("PRAGMA ignore_check_constraints=ON")
         connection.execute(statement, parameters)
 
 
@@ -253,6 +254,7 @@ def test_thousands_of_violations_have_exact_counts_and_bounded_samples(
 
     path, url = active
     with closing(sqlite3.connect(path)) as connection, connection:
+        connection.execute("PRAGMA ignore_check_constraints=ON")
         connection.execute(
             """
             WITH RECURSIVE ids(id) AS (
