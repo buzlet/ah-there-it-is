@@ -17,6 +17,8 @@ from urllib.error import URLError
 from urllib.request import urlopen
 import zipfile
 
+import pytest
+
 from ah_there_it_is.storage import CURRENT_SCHEMA_REVISION
 
 
@@ -69,6 +71,7 @@ def _http_text(url: str) -> tuple[int, str]:
         return int(response.status), response.read().decode("utf-8")
 
 
+@pytest.mark.extended
 def test_wheel_contains_and_runs_packaged_migrations_and_runtime(
     tmp_path: Path,
 ) -> None:

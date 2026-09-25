@@ -139,6 +139,7 @@ def test_scenario_mock_rejects_unavailable_planned_tool() -> None:
         client.complete([], [])
 
 
+@pytest.mark.extended
 def test_russian_quantity_scenario_suite_matches_corpus_and_core_cases_pass() -> None:
     suite = load_scenario_suite(SCENARIOS)
     assert suite.version == "inventory-scenarios-v1"

@@ -15,7 +15,7 @@ from ah_there_it_is.db.migrations import upgrade_database
 from ah_there_it_is.db.session import create_db_engine
 from ah_there_it_is.runtime_cli import main
 from ah_there_it_is.services.inventory import InventoryService
-from tests.scale_fixture import build_target_scale_inventory
+from tests.scale_fixture import ScaleInventory, clone_target_scale_database
 
 
 @pytest.fixture
@@ -141,14 +141,14 @@ def test_cli_json_exit_status(active: tuple[Path, str], monkeypatch, capsys) -> 
     assert json.loads(capsys.readouterr().out)['ok']
 
 
-def test_target_scale_inventory(tmp_path: Path) -> None:
+def test_target_scale_inventory(
+    tmp_path: Path,
+    target_scale_template: tuple[Path, ScaleInventory],
+) -> None:
+    template, _scale = target_scale_template
     path = tmp_path / 'scale.db'
+    clone_target_scale_database(template, path)
     url = f'sqlite:///{path}'
-    upgrade_database(url)
-    engine = create_db_engine(url)
-    with Session(engine) as session:
-        build_target_scale_inventory(session)
-    engine.dispose()
     report = diagnose_database(url)
     assert report.ok
     assert report.counts['items'] == 1000

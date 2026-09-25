@@ -17,7 +17,6 @@ from ah_there_it_is.services.conversations import ConversationService
 from ah_there_it_is.services.location_suggestions import LocationSuggestionService
 from ah_there_it_is.services.search import SearchService
 from ah_there_it_is.services.inventory import InventoryService
-from tests.scale_fixture import build_target_scale_inventory
 
 
 @contextmanager
@@ -68,8 +67,8 @@ def _count_statements(session: Session):
         event.remove(engine, "before_cursor_execute", before_cursor_execute)
 
 
-def test_target_scale_search_semantics_and_bounded_item_loading(session: Session) -> None:
-    scale = build_target_scale_inventory(session)
+def test_target_scale_search_semantics_and_bounded_item_loading(target_scale_session) -> None:
+    session, scale = target_scale_session
     search = SearchService(session)
 
     cases = [
@@ -93,9 +92,9 @@ def test_target_scale_search_semantics_and_bounded_item_loading(session: Session
 
 
 def test_target_scale_quantity_split_removed_and_equivalent_lots_are_bounded(
-    session: Session,
+    target_scale_session,
 ) -> None:
-    scale = build_target_scale_inventory(session)
+    session, scale = target_scale_session
     inventory = InventoryService(session)
     baseline_events = int(session.scalar(select(func.count(Event.id))) or 0)
     split_destination = inventory.create_location("Scale split destination")
@@ -143,9 +142,9 @@ def test_target_scale_quantity_split_removed_and_equivalent_lots_are_bounded(
 
 
 def test_target_scale_suggestions_do_not_load_unrelated_item_population(
-    session: Session,
+    target_scale_session,
 ) -> None:
-    scale = build_target_scale_inventory(session)
+    session, scale = target_scale_session
     session.expunge_all()
 
     with _count_loaded_items(session) as loaded:
@@ -161,9 +160,9 @@ def test_target_scale_suggestions_do_not_load_unrelated_item_population(
 
 
 def test_target_scale_catalog_pagination_and_web_page_slice(
-    session: Session,
+    target_scale_session,
 ) -> None:
-    build_target_scale_inventory(session)
+    session, _scale = target_scale_session
     catalog = CatalogService(session)
 
     first = catalog.item_page()
@@ -207,9 +206,9 @@ def test_target_scale_catalog_pagination_and_web_page_slice(
 
 
 def test_target_scale_lifecycle_and_location_filters_preserve_pages(
-    session: Session,
+    target_scale_session,
 ) -> None:
-    scale = build_target_scale_inventory(session)
+    session, scale = target_scale_session
     InventoryService(session).remove_item(
         scale.exact_name_id, reason="sold", reason_source="explicit"
     )
@@ -282,9 +281,9 @@ class _SessionContext:
 
 
 def test_target_scale_tree_catalog_counts_use_bounded_statement_count(
-    session: Session,
+    target_scale_session,
 ) -> None:
-    build_target_scale_inventory(session)
+    session, _scale = target_scale_session
     catalog = CatalogService(session)
 
     session.expunge_all()
@@ -300,8 +299,8 @@ def test_target_scale_tree_catalog_counts_use_bounded_statement_count(
     assert category_statements() <= 3
 
 
-def test_target_scale_browser_search_and_tree_detail_stay_bounded(session: Session) -> None:
-    scale = build_target_scale_inventory(session)
+def test_target_scale_browser_search_and_tree_detail_stay_bounded(target_scale_session) -> None:
+    session, scale = target_scale_session
     app = create_app(
         Settings(app_name="Scale Inventory"),
         session_factory=lambda: _SessionContext(session),  # type: ignore[arg-type]
@@ -349,9 +348,9 @@ def _capture_sql(session: Session):
 
 
 def test_target_scale_activity_page_filters_and_bounded_reads(
-    session: Session,
+    target_scale_session,
 ) -> None:
-    scale = build_target_scale_inventory(session)
+    session, scale = target_scale_session
     instant = datetime(2024, 1, 1, tzinfo=timezone.utc)
     session.execute(Event.__table__.insert(), [
         {

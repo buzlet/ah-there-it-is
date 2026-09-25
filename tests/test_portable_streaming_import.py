@@ -627,6 +627,7 @@ def _portable_semantics(value: dict) -> dict:
     return normalized
 
 
+@pytest.mark.extended
 def test_portable_target_scale_bounded_roundtrip_and_late_failure(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
