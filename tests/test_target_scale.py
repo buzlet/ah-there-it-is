@@ -10,9 +10,10 @@ from sqlalchemy.orm import Session
 
 from ah_there_it_is.app import create_app
 from ah_there_it_is.config import Settings
-from ah_there_it_is.db.models import Event, Item
+from ah_there_it_is.db.models import Conversation, Event, Item, Message
 from ah_there_it_is.services.activity import ActivityService
 from ah_there_it_is.services.catalog import CatalogService
+from ah_there_it_is.services.conversations import ConversationService
 from ah_there_it_is.services.location_suggestions import LocationSuggestionService
 from ah_there_it_is.services.search import SearchService
 from ah_there_it_is.services.inventory import InventoryService
@@ -426,3 +427,48 @@ def test_target_scale_activity_page_filters_and_bounded_reads(
     assert f"Event #{tie_ids[-1]}" in filtered.text
     assert "Total: 0" in empty.text
     assert too_large.status_code == 400
+
+
+def test_conversation_history_and_agent_context_reads_stay_bounded(
+    session: Session,
+) -> None:
+    conversation = Conversation()
+    session.add(conversation)
+    session.commit()
+    instant = datetime(2024, 1, 1, tzinfo=timezone.utc)
+    session.execute(
+        Message.__table__.insert(),
+        [
+            {
+                "conversation_id": conversation.id,
+                "role": "user" if index % 2 == 0 else "assistant",
+                "content": f"bounded-history-{index:03d}",
+                "created_at": instant,
+            }
+            for index in range(250)
+        ],
+    )
+    session.commit()
+
+    session.expunge_all()
+    service = ConversationService(session)
+    with _count_statements(session) as statements, _capture_sql(session) as sql:
+        context = service.list_agent_context_messages(conversation.id)
+    assert len(context) == ConversationService.AGENT_CONTEXT_MESSAGE_LIMIT
+    assert statements() <= 2
+    assert any(
+        "FROM MESSAGES" in statement.upper() and "LIMIT" in statement.upper()
+        for statement in sql()
+    )
+
+    session.expunge_all()
+    with _count_statements(session) as statements, _capture_sql(session) as sql:
+        window = service.message_window(conversation.id, limit=50)
+    assert len(window.messages) == 50
+    assert window.has_older is True
+    assert window.next_before_id == window.messages[0].id
+    assert statements() <= 2
+    assert any(
+        "FROM MESSAGES" in statement.upper() and "LIMIT" in statement.upper()
+        for statement in sql()
+    )
