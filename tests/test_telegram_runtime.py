@@ -121,6 +121,41 @@ def test_build_runtime_constructs_shared_application_and_closes_client(tmp_path)
     assert client.closed is True
 
 
+def test_build_runtime_loads_versioned_prompt_and_handles_client_without_close(tmp_path) -> None:
+    prompt_file = tmp_path / "prompt.txt"
+    prompt_file.write_text("custom prompt", encoding="utf-8")
+    settings = bot_settings(tmp_path, prompt_file=str(prompt_file))
+    engine = create_db_engine("sqlite://")
+    Base.metadata.create_all(engine)
+    factory = create_session_factory(engine)
+    runtime = build_telegram_runtime(
+        settings,
+        session_factory=factory,
+        llm_factory=lambda: SimpleNamespace(),
+        telegram_client=object(),
+    )
+    try:
+        assert runtime.polling.adapter.source_identity == "telegram:7"
+        assert runtime.polling.adapter.chat_service.system_prompt == "custom prompt"
+    finally:
+        runtime.close()
+        runtime.close()
+        engine.dispose()
+
+
+def test_build_runtime_default_resources_and_constructor_failure_clean_up(tmp_path) -> None:
+    settings = bot_settings(tmp_path)
+    runtime = build_telegram_runtime(settings, llm_factory=lambda: SimpleNamespace())
+    runtime.close()
+
+    with pytest.raises(ValueError, match="poll_timeout"):
+        build_telegram_runtime(
+            settings,
+            llm_factory=lambda: SimpleNamespace(),
+            poll_timeout=51,
+        )
+
+
 def test_runtime_retries_bounded_transport_error_and_honors_stop_event(session) -> None:
     stop = __import__("threading").Event()
     sleeps: list[float] = []
@@ -173,6 +208,17 @@ def test_run_bot_handles_keyboard_interrupt_and_closes(monkeypatch, tmp_path) ->
     monkeypatch.setattr(module, "build_telegram_runtime", fake_builder)
     assert run_telegram_bot(settings) == 0
     assert state["closed"] is True
+
+
+def test_run_bot_handles_interrupt_before_runtime_construction(monkeypatch, tmp_path) -> None:
+    import ah_there_it_is.telegram.runtime as module
+
+    monkeypatch.setattr(
+        module,
+        "build_telegram_runtime",
+        lambda *_args, **_kwargs: (_ for _ in ()).throw(KeyboardInterrupt),
+    )
+    assert run_telegram_bot(bot_settings(tmp_path)) == 0
 
 
 def test_validate_telegram_settings_never_includes_secret() -> None:

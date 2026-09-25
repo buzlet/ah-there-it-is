@@ -154,6 +154,76 @@ def test_telegram_checkpoint_supports_large_update_ids(session) -> None:
     assert adapter.next_offset() == 12
 
 
+def test_adapter_rejects_invalid_configuration_and_checkpoint_values(session) -> None:
+    with pytest.raises(ValueError, match="allowed_user_id"):
+        TelegramAdapter(session, FakeChatService(), FakeTelegramClient(), allowed_user_id=True)
+    with pytest.raises(ValueError, match="source_label"):
+        TelegramAdapter(
+            session,
+            FakeChatService(),
+            FakeTelegramClient(),
+            allowed_user_id=7,
+            source_label="x" * 201,
+        )
+    adapter = TelegramAdapter(session, FakeChatService(), FakeTelegramClient(), allowed_user_id=7)
+    for method, value in (
+        (adapter.acknowledge_update, -1),
+        (adapter.acknowledge_update, True),
+        (adapter.set_next_offset, -1),
+        (adapter.set_next_offset, False),
+    ):
+        with pytest.raises(ValueError, match="offset|update_id"):
+            method(value)
+    assert adapter.process_update(object()).accepted is False  # type: ignore[arg-type]
+
+
+def test_adapter_can_process_without_reply_and_exposes_mapping(session) -> None:
+    session.add(Conversation(id=41))
+    session.commit()
+    client = FakeTelegramClient()
+    adapter = TelegramAdapter(session, FakeChatService(), client, allowed_user_id=7)
+
+    result = adapter.process_update(update(6), request_key="telegram:6", send_reply=False)
+
+    assert result.accepted is True
+    assert result.sent_messages == ()
+    assert client.sent == []
+    assert adapter.conversation_id_for_chat(100) == 41
+
+
+def test_polling_skips_stale_updates_and_validates_bounds(session) -> None:
+    adapter = TelegramAdapter(session, FakeChatService(), FakeTelegramClient(), allowed_user_id=7)
+    adapter.set_next_offset(10)
+    client = PollingTelegramClient([[update(9)]])
+    polling = TelegramPollingService(adapter, client)
+    result = polling.run_once()
+    assert result.fetched == 1
+    assert result.outcomes == ()
+    assert result.next_offset == 10
+    with pytest.raises(ValueError, match="poll_timeout"):
+        TelegramPollingService(adapter, client, poll_timeout=51)
+    with pytest.raises(ValueError, match="limit"):
+        TelegramPollingService(adapter, client, limit=0)
+
+
+def test_polling_run_forever_honors_stop_event_after_one_empty_poll(session) -> None:
+    adapter = TelegramAdapter(session, FakeChatService(), FakeTelegramClient(), allowed_user_id=7)
+    client = PollingTelegramClient([[]])
+    polling = TelegramPollingService(adapter, client)
+
+    class StopAfterOne:
+        checks = 0
+
+        def is_set(self) -> bool:
+            self.checks += 1
+            return self.checks > 1
+
+    stop = StopAfterOne()
+    polling.run_forever(stop_event=stop)  # type: ignore[arg-type]
+
+    assert client.poll_calls == [{"offset": 0, "timeout": 30, "limit": 100}]
+
+
 def test_polling_orders_updates_discards_unauthorized_and_advances_offset(session) -> None:
     session.add(Conversation(id=41))
     session.commit()
