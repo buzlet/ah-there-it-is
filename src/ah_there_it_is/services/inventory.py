@@ -13,7 +13,8 @@ from sqlalchemy.orm import Session, selectinload
 from ah_there_it_is.db.models import Alias, Category, Event, Item, ItemTag, Location, Tag, utc_now
 from ah_there_it_is.domain.exceptions import DuplicateEntityError, EntityNotFoundError
 from ah_there_it_is.domain.names import normalize_name
-from ah_there_it_is.domain.states import ItemState, LocationStatus
+from ah_there_it_is.domain.quantity import QuantityValue, ReasonSource, validated_reason
+from ah_there_it_is.domain.states import ItemState, LocationStatus, QuantityMode
 
 
 _Row = TypeVar("_Row")
@@ -182,15 +183,15 @@ class InventoryService:
         state: ItemState | str = ItemState.UNKNOWN,
         category_id: int | None = None,
         location_id: int | None = None,
-        quantity: int = 1,
+        quantity_mode: QuantityMode | str = QuantityMode.EXACT,
+        quantity: int | None = 1,
         attributes: Mapping[str, Any] | None = None,
         aliases: Sequence[str] = (),
         tags: Sequence[str] = (),
         original_text: str | None = None,
         allow_duplicate: bool = False,
     ) -> Item:
-        if quantity < 1:
-            raise ValueError("quantity must be >= 1")
+        quantity_value = QuantityValue.coerce(quantity_mode, quantity)
 
         normalized = self._normalized_nonblank(name)
         category = self._get_optional(Category, category_id, "category")
@@ -216,7 +217,8 @@ class InventoryService:
             category=category,
             current_location=location,
             location_status=location_status.value,
-            quantity=quantity,
+            quantity_mode=quantity_value.mode.value,
+            quantity=quantity_value.value,
             attributes=dict(attributes or {}),
         )
         self.session.add(item)
@@ -231,7 +233,7 @@ class InventoryService:
                 to_location=location,
                 payload={
                     "name": item.name,
-                    "quantity": quantity,
+                    "quantity": quantity_value.as_dict(),
                     "_history_evidence": self._history_evidence(
                         to_location_path=self._history_path(location, "location_id"),
                         to_category_path=self._history_path(category, "category_id"),
@@ -251,7 +253,6 @@ class InventoryService:
         description: str | None | _Unset = _UNSET,
         state: ItemState | str | None = None,
         category_id: int | None | _Unset = _UNSET,
-        quantity: int | None = None,
         attributes: Mapping[str, Any] | None = None,
         aliases: Sequence[str] | None = None,
         tags: Sequence[str] | None = None,
@@ -279,8 +280,6 @@ class InventoryService:
             raise ValueError("sold transitions must use mark_item_sold")
         if target_state == ItemState.DISCARDED.value and target_state != item.state:
             raise ValueError("discard transitions must use discard_item")
-        if quantity is not None and quantity < 1:
-            raise ValueError("quantity must be >= 1")
         if not allow_duplicate and (
             target_normalized_name != item.normalized_name
             or target_category_id != item.category_id
@@ -322,9 +321,6 @@ class InventoryService:
                 "to": target_category_id,
             }
             item.category = target_category
-        if quantity is not None and quantity != item.quantity:
-            changes["quantity"] = {"from": item.quantity, "to": quantity}
-            item.quantity = quantity
         if attributes is not None and dict(attributes) != item.attributes:
             changes["attributes"] = {"from": item.attributes, "to": dict(attributes)}
             item.attributes = dict(attributes)
@@ -359,6 +355,44 @@ class InventoryService:
                 )
             )
             self._commit(item)
+        return item
+
+    def change_item_quantity(
+        self,
+        item_id: int,
+        *,
+        quantity_mode: QuantityMode | str,
+        quantity: int | None,
+        reason: str,
+        reason_source: ReasonSource | str,
+        original_text: str | None = None,
+    ) -> Item:
+        after = QuantityValue.coerce(quantity_mode, quantity)
+        compact_reason, source = validated_reason(reason, reason_source)
+        item = self.get_item(item_id)
+        before = QuantityValue.coerce(item.quantity_mode, item.quantity)
+        if before == after:
+            return item
+
+        item.quantity_mode = after.mode.value
+        item.quantity = after.value
+        item.updated_at = utc_now()
+        self.session.add(
+            Event(
+                event_type="item_quantity_changed",
+                item=item,
+                payload={
+                    "quantity": {
+                        "before": before.as_dict(),
+                        "after": after.as_dict(),
+                    },
+                    "reason": compact_reason,
+                    "reason_source": source.value,
+                },
+                original_text=original_text,
+            )
+        )
+        self._commit(item)
         return item
 
     def move_item(

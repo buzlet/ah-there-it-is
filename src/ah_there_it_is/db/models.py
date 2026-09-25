@@ -115,7 +115,7 @@ class Item(Base):
         server_default=QuantityMode.EXACT.value,
         nullable=False,
     )
-    quantity: Mapped[int | None] = mapped_column(Integer, default=1, nullable=True)
+    quantity: Mapped[int | None] = mapped_column(Integer, nullable=True)
     removal_reason: Mapped[str | None] = mapped_column(Text, nullable=True)
     attributes: Mapped[dict[str, Any]] = mapped_column(JSON, default=dict, nullable=False)
     created_at: Mapped[datetime] = mapped_column(
