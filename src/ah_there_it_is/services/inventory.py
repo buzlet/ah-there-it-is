@@ -385,6 +385,7 @@ class InventoryService:
         media_reference = self._validated_media_text(
             media_reference, "media_reference", 1000
         )
+        caption = self._validated_media_caption(caption)
         position = self._validated_media_position(position)
         self._ensure_media_reference_available(item.id, provider, media_reference)
 
@@ -429,6 +430,7 @@ class InventoryService:
         """Update mutable photo metadata while retaining its stable ID."""
         media = self._get_required(ItemMedia, media_id, "item photo")
         target_caption = media.caption if isinstance(caption, _Unset) else caption
+        target_caption = self._validated_media_caption(target_caption)
         target_position = media.position if isinstance(position, _Unset) else position
         target_position = self._validated_media_position(target_position)
         if target_caption == media.caption and target_position == media.position:
@@ -482,6 +484,7 @@ class InventoryService:
         media_reference = self._validated_media_text(
             media_reference, "media_reference", 1000
         )
+        caption = self._validated_media_caption(caption)
         position = self._validated_media_position(position)
         if self.session.get(ItemMedia, media_id) is not None:
             raise DuplicateEntityError(f"item photo id={media_id} already exists")
@@ -1056,6 +1059,16 @@ class InventoryService:
             raise ValueError("position must be a non-negative integer")
         if value < 0:
             raise ValueError("position must be a non-negative integer")
+        return value
+
+    @staticmethod
+    def _validated_media_caption(value: str | None) -> str | None:
+        if value is None:
+            return None
+        if not isinstance(value, str):
+            raise ValueError("caption must be text or null")
+        if len(value) > 20_000:
+            raise ValueError("caption must be at most 20000 characters")
         return value
 
     @staticmethod

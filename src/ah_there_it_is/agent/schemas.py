@@ -52,13 +52,13 @@ class AttachItemPhotoInput(_ToolInput):
     item_id: int = Field(gt=0)
     provider: str = Field(min_length=1, max_length=100)
     media_reference: str = Field(min_length=1, max_length=1000)
-    caption: str | None = None
+    caption: str | None = Field(default=None, max_length=20_000)
     position: int = Field(default=0, ge=0)
 
 
 class UpdateItemPhotoInput(_ToolInput):
     media_id: int = Field(gt=0)
-    caption: str | None = None
+    caption: str | None = Field(default=None, max_length=20_000)
     position: int | None = Field(default=None, ge=0)
 
 

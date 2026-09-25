@@ -177,6 +177,35 @@ def test_adapter_rejects_invalid_configuration_and_checkpoint_values(session) ->
     assert adapter.process_update(object()).accepted is False  # type: ignore[arg-type]
 
 
+def test_direct_adapter_rejects_malformed_typed_update_before_application(session) -> None:
+    session.add(Conversation(id=41))
+    session.commit()
+    application = FakeChatService()
+    adapter = TelegramAdapter(session, application, FakeTelegramClient(), allowed_user_id=1)
+    malformed = TelegramUpdate(
+        update_id=-1,
+        message=TelegramMessage(
+            message_id=1,
+            chat=TelegramChat(id=1, type="private"),
+            from_user=TelegramUser(id=1),
+            text="mutate",
+        ),
+    )
+    boolean_sender = TelegramUpdate(
+        update_id=1,
+        message=TelegramMessage(
+            message_id=1,
+            chat=TelegramChat(id=1, type="private"),
+            from_user=TelegramUser(id=True),  # type: ignore[arg-type]
+            text="mutate",
+        ),
+    )
+
+    assert adapter.process_update(malformed).accepted is False
+    assert adapter.process_update(boolean_sender).accepted is False
+    assert application.calls == []
+
+
 def test_adapter_can_process_without_reply_and_exposes_mapping(session) -> None:
     session.add(Conversation(id=41))
     session.commit()
@@ -204,6 +233,21 @@ def test_polling_skips_stale_updates_and_validates_bounds(session) -> None:
         TelegramPollingService(adapter, client, poll_timeout=51)
     with pytest.raises(ValueError, match="limit"):
         TelegramPollingService(adapter, client, limit=0)
+
+
+def test_polling_deduplicates_repeated_id_in_one_response(session) -> None:
+    session.add(Conversation(id=41))
+    session.commit()
+    application = FakeChatService()
+    client = PollingTelegramClient([[update(18), update(18)]])
+    adapter = TelegramAdapter(session, application, client, allowed_user_id=7)
+
+    result = TelegramPollingService(adapter, client).run_once()
+
+    assert result.processed == 1
+    assert len(application.calls) == 1
+    assert client.sent == [(100, "reply:hello")]
+    assert result.next_offset == 19
 
 
 def test_polling_run_forever_honors_stop_event_after_one_empty_poll(session) -> None:

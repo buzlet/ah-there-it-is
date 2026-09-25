@@ -126,6 +126,39 @@ def test_malformed_and_ok_false_errors_never_expose_token() -> None:
     assert "[redacted]" in str(error.value)
 
 
+def test_malformed_api_error_code_cannot_expose_bot_token() -> None:
+    token = "TEST_SECRET_DO_NOT_PERSIST_7391"
+
+    def rejected(_request: httpx.Request) -> httpx.Response:
+        return httpx.Response(
+            200,
+            json={"ok": False, "error_code": f"401 {token}", "description": "denied"},
+        )
+
+    with TelegramBotClient(
+        token, base_url="https://telegram.test", transport=httpx.MockTransport(rejected)
+    ) as client:
+        with pytest.raises(TelegramApiError) as error:
+            client.get_updates(timeout=0)
+    assert token not in str(error.value)
+
+
+@pytest.mark.parametrize(
+    "payload",
+    [
+        {"update_id": True},
+        {"update_id": -1},
+        {"update_id": 9_223_372_036_854_775_807},
+        {"update_id": 1, "message": {"message_id": True, "chat": {"id": 7, "type": "private"}, "from": {"id": 7}, "text": "hi"}},
+        {"update_id": 1, "message": {"message_id": 1, "chat": {"id": True, "type": "private"}, "from": {"id": 7}, "text": "hi"}},
+        {"update_id": 1, "message": {"message_id": 1, "chat": {"id": 7, "type": "private"}, "from": {"id": True}, "text": "hi"}},
+    ],
+)
+def test_invalid_ids_are_malformed_telegram_updates(payload: dict) -> None:
+    with pytest.raises(TelegramResponseError):
+        TelegramBotClient._parse_update(payload)
+
+
 def test_transport_retry_exhaustion_is_bounded_and_token_safe() -> None:
     token = "secret-token"
     attempts = 0

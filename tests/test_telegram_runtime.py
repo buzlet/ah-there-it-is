@@ -231,3 +231,19 @@ def test_validate_telegram_settings_never_includes_secret() -> None:
         validate_telegram_settings(settings)
 
     assert "super-secret-token" not in str(error.value)
+
+
+def test_source_label_cannot_persist_bot_token(tmp_path) -> None:
+    token = "TEST_SECRET_DO_NOT_PERSIST_7391"
+    settings = bot_settings(
+        tmp_path, telegram_bot_token=token, telegram_source_label=f"audit:{token}"
+    )
+
+    with pytest.raises(TelegramRuntimeConfigurationError) as error:
+        validate_telegram_settings(settings)
+    assert token not in str(error.value)
+
+
+def test_nonpositive_allowed_user_id_fails_configuration(tmp_path) -> None:
+    with pytest.raises(TelegramRuntimeConfigurationError, match="allowed user id"):
+        validate_telegram_settings(bot_settings(tmp_path, telegram_allowed_user_id=-1))

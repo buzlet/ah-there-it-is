@@ -59,7 +59,7 @@ class TelegramPollingService:
                 outcome = self.adapter.process_update(
                     update, request_key=request_key, send_reply=False
                 )
-                self.adapter.acknowledge_update(update.update_id)
+                offset = self.adapter.acknowledge_update(update.update_id)
                 outcomes.append(outcome)
                 discarded += 1
                 continue
@@ -70,7 +70,7 @@ class TelegramPollingService:
                 send_reply=True,
             )
             # A successful send is the point at which this update can be acked.
-            self.adapter.acknowledge_update(update.update_id)
+            offset = self.adapter.acknowledge_update(update.update_id)
             outcomes.append(outcome)
             processed += 1
         return TelegramPollResult(

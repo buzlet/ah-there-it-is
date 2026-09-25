@@ -74,6 +74,7 @@ class CatalogService:
                 selectinload(Item.tag_links).selectinload(ItemTag.tag),
                 selectinload(Item.category),
                 selectinload(Item.current_location),
+                selectinload(Item.media),
             )
             .where(*filters)
             .order_by(Item.normalized_name, Item.id)
@@ -220,6 +221,7 @@ class CatalogService:
                 selectinload(Item.tag_links).selectinload(ItemTag.tag),
                 selectinload(Item.category),
                 selectinload(Item.current_location),
+                selectinload(Item.media),
             )
             .order_by(Item.normalized_name, Item.id)
         )
