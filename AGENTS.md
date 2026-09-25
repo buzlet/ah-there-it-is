@@ -33,7 +33,7 @@ Local-first personal inventory memory for roughly 100–250 nested Locations and
 - `in_use` → intentionally outside storage;
 - `not_applicable` → terminal Item.
 
-`sold` and `discarded` are terminal. Move/take/location-unknown/sold/discard/reactivation are explicit operations.
+`sold` and `discarded` are the current runtime terminal states. The accepted next quantity/lifecycle implementation replaces them with one generic `removed` terminal state plus textual removal reason; historical sold/discarded Events remain evidence during migration.
 
 ### Quantity / physical instances
 
@@ -44,13 +44,17 @@ Accepted product semantics are defined in:
 Key direction:
 
 - Item is a homogeneous physical lot and may represent one object or interchangeable units;
-- quantity precision is exact / approximate / unknown;
-- partial operations use split while the source/remainder keeps its stable ID;
-- the separated lot receives a new stable ID;
+- quantity precision is exact / approximate / unknown and zero is never stored;
+- one semantic quantity-change operation may change both value and precision while preserving original text and explicit/context reason;
+- partial high-level operations split internally and atomically while the source/remainder keeps its stable ID and the separated lot receives a new stable ID;
+- quantity ambiguity normally does not block a safe operation; uncertainty may degrade to unknown and be shown/refined afterwards;
+- equivalent lots are allowed but accidental duplicate creation remains guarded by service policy;
 - Item merge is not implemented;
-- split copies the free-text description/comment, which remains user-editable and is not structured measurement truth.
+- the future terminal lifecycle is one generic `removed` state with textual reason, requiring user intent rather than arithmetic inference;
+- split copies the free-text description/comment, which remains user-editable and is not structured measurement truth;
+- portable export advances to v3 while frozen v1/v2 imports map integer quantities to exact.
 
-Do not implement the remaining open quantity questions by inference. Resolve them before issuing the implementation batch.
+The quantity/physical-instance product-semantic gate is closed. Use the decision document as implementation authority.
 
 ### Search
 
@@ -115,12 +119,12 @@ Product work through Stage 26 and assignments through 0060 are complete.
 
 Batch 0051–0060 closed bounded portable import/database validation and aligned lifecycle tooling with the integrated-batch v8 manifest/checkpoint model.
 
-## Next product gate
+## Next product step
 
-Quantity/physical-instance direction is accepted, but its implementation batch is not yet ready.
+The quantity/physical-instance product-semantic gate is closed.
 
-Resolve the open questions listed in:
+Next: prepare and issue an implementation batch from:
 
 `agent-tasks/designs/quantity-physical-instance-decision.md`
 
-before implementing quantity precision, partial operations or Item split.
+Do not reopen merge, Product/SKU or continuous-measurement scope unless a new explicit product decision does so.
