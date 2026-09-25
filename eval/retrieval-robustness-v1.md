@@ -8,7 +8,7 @@
 - The 86 gating cases cover English, Russian and Ukrainian canonical names, aliases, separator variants, Ukrainian apostrophe forms, mixed-token queries, tags, structured attributes, duplicate-name ambiguity and no-match expectations.
 - Each case states a top-N target with accepted match types, an exact ambiguity set, or an expected empty result.
 - The evaluator calls the current SearchService offline. It does not call a provider and does not modify search ranking, normalization or candidate acquisition.
-- just retrieval-eval writes a machine-readable report with totals, per-language totals, semantic labels and result IDs, match types, scores, and failure reasons. The same recipe is part of the existing application CI job.
+- make retrieval-eval writes a machine-readable report with totals, per-language totals, semantic labels and result IDs, match types, scores, and failure reasons. The same recipe is part of the existing application CI job.
 
 ## Measured gating baseline
 
