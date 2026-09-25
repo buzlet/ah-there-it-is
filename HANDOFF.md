@@ -51,7 +51,7 @@ The integrated-batch lifecycle tooling now treats an absolute manifest workdir a
 
 ## Product summary
 
-Current system includes nested inventory trees, deterministic search, explicit location truth, sold/discarded lifecycle + reactivation, historical Event path evidence, provider-neutral scenarios, write-target safety, atomic turns/receipts, crash-safe idempotency, bounded conversation context, doctor/FTS repair, hardened backup/restore/rehearsal, projection/streaming portable-v2 export, snapshot-consistent export, bounded/streaming/race-safe portable import and bounded physical/doctor diagnostics.
+Current system includes nested inventory trees, deterministic search, explicit location truth, exact/approximate/unknown quantity, generic removed/restore lifecycle, equivalent-lot splits, immediate one-level compensating Undo, historical Event evidence, provider-neutral scenarios, write-target safety, atomic turns/receipts, crash-safe idempotency, bounded conversation context, doctor/FTS repair, hardened backup/restore/rehearsal, projection/streaming portable-v3 export with frozen v1/v2 import compatibility, snapshot-consistent export, bounded/streaming/race-safe portable import and bounded physical/doctor diagnostics.
 
 ## Quantity / physical-instance decision
 
@@ -79,7 +79,7 @@ Accepted and closed:
 - portable export advances to v3; frozen v1/v2 imports map legacy integer quantity to exact;
 - existing sold/discarded Items migrate to removed while historical Events are preserved.
 
-The next step is implementation planning/batching, not further quantity product-semantic design.
+These quantity, lifecycle and immediate-Undo decisions are implemented runtime truth.
 
 ## Product/deployment scope
 

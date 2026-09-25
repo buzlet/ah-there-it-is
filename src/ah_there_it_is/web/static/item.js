@@ -20,13 +20,16 @@ itemForm?.addEventListener("submit", async (event) => {
   const payload = {
     name: String(data.get("name") || "").trim(),
     description: String(data.get("description") || "").trim() || null,
-    quantity: Number(data.get("quantity")),
     category_id: nullableId("category_id"),
     attributes,
     aliases: lines("aliases"),
     tags: lines("tags"),
   };
   if (data.has("state")) payload.state = data.get("state");
+  if (data.has("quantity_mode")) {
+    payload.quantity_mode = data.get("quantity_mode");
+    payload.quantity = data.get("quantity_mode") === "unknown" ? null : Number(data.get("quantity"));
+  }
 
   const creating = !itemForm.dataset.itemId;
   if (creating) payload.location_id = nullableId("location_id");
@@ -52,7 +55,7 @@ itemForm?.addEventListener("submit", async (event) => {
   }
 });
 
-const updateReactivationLocation = (form) => {
+const updateRestoreLocation = (form) => {
   const selectedMode = form.querySelector('input[name="location_mode"]:checked')?.value;
   const location = form.querySelector('select[name="location_id"]');
   if (!location) return;
@@ -62,9 +65,9 @@ const updateReactivationLocation = (form) => {
 };
 
 document.querySelectorAll('input[name="location_mode"]').forEach((input) => {
-  input.addEventListener("change", () => updateReactivationLocation(input.form));
+  input.addEventListener("change", () => updateRestoreLocation(input.form));
 });
-document.querySelectorAll('[data-transition-kind="reactivate"]').forEach(updateReactivationLocation);
+document.querySelectorAll('[data-transition-kind="restore"]').forEach(updateRestoreLocation);
 
 document.querySelectorAll("form[data-transition-url]").forEach((form) => {
   form.addEventListener("submit", async (event) => {
@@ -75,11 +78,19 @@ document.querySelectorAll("form[data-transition-url]").forEach((form) => {
     const payload = {};
     if (kind === "move") {
       payload.location_id = Number(data.get("location_id"));
-    } else if (kind === "reactivate") {
+    } else if (kind === "restore") {
       payload.state = data.get("state");
       payload.location_id = data.get("location_mode") === "known"
         ? Number(data.get("location_id"))
         : null;
+    } else if (kind === "quantity") {
+      payload.quantity_mode = data.get("quantity_mode");
+      payload.quantity = data.get("quantity_mode") === "unknown" ? null : Number(data.get("quantity"));
+      payload.reason = data.get("reason");
+      payload.reason_source = "explicit";
+    } else if (kind === "remove") {
+      payload.reason = data.get("reason");
+      payload.reason_source = "explicit";
     }
 
     if (status) status.textContent = "Saving…";

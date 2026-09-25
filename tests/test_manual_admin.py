@@ -91,10 +91,15 @@ def test_manual_item_create_edit_search_and_history() -> None:
 
             cleared = client.patch(f'/api/items/{item_id}', json={
                 'name': 'Manual Probe Revised', 'description': None, 'state': 'used',
-                'quantity': 2, 'category_id': None,
+                'category_id': None,
                 'attributes': {}, 'aliases': [], 'tags': [],
             })
             assert cleared.status_code == 200
+            changed_quantity = client.post(f'/api/items/{item_id}/quantity', json={
+                'quantity_mode': 'exact', 'quantity': 2,
+                'reason': 'manual count', 'reason_source': 'explicit',
+            })
+            assert changed_quantity.status_code == 200
             assert cleared.json()['category_id'] is None
             assert cleared.json()['location_id'] == location['id']
             taken = client.post(f'/api/items/{item_id}/take')
@@ -133,10 +138,12 @@ def test_manual_item_create_edit_search_and_history() -> None:
             inventory = InventoryService(session)
             events = inventory.get_item_history(item_id)
             assert [event.event_type for event in events] == [
-                'item_created', 'item_updated', 'item_taken', 'item_updated', 'item_moved'
+                'item_created', 'item_updated', 'item_quantity_changed',
+                'item_taken', 'item_updated', 'item_moved'
             ]
             assert [event.original_text for event in events] == [
-                '[manual web create]', '[manual web edit]', '[manual web take]',
+                '[manual web create]', '[manual web edit]',
+                '[manual web quantity change]', '[manual web take]',
                 '[manual web edit]', '[manual web move]'
             ]
             search = SearchService(session)
@@ -291,7 +298,7 @@ def test_manual_pages_expose_complete_forms() -> None:
             locations = client.get('/locations')
         assert '/items/new' in items.text and 'Add item' in items.text
         assert new.status_code == 200 and '/static/item.js' in new.text
-        for field in ('name', 'description', 'state', 'quantity', 'category_id', 'location_id',
+        for field in ('name', 'description', 'state', 'category_id', 'location_id',
                       'attributes', 'aliases', 'tags'):
             assert f'name="{field}"' in new.text
             assert f'name="{field}"' in detail.text
@@ -357,15 +364,18 @@ def test_browser_location_truth_actions_lifecycle_and_suggestions() -> None:
             assert moved.json()['location_status'] == 'known'
             assert moved.json()['current_location_id'] == location['id']
 
-            discarded = client.post(f'/api/items/{item_id}/discard')
-            assert discarded.status_code == 200
-            assert discarded.json()['state'] == 'discarded'
-            assert discarded.json()['location_status'] == 'not_applicable'
+            removed = client.post(f'/api/items/{item_id}/remove', json={
+                'reason': 'broken beyond repair', 'reason_source': 'explicit',
+            })
+            assert removed.status_code == 200
+            assert removed.json()['state'] == 'removed'
+            assert removed.json()['removal_reason'] == 'broken beyond repair'
+            assert removed.json()['location_status'] == 'not_applicable'
             terminal_page = client.get(f'/items/{item_id}')
             assert 'Not applicable' in terminal_page.text
-            assert 'Reactivate terminal Item' in terminal_page.text
+            assert 'Restore removed Item' in terminal_page.text
             assert 'data-transition-kind="move"' not in terminal_page.text
-            assert 'data-transition-kind="discard"' not in terminal_page.text
+            assert 'data-transition-kind="remove"' not in terminal_page.text
             assert 'Location suggestions' not in terminal_page.text
             assert client.post(f'/api/items/{item_id}/take').status_code == 400
             assert client.post(
@@ -373,39 +383,42 @@ def test_browser_location_truth_actions_lifecycle_and_suggestions() -> None:
             ).status_code == 400
 
             assert client.post(
-                f'/api/items/{item_id}/reactivate',
+                f'/api/items/{item_id}/restore',
                 json={'state': 'working'},
             ).status_code == 422
             assert client.post(
-                f'/api/items/{item_id}/reactivate',
+                f'/api/items/{item_id}/restore',
                 json={'state': 'sold', 'location_id': location['id']},
             ).status_code == 422
-            reactivated = client.post(
-                f'/api/items/{item_id}/reactivate',
+            restored = client.post(
+                f'/api/items/{item_id}/restore',
                 json={'state': 'working', 'location_id': location['id']},
             )
-            assert reactivated.status_code == 200
-            assert reactivated.json()['state'] == 'working'
-            assert reactivated.json()['location_status'] == 'known'
-            sold = client.post(f'/api/items/{item_id}/sold')
-            assert sold.status_code == 200
-            assert sold.json()['state'] == 'sold'
-            assert sold.json()['location_status'] == 'not_applicable'
+            assert restored.status_code == 200
+            assert restored.json()['state'] == 'working'
+            assert restored.json()['location_status'] == 'known'
+            removed_again = client.post(f'/api/items/{item_id}/remove', json={
+                'reason': 'sold', 'reason_source': 'explicit',
+            })
+            assert removed_again.status_code == 200
+            assert removed_again.json()['state'] == 'removed'
 
-            unknown_terminal = client.post('/api/items', json={'name': 'Unknown reactivation'})
+            unknown_terminal = client.post('/api/items', json={'name': 'Unknown restore'})
             unknown_id = unknown_terminal.json()['id']
-            assert client.post(f'/api/items/{unknown_id}/sold').status_code == 200
-            reactivated_unknown = client.post(
-                f'/api/items/{unknown_id}/reactivate',
+            assert client.post(f'/api/items/{unknown_id}/remove', json={
+                'reason': 'temporarily unavailable', 'reason_source': 'explicit',
+            }).status_code == 200
+            restored_unknown = client.post(
+                f'/api/items/{unknown_id}/restore',
                 json={'state': 'unknown', 'location_id': None},
             )
-            assert reactivated_unknown.status_code == 200
-            assert reactivated_unknown.json()['state'] == 'unknown'
-            assert reactivated_unknown.json()['location_status'] == 'unknown'
+            assert restored_unknown.status_code == 200
+            assert restored_unknown.json()['state'] == 'unknown'
+            assert restored_unknown.json()['location_status'] == 'unknown'
 
             terminal_search = client.get('/items', params={'q': 'Truth workflow item'})
             assert 'Truth workflow item' in terminal_search.text
-            assert '>sold<' in terminal_search.text
+            assert '>removed<' in terminal_search.text
             assert 'Not applicable' in terminal_search.text
             terminal_only = client.get('/items', params={'lifecycle': 'terminal'})
             assert 'Truth workflow item' in terminal_only.text
@@ -414,12 +427,12 @@ def test_browser_location_truth_actions_lifecycle_and_suggestions() -> None:
             unknown_filter = client.get('/items', params={
                 'lifecycle': 'active', 'location_status': 'unknown',
             })
-            assert 'Unknown reactivation' in unknown_filter.text
+            assert 'Unknown restore' in unknown_filter.text
             assert 'Truth workflow item' not in unknown_filter.text
 
             activity = client.get('/activity')
-            assert 'Item discarded' in activity.text
-            assert 'Item sold' in activity.text
+            assert 'Item removed' in activity.text
+            assert 'Item restored' in activity.text
             history = client.get(f'/items/{item_id}')
             assert 'Location marked unknown' in history.text
 
@@ -427,7 +440,7 @@ def test_browser_location_truth_actions_lifecycle_and_suggestions() -> None:
             history = InventoryService(session).get_item_history(item_id)
             assert [event.event_type for event in history] == [
                 'item_created', 'item_taken', 'item_location_unknown', 'item_moved',
-                'item_discarded', 'item_reactivated', 'item_sold',
+                'item_removed', 'item_restored', 'item_removed',
             ]
             moved_event_id = next(
                 event.id for event in history if event.event_type == 'item_moved'

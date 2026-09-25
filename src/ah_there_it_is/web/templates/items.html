@@ -8,7 +8,7 @@
   <label for="lifecycle-filter">Lifecycle</label>
   <select id="lifecycle-filter" name="lifecycle">
     <option value="active" {% if lifecycle == "active" %}selected{% endif %}>Active Items</option>
-    <option value="terminal" {% if lifecycle == "terminal" %}selected{% endif %}>Terminal Items</option>
+    <option value="terminal" {% if lifecycle == "terminal" %}selected{% endif %}>Removed Items</option>
     <option value="all" {% if lifecycle == "all" %}selected{% endif %}>All Items</option>
   </select>
   <label for="location-filter">Location status</label>
@@ -33,14 +33,14 @@
     <tr>
       <td><a href="/items/{{ item.id }}">{{ item.name }}</a></td>
       <td>{% if item.state == "unknown" %}Condition/state unknown{% else %}{{ item.state|replace("_", " ") }}{% endif %}</td>
-      {% if item_page %}<td>{{ item.quantity }}</td>{% else %}<td>{{ item.match_type|replace("_", " ") }}</td>{% endif %}
+      {% if item_page %}<td>{{ item.quantity_mode }}{% if item.quantity is not none %}: {{ item.quantity }}{% endif %}</td>{% else %}<td>{{ item.match_type|replace("_", " ") }}</td>{% endif %}
       <td>{% if item.category_id %}<a href="/categories/{{ item.category_id }}">{{ item.category_path }}</a>{% else %}—{% endif %}</td>
       <td>
         {% if item.location_status == "known" %}
           {% if item.location_id %}<a href="/locations/{{ item.location_id }}">{{ item.location_path or "Current Location" }}</a>{% else %}Current Location unavailable{% endif %}
         {% elif item.location_status == "unknown" %}Location unknown
         {% elif item.location_status == "in_use" %}In use / taken from storage
-        {% elif item.location_status == "not_applicable" %}Not applicable — terminal Item, no current Location
+        {% elif item.location_status == "not_applicable" %}Not applicable — removed Item, no current Location
         {% else %}Location status unavailable{% endif %}
       </td>
     </tr>

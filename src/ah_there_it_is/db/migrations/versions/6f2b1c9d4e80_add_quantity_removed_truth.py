@@ -21,6 +21,12 @@ _ITEM_TRIGGER_NAMES = (
     "item_search_items_ad",
     "item_search_items_au",
     "item_search_items_ai",
+    "item_search_aliases_ai",
+    "item_search_aliases_au",
+    "item_search_aliases_ad",
+    "item_search_item_tags_ai",
+    "item_search_item_tags_ad",
+    "item_search_tags_au",
 )
 
 _FTS_ITEM_TRIGGERS = (
@@ -48,6 +54,51 @@ _FTS_ITEM_TRIGGERS = (
     CREATE TRIGGER item_search_items_ad
     AFTER DELETE ON items BEGIN
         DELETE FROM item_search_fts WHERE rowid = old.id;
+    END
+    """,
+)
+
+_FTS_RELATION_TRIGGERS = (
+    """
+    CREATE TRIGGER item_search_aliases_ai AFTER INSERT ON aliases BEGIN
+        UPDATE item_search_fts SET aliases = COALESCE((SELECT group_concat(name, ' ')
+        FROM aliases WHERE item_id = new.item_id), '') WHERE rowid = new.item_id;
+    END
+    """,
+    """
+    CREATE TRIGGER item_search_aliases_au AFTER UPDATE OF name, item_id ON aliases BEGIN
+        UPDATE item_search_fts SET aliases = COALESCE((SELECT group_concat(name, ' ')
+        FROM aliases WHERE item_id = old.item_id), '') WHERE rowid = old.item_id;
+        UPDATE item_search_fts SET aliases = COALESCE((SELECT group_concat(name, ' ')
+        FROM aliases WHERE item_id = new.item_id), '') WHERE rowid = new.item_id;
+    END
+    """,
+    """
+    CREATE TRIGGER item_search_aliases_ad AFTER DELETE ON aliases BEGIN
+        UPDATE item_search_fts SET aliases = COALESCE((SELECT group_concat(name, ' ')
+        FROM aliases WHERE item_id = old.item_id), '') WHERE rowid = old.item_id;
+    END
+    """,
+    """
+    CREATE TRIGGER item_search_item_tags_ai AFTER INSERT ON item_tags BEGIN
+        UPDATE item_search_fts SET tags = COALESCE((SELECT group_concat(tags.name, ' ')
+        FROM item_tags JOIN tags ON tags.id = item_tags.tag_id
+        WHERE item_tags.item_id = new.item_id), '') WHERE rowid = new.item_id;
+    END
+    """,
+    """
+    CREATE TRIGGER item_search_item_tags_ad AFTER DELETE ON item_tags BEGIN
+        UPDATE item_search_fts SET tags = COALESCE((SELECT group_concat(tags.name, ' ')
+        FROM item_tags JOIN tags ON tags.id = item_tags.tag_id
+        WHERE item_tags.item_id = old.item_id), '') WHERE rowid = old.item_id;
+    END
+    """,
+    """
+    CREATE TRIGGER item_search_tags_au AFTER UPDATE OF name ON tags BEGIN
+        UPDATE item_search_fts SET tags = COALESCE((SELECT group_concat(tags.name, ' ')
+        FROM item_tags JOIN tags ON tags.id = item_tags.tag_id
+        WHERE item_tags.item_id = item_search_fts.rowid), '')
+        WHERE rowid IN (SELECT item_id FROM item_tags WHERE tag_id = new.id);
     END
     """,
 )
@@ -104,10 +155,37 @@ def _create_item_triggers(location_truth: str) -> None:
         )
     for statement in _FTS_ITEM_TRIGGERS:
         bind.exec_driver_sql(statement)
+    for statement in _FTS_RELATION_TRIGGERS:
+        bind.exec_driver_sql(statement)
+
+
+def _preserve_item_relations() -> None:
+    bind = op.get_bind()
+    bind.exec_driver_sql("CREATE TEMP TABLE _quantity_aliases AS SELECT * FROM aliases")
+    bind.exec_driver_sql("CREATE TEMP TABLE _quantity_item_tags AS SELECT * FROM item_tags")
+    bind.exec_driver_sql(
+        "CREATE TEMP TABLE _quantity_event_items AS "
+        "SELECT id, item_id FROM events WHERE item_id IS NOT NULL"
+    )
+
+
+def _restore_item_relations() -> None:
+    bind = op.get_bind()
+    bind.exec_driver_sql("INSERT OR IGNORE INTO aliases SELECT * FROM _quantity_aliases")
+    bind.exec_driver_sql("INSERT OR IGNORE INTO item_tags SELECT * FROM _quantity_item_tags")
+    bind.exec_driver_sql(
+        "UPDATE events SET item_id = ("
+        "SELECT saved.item_id FROM _quantity_event_items AS saved "
+        "WHERE saved.id = events.id) "
+        "WHERE id IN (SELECT id FROM _quantity_event_items)"
+    )
+    for table in ("_quantity_aliases", "_quantity_item_tags", "_quantity_event_items"):
+        bind.exec_driver_sql(f"DROP TABLE {table}")
 
 
 def upgrade() -> None:
     _drop_item_triggers()
+    _preserve_item_relations()
     with op.batch_alter_table("items", recreate="always") as batch:
         batch.add_column(
             sa.Column(
@@ -144,6 +222,7 @@ def upgrade() -> None:
         WHERE state IN ('sold', 'discarded')
         """
     )
+    _restore_item_relations()
     _create_item_triggers(_NEW_LOCATION_TRUTH)
 
 
@@ -171,6 +250,7 @@ def downgrade() -> None:
         )
 
     _drop_item_triggers()
+    _preserve_item_relations()
     bind.exec_driver_sql(
         """
         UPDATE items
@@ -191,4 +271,5 @@ def downgrade() -> None:
             nullable=False,
         )
         batch.drop_column("quantity_mode")
+    _restore_item_relations()
     _create_item_triggers(_OLD_LOCATION_TRUTH)

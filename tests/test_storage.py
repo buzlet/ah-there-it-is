@@ -197,7 +197,7 @@ def test_backup_restore_round_trip_preserves_application_state(tmp_path: Path) -
             event_count = int(
                 session.scalar(select(func.count(Event.id))) or 0
             )
-            assert event_count == 8
+            assert event_count == 13
     finally:
         engine.dispose()
 

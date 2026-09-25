@@ -1,5 +1,5 @@
 <!-- _item_form.html -->
-{% set terminal = item and item.state in ["discarded", "sold"] %}
+{% set terminal = item and item.state == "removed" %}
 <form id="item-form" data-item-id="{{ item.id if item else '' }}">
   <label>Name<input name="name" value="{{ item.name if item else '' }}" required maxlength="300"></label>
   <label>Description<textarea name="description" rows="4" maxlength="20000">{{ item.description or '' if item else '' }}</textarea></label>
@@ -10,9 +10,14 @@
     {% endfor %}
   </select></label>
   {% else %}
-  <p>Condition / state: {{ item.state }}. Use Reactivate to set a new active state.</p>
+  <p>Condition / state: removed. Use Restore to set a new active state.</p>
   {% endif %}
-  <label>Quantity<input name="quantity" type="number" min="1" value="{{ item.quantity if item else 1 }}" required></label>
+  {% if not item %}
+  <label>Quantity precision<select name="quantity_mode">
+    {% for mode in ["exact", "approximate", "unknown"] %}<option value="{{ mode }}">{{ mode }}</option>{% endfor %}
+  </select></label>
+  <label>Quantity<input name="quantity" type="number" min="1" value="1"></label>
+  {% endif %}
   <label>Category<select name="category_id"><option value="">— none —</option>{% for category in categories %}<option value="{{ category.id }}" {% if item and item.category_id == category.id %}selected{% endif %}>{{ category.path }}</option>{% endfor %}</select></label>
   {% if not item %}
   <label>Initial Location<select name="location_id"><option value="">Location unknown</option>{% for location in locations %}<option value="{{ location.id }}">{{ location.path }}</option>{% endfor %}</select></label>

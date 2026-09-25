@@ -153,10 +153,10 @@ def test_wheel_contains_and_runs_packaged_migrations_and_runtime(
     assert "Condition / state" in item_template
     assert "Location status" in item_template
     assert "Location unknown" in item_template
-    assert 'data-transition-kind="reactivate"' in item_detail_template
+    assert 'data-transition-kind="restore"' in item_detail_template
     assert "location_mode" in item_detail_template
     assert 'data-transition-kind="location-unknown"' in item_detail_template
-    assert "reactivate" in item_script
+    assert "restore" in item_script
     assert "[console_scripts]" in entry_points
     assert "ah-there-it-is = ah_there_it_is.runtime_cli:main" in entry_points
 
