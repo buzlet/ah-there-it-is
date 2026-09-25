@@ -209,7 +209,9 @@ def test_target_scale_lifecycle_and_location_filters_preserve_pages(
     session: Session,
 ) -> None:
     scale = build_target_scale_inventory(session)
-    InventoryService(session).mark_item_sold(scale.exact_name_id)
+    InventoryService(session).remove_item(
+        scale.exact_name_id, reason="sold", reason_source="explicit"
+    )
 
     catalog = CatalogService(session)
     active = catalog.item_page(lifecycle="active")
@@ -228,7 +230,7 @@ def test_target_scale_lifecycle_and_location_filters_preserve_pages(
     )
     assert active.total == 999
     assert terminal.total == 1
-    assert terminal.items[0]["state"] == "sold"
+    assert terminal.items[0]["state"] == "removed"
     assert unknown_first.total == 4
     assert unknown_first.next_page == 2
     assert len(unknown_first.items) == 2
@@ -263,7 +265,7 @@ def test_target_scale_lifecycle_and_location_filters_preserve_pages(
     assert "Page 2" in unknown_page_two.text
     assert "Scale Exact Name Target" in terminal_catalog.text
     assert "Scale Exact Name Target" in terminal_search.text
-    assert "sold" in terminal_search.text and "Not applicable" in terminal_search.text
+    assert "removed" in terminal_search.text and "Not applicable" in terminal_search.text
     assert f'href="/items/{scale.exact_name_id}"' not in active_search.text
 
 

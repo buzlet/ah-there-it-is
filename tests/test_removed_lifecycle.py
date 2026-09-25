@@ -142,15 +142,3 @@ def test_partial_remove_failure_rolls_back_everything(
     assert (restored.state, restored.quantity) == ("unknown", 10)
     assert session.scalar(select(func.count(Item.id))) == 1
     assert session.scalar(select(func.count(Event.id))) == before_events
-
-
-def test_legacy_lifecycle_shims_map_to_removed(session: Session) -> None:
-    service = InventoryService(session)
-    sold = service.create_item("Sold")
-    discarded = service.create_item("Discarded")
-
-    service.mark_item_sold(sold.id)
-    service.discard_item(discarded.id)
-
-    assert (sold.state, sold.removal_reason) == ("removed", "sold")
-    assert (discarded.state, discarded.removal_reason) == ("removed", "discarded")

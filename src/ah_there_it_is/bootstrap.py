@@ -64,7 +64,9 @@ class BootstrapItem(_BootstrapModel):
     state: str
     category_path: list[str] | None
     location_path: list[str] | None
-    quantity: int = Field(ge=1)
+    quantity_mode: str = "exact"
+    quantity: int | None = Field(default=1, ge=1)
+    removal_reason: str | None = None
     attributes: dict[str, Any]
     aliases: list[str]
     tags: list[str]
@@ -261,12 +263,31 @@ def _validate_bootstrap_semantics(manifest: BootstrapManifest) -> None:
             raise BootstrapValidationError(
                 f"{label}.state {item.state!r} is not a valid ItemState"
             )
+        if item.state in {ItemState.DISCARDED.value, ItemState.SOLD.value}:
+            raise BootstrapValidationError(
+                f"{label}.state must use removed instead of legacy terminal states"
+            )
+        if item.quantity_mode not in {"exact", "approximate", "unknown"}:
+            raise BootstrapValidationError(f"{label}.quantity_mode is invalid")
+        if (item.quantity_mode == "unknown") != (item.quantity is None):
+            raise BootstrapValidationError(
+                f"{label}.quantity must be null exactly when quantity_mode is unknown"
+            )
         if (
-            item.state in {ItemState.DISCARDED.value, ItemState.SOLD.value}
+            item.state == ItemState.REMOVED.value
             and item.location_path is not None
         ):
             raise BootstrapValidationError(
-                f"{label}.location_path must be null for terminal items"
+                f"{label}.location_path must be null for removed items"
+            )
+        if item.state == ItemState.REMOVED.value:
+            if item.removal_reason is None or not item.removal_reason.strip():
+                raise BootstrapValidationError(
+                    f"{label}.removal_reason is required for removed items"
+                )
+        elif item.removal_reason is not None:
+            raise BootstrapValidationError(
+                f"{label}.removal_reason is only valid for removed items"
             )
 
         category_key = _optional_path_key(item.category_path, f"{label}.category_path")
@@ -415,15 +436,25 @@ def _apply_manifest(session: Session, manifest: BootstrapManifest) -> None:
     for item in manifest.items:
         category_key = _optional_path_key(item.category_path, "item.category_path")
         location_key = _optional_path_key(item.location_path, "item.location_path")
-        inventory.create_item(
+        removed = item.state == ItemState.REMOVED.value
+        created = inventory.create_item(
             item.name,
             description=item.description,
-            state=item.state,
+            state=ItemState.UNKNOWN if removed else item.state,
             category_id=category_ids.get(category_key) if category_key is not None else None,
             location_id=location_ids.get(location_key) if location_key is not None else None,
+            quantity_mode=item.quantity_mode,
             quantity=item.quantity,
             attributes=item.attributes,
             aliases=item.aliases,
             tags=item.tags,
             original_text=BOOTSTRAP_PROVENANCE,
         )
+        if removed:
+            assert item.removal_reason is not None
+            inventory.remove_item(
+                created.id,
+                reason=item.removal_reason,
+                reason_source="explicit",
+                original_text=BOOTSTRAP_PROVENANCE,
+            )

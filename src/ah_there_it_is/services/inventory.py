@@ -584,22 +584,6 @@ class InventoryService:
         self._commit(item)
         return item
 
-    def discard_item(self, item_id: int, *, original_text: str | None = None) -> Item:
-        return self.remove_item(
-            item_id,
-            reason="discarded",
-            reason_source=ReasonSource.EXPLICIT,
-            original_text=original_text,
-        )
-
-    def mark_item_sold(self, item_id: int, *, original_text: str | None = None) -> Item:
-        return self.remove_item(
-            item_id,
-            reason="sold",
-            reason_source=ReasonSource.EXPLICIT,
-            original_text=original_text,
-        )
-
     def remove_item(
         self,
         item_id: int,
@@ -643,21 +627,6 @@ class InventoryService:
             if self.autocommit:
                 self.session.rollback()
             raise
-
-    def reactivate_item(
-        self,
-        item_id: int,
-        *,
-        state: ItemState | str,
-        location_id: int | None,
-        original_text: str | None = None,
-    ) -> Item:
-        return self.restore_item(
-            item_id,
-            state=state,
-            location_id=location_id,
-            original_text=original_text,
-        )
 
     def restore_item(
         self,
