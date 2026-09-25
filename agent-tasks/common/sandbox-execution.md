@@ -61,10 +61,14 @@ before Python work.
 
 That target:
 
-- creates `.venv` with `--system-site-packages`;
-- installs only the bundled `wheel` package with `--no-index`;
-- installs this project locally with `--no-build-isolation --no-deps`;
+- creates a local `.venv`;
+- bridges the preinstalled `/opt/pyvenv` site-packages into that venv through a local `.pth` file;
+- installs only this project from local source with `--no-index --no-build-isolation --no-deps`;
 - runs `pip check`.
+
+No dependency wheelhouse is shipped in the artifact. The sandbox's existing
+`setuptools` backend is sufficient to build the project wheel; the Python
+`build` package is not required.
 
 Do not use online pip/uv, curl/wget, shell GitHub access or ad-hoc dependency
 downloads.
@@ -74,7 +78,6 @@ report the sandbox-image mismatch. Do not conceal it by changing project
 dependencies or downloading a replacement package unless the task explicitly
 authorizes that change.
 
-The project does not require the Python `build` package.
 
 ## Command surface
 

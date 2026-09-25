@@ -99,8 +99,7 @@ All Git, edits, Python, Make and tests must run only inside that exact checkout.
 Remote Commander on U24 remains supported when explicitly selected.
 
 Sandbox execution uses the exact CI artifact `sandbox-bundle-<start-main-sha>`,
-an issued workdir under `/mnt/data/`, `make sandbox-bootstrap`, and no shell
-network access. See `agent-tasks/common/sandbox-execution.md`.
+an issued workdir under `/mnt/data/`, the preinstalled `/opt/pyvenv` dependency environment via `make sandbox-bootstrap`, and no shell network access. See `agent-tasks/common/sandbox-execution.md`.
 
 Windows Git Bash through Remote Commander is prepared but pending native validation.
 

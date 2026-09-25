@@ -58,15 +58,11 @@ jobs:
           ref: ${{ env.SOURCE_SHA }}
           fetch-depth: 1
 
-      - uses: actions/setup-python@v5
-        with:
-          python-version: '3.13'
-
       - name: Assemble compact sandbox source
         shell: bash
         run: |
           set -euo pipefail
-          mkdir -p sandbox-bundle/.sandbox/wheelhouse
+          mkdir -p sandbox-bundle/.sandbox
 
           cp -a src tests eval prompts sandbox-bundle/
           mkdir -p sandbox-bundle/tools
@@ -84,13 +80,6 @@ jobs:
             fi
           done
 
-      - name: Add only the missing sandbox wheel package
-        shell: bash
-        run: |
-          set -euo pipefail
-          python -m pip download --only-binary=:all: --no-deps --dest sandbox-bundle/.sandbox/wheelhouse 'wheel==0.48.0'
-          test "$(find sandbox-bundle/.sandbox/wheelhouse -maxdepth 1 -type f -name '*.whl' | wc -l)" -eq 1
-
       - name: Bind artifact to exact upstream source and create local Git baseline
         shell: bash
         run: |
@@ -106,7 +95,6 @@ jobs:
           event=$GITHUB_EVENT_NAME
           runner_arch=$(uname -m)
           sandbox_python=3.13
-          wheel=0.48.0
           EOF
 
           (
@@ -127,7 +115,7 @@ jobs:
         run: |
           set -euo pipefail
           du -sh sandbox-bundle
-          du -sh sandbox-bundle/.git sandbox-bundle/.sandbox/wheelhouse sandbox-bundle/src sandbox-bundle/tests
+          du -sh sandbox-bundle/.git sandbox-bundle/.sandbox sandbox-bundle/src sandbox-bundle/tests
 
       - uses: actions/upload-artifact@v4
         with:

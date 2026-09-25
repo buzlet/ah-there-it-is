@@ -6,9 +6,7 @@ SHELL := /bin/bash
 .DEFAULT_GOAL := help
 
 PYTHON ?= $(if $(wildcard .venv/bin/python),.venv/bin/python,python)
-SANDBOX_PYTHON ?= python3.13
-SANDBOX_WHEELHOUSE ?= .sandbox/wheelhouse
-SANDBOX_WHEEL_VERSION ?= 0.48.0
+SANDBOX_PYTHON ?= /opt/pyvenv/bin/python
 
 FILE ?= evaluation-cases.json
 NAME ?=
@@ -161,14 +159,16 @@ sandbox-preflight:
 	@command -v git >/dev/null
 	@command -v "$(SANDBOX_PYTHON)" >/dev/null
 	@test "$$("$(SANDBOX_PYTHON)" -c 'import sys; print(f"{sys.version_info.major}.{sys.version_info.minor}")')" = "3.13"
-	@test -d "$(SANDBOX_WHEELHOUSE)"
-	@test -f "$(SANDBOX_WHEELHOUSE)/wheel-$(SANDBOX_WHEEL_VERSION)-py3-none-any.whl"
 	@test -f ".sandbox/MANIFEST.txt"
+	@"$(SANDBOX_PYTHON)" -c 'import importlib.util; required=("setuptools.build_meta","fastapi","pydantic","sqlalchemy","alembic","jinja2","httpx","uvicorn","pytest","packaging"); missing=[name for name in required if importlib.util.find_spec(name) is None]; assert not missing, f"missing sandbox packages: {missing}"'
 
 sandbox-bootstrap: sandbox-preflight
 	rm -rf .venv
-	"$(SANDBOX_PYTHON)" -m venv --system-site-packages .venv
-	.venv/bin/python -m pip install --no-index --find-links="$(SANDBOX_WHEELHOUSE)" "wheel==$(SANDBOX_WHEEL_VERSION)"
-	.venv/bin/python -m pip install --no-index --no-build-isolation --no-deps .
-	.venv/bin/python -m pip check
+	"$(SANDBOX_PYTHON)" -m venv .venv
+	@parent_site="$("$(SANDBOX_PYTHON)" -c 'import site; print(site.getsitepackages()[0])')"; \
+	 child_site="$(.venv/bin/python -c 'import site; print(site.getsitepackages()[0])')"; \
+	 printf '%s\n' "$parent_site" > "$child_site/chatgpt-sandbox-parent.pth"
+	PIP_NO_INDEX=1 PIP_NO_CACHE_DIR=1 PIP_DISABLE_PIP_VERSION_CHECK=1 \
+	  .venv/bin/python -m pip install --no-index --no-build-isolation --no-deps .
+	PIP_NO_INDEX=1 PIP_NO_CACHE_DIR=1 .venv/bin/python -m pip check
 	@.venv/bin/python -c 'import sys; print("sandbox environment ready:", sys.version)'

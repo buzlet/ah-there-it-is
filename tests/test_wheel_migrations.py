@@ -32,6 +32,7 @@ def test_quantity_removed_migration_is_packaged_in_wheel(tmp_path: Path) -> None
             "pip",
             "wheel",
             "--no-deps",
+            "--no-build-isolation",
             "--wheel-dir",
             str(wheelhouse),
             str(repo),
@@ -179,8 +180,20 @@ def test_wheel_contains_and_runs_packaged_migrations_and_runtime(
         check=True, capture_output=True, text=True,
     ).stdout.strip())
     # Reuse already installed test dependencies without fetching from a network.
+    # Sandbox execution may bridge a parent preinstalled environment through a
+    # .pth entry, so preserve every active site-packages root rather than only
+    # the current interpreter's purelib.
+    parent_dependency_paths = []
+    for entry in sys.path:
+        if not entry:
+            continue
+        candidate = Path(entry).resolve()
+        if candidate.is_dir() and "site-packages" in candidate.parts:
+            parent_dependency_paths.append(candidate)
+    assert parent_dependency_paths
     (site_packages / "parent-dependencies.pth").write_text(
-        str(Path(sysconfig.get_paths()["purelib"]).resolve()) + "\n", encoding="utf-8"
+        "".join(f"{path}\n" for path in dict.fromkeys(parent_dependency_paths)),
+        encoding="utf-8",
     )
     assert console_script.is_file()
 

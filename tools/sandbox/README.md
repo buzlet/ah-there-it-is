@@ -10,13 +10,9 @@ The bundle is designed for ChatGPT sandbox execution, not as a general Python
 distribution.
 
 It contains current application source/tests/eval/prompts, active task/process
-material, GNU Makefile/project metadata, agent process tools, one tiny `wheel`
-package under `.sandbox/wheelhouse/`, and a synthetic local Git baseline tagged
-`sandbox-base`.
+material, GNU Makefile/project metadata, agent process tools, and a synthetic local Git baseline tagged `sandbox-base`.
 
-It deliberately excludes a full dependency wheelhouse, Python 3.12 artifacts,
-`just`, the Python `build` package, upstream repository history and archived
-task material.
+It deliberately contains no Python dependency wheels at all and excludes Python 3.12 artifacts, `just`, the Python `build` package, upstream repository history and archived task material.
 
 Start with:
 
