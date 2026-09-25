@@ -28,8 +28,9 @@ Historical process material is archived and is not normal implementation context
 
 v9 separates task definition from execution environment.
 
-The orchestrator hands the agent two separate paths: the task and one executor
-profile, both read at the issuance SHA.
+For implementation, the orchestrator hands the agent two separate paths: the task
+and one executor profile, both read at the issuance SHA. Independent reviewer
+handoff additionally freezes and supplies the exact implementation head `I`.
 
 Executor profiles:
 
