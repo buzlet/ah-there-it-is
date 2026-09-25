@@ -14,7 +14,7 @@ class MutationReceipt(BaseModel):
     operation: Literal[
         "create_item", "create_location", "create_category", "update_item", "move_item",
         "take_item", "mark_item_location_unknown", "change_item_quantity",
-        "remove_item", "restore_item",
+        "remove_item", "restore_item", "undo_last_action",
     ]
     entity_type: Literal["item", "location", "category"]
     entity_id: int = Field(gt=0)
@@ -27,3 +27,4 @@ class MutationReceipt(BaseModel):
     after: dict[str, Any] = Field(default_factory=dict)
     split: dict[str, Any] | None = None
     compensation: dict[str, Any] = Field(default_factory=dict)
+    undo_of_run_id: int | None = Field(default=None, gt=0)

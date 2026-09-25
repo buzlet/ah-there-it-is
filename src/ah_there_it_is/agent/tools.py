@@ -25,6 +25,7 @@ from ah_there_it_is.agent.schemas import (
     ItemMutationInput,
     LocationIdInput,
     MoveItemInput,
+    NoInput,
     PortionedItemInput,
     RemoveItemInput,
     RestoreItemInput,
@@ -38,6 +39,7 @@ from ah_there_it_is.domain.names import normalize_search_text
 from ah_there_it_is.services.inventory import InventoryService
 from ah_there_it_is.services.location_suggestions import LocationSuggestionService
 from ah_there_it_is.services.search import SearchService
+from ah_there_it_is.services.undo import UndoService
 
 
 @dataclass
@@ -101,7 +103,9 @@ class ToolDispatcher:
     LOCATION_MUTATION_TOOLS = frozenset({
         "move_item", "take_item", "mark_item_location_unknown", "remove_item", "restore_item",
     })
-    MUTATION_TOOLS = ITEM_MUTATION_TOOLS | frozenset({"create_location", "create_category"})
+    MUTATION_TOOLS = ITEM_MUTATION_TOOLS | frozenset({
+        "create_location", "create_category", "undo_last_action",
+    })
 
     def __init__(
         self,
@@ -110,12 +114,14 @@ class ToolDispatcher:
         original_text: str | None = None,
         state: ToolRunState | None = None,
         autocommit: bool = True,
+        conversation_id: int | None = None,
     ) -> None:
         self.inventory = InventoryService(session, autocommit=autocommit)
         self.location_suggestions = LocationSuggestionService(session)
         self.search = SearchService(session)
         self.write_resolver = WriteResolver(session)
         self.original_text = original_text
+        self.conversation_id = conversation_id
         self.state = state or ToolRunState()
         self._round_seen: dict[str, set[int]] | None = None
         self._round_resolved: dict[str, set[int]] | None = None
@@ -196,6 +202,10 @@ class ToolDispatcher:
             })
             if self.state.resolved["location"]:
                 names.add("move_item")
+        if self.conversation_id is not None:
+            prior = UndoService(self.inventory.session).eligible_run(self.conversation_id)
+            if prior is not None:
+                names.add("undo_last_action")
         return names
 
     @classmethod
@@ -217,6 +227,35 @@ class ToolDispatcher:
             return self._error("unknown_tool", f"unknown tool: {name}")
         try:
             parsed = spec.input_model.model_validate(arguments)
+            if name == "undo_last_action":
+                last_event_id = self.inventory.session.scalar(select(func.max(Event.id))) or 0
+                result = spec.handler(parsed)
+                event_ids = tuple(self.inventory.session.scalars(
+                    select(Event.id).where(Event.id > last_event_id).order_by(Event.id)
+                ))
+                affected_ids = tuple(result.pop("affected_item_ids"))
+                undo_of_run_id = int(result["undo_of_run_id"])
+                after = {}
+                for item_id in affected_ids:
+                    item = self.inventory.session.get(Item, item_id)
+                    if item is not None:
+                        after[str(item_id)] = self._receipt_item(item)
+                receipt = MutationReceipt(
+                    operation="undo_last_action",
+                    entity_type="item",
+                    entity_id=affected_ids[0],
+                    changed=True,
+                    event_ids=event_ids,
+                    affected_item_ids=affected_ids,
+                    after=after,
+                    compensation={"redo_supported": False},
+                    undo_of_run_id=undo_of_run_id,
+                )
+                self.receipts.append(receipt)
+                return {
+                    "ok": True, "result": result, "changed": True,
+                    "commit_state": "committed" if self.inventory.autocommit else "provisional",
+                }
             before = self._mutation_before(name, parsed) if name in self.MUTATION_TOOLS else None
             result = spec.handler(parsed)
             if name in self.MUTATION_TOOLS:
@@ -394,6 +433,11 @@ class ToolDispatcher:
                 SuggestItemLocationsInput,
                 self._suggest_item_locations,
             ),
+            "undo_last_action": _ToolSpec(
+                "Undo the immediately preceding completed mutation turn in this conversation. Do not provide item IDs.",
+                NoInput,
+                self._undo_last_action,
+            ),
             "create_category": _ToolSpec(
                 "Create a category only when the user explicitly asked for a new category, after search_categories for the same name. Do not invent taxonomy merely to create an item.",
                 CreateCategoryInput,
@@ -548,6 +592,15 @@ class ToolDispatcher:
         )
         self._remember_created("category", category.id)
         return self._category_dict(category)
+
+    def _undo_last_action(self, raw: BaseModel) -> dict[str, Any]:
+        self._cast(NoInput, raw)
+        if self.conversation_id is None:
+            raise ValueError("Undo unavailable outside a conversation")
+        run, affected = UndoService(
+            self.inventory.session, autocommit=self.inventory.autocommit
+        ).undo(self.conversation_id)
+        return {"undo_of_run_id": run.id, "affected_item_ids": affected}
 
     def _create_location(self, raw: BaseModel) -> dict[str, Any]:
         args = self._cast(CreateLocationInput, raw)

@@ -84,6 +84,7 @@ class AgentRunner:
             self.session,
             original_text=text,
             autocommit=False,
+            conversation_id=conversation_id,
         )
         rounds = 0
         changed_seen = False

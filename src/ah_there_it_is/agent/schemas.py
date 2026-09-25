@@ -25,6 +25,10 @@ class _ToolInput(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
 
+class NoInput(_ToolInput):
+    pass
+
+
 class SearchInput(_ToolInput):
     query: str = Field(min_length=1)
     limit: int = Field(default=5, ge=1, le=20)
