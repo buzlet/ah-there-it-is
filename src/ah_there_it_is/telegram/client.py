@@ -172,7 +172,10 @@ class TelegramBotClient:
             if body["ok"] is not True:
                 code = body.get("error_code")
                 description = self._safe_description(body.get("description"))
-                detail = f"Telegram API returned ok=false{f' code={code}' if code else ''}"
+                # API error codes are integers. Never interpolate an arbitrary
+                # response field into an exception: it may contain the bot token.
+                safe_code = code if type(code) is int else None
+                detail = f"Telegram API returned ok=false{f' code={safe_code}' if safe_code is not None else ''}"
                 if description:
                     detail += f": {description}"
                 raise TelegramApiError(detail)
@@ -199,7 +202,9 @@ class TelegramBotClient:
 
     @classmethod
     def _parse_update(cls, value: object) -> TelegramUpdate:
-        if not isinstance(value, dict) or not isinstance(value.get("update_id"), int):
+        if not isinstance(value, dict) or type(value.get("update_id")) is not int:
+            raise TelegramResponseError("Telegram update was malformed")
+        if not 0 <= value["update_id"] < 2**63 - 1:
             raise TelegramResponseError("Telegram update was malformed")
         message_value = value.get("message")
         return TelegramUpdate(
@@ -213,16 +218,16 @@ class TelegramBotClient:
             raise TelegramResponseError("Telegram message was malformed")
         message_id = value.get("message_id")
         chat_value = value.get("chat")
-        if not isinstance(message_id, int) or not isinstance(chat_value, dict):
+        if type(message_id) is not int or not isinstance(chat_value, dict):
             raise TelegramResponseError("Telegram message was malformed")
         chat_id = chat_value.get("id")
         chat_type = chat_value.get("type")
-        if not isinstance(chat_id, int) or not isinstance(chat_type, str):
+        if type(chat_id) is not int or not isinstance(chat_type, str):
             raise TelegramResponseError("Telegram chat was malformed")
         user_value = value.get("from")
         user = None
         if user_value is not None:
-            if not isinstance(user_value, dict) or not isinstance(user_value.get("id"), int):
+            if not isinstance(user_value, dict) or type(user_value.get("id")) is not int:
                 raise TelegramResponseError("Telegram sender was malformed")
             user = TelegramUser(id=user_value["id"])
         text = value.get("text")

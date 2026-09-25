@@ -15,7 +15,9 @@ from ah_there_it_is.db.models import (
     TelegramPollingState,
     utc_now,
 )
-from ah_there_it_is.telegram.client import TelegramMessage, TelegramUpdate
+from ah_there_it_is.telegram.client import (
+    TelegramChat, TelegramMessage, TelegramUpdate, TelegramUser,
+)
 
 
 @dataclass(frozen=True)
@@ -43,8 +45,8 @@ class TelegramAdapter:
         allowed_user_id: int,
         source_label: str | None = None,
     ) -> None:
-        if isinstance(allowed_user_id, bool) or not isinstance(allowed_user_id, int):
-            raise ValueError("allowed_user_id must be an integer")
+        if type(allowed_user_id) is not int or allowed_user_id <= 0:
+            raise ValueError("allowed_user_id must be a positive integer")
         self.session = session
         self.chat_service = chat_service
         self.client = client
@@ -158,12 +160,25 @@ class TelegramAdapter:
     def _rejection_reason(self, update: TelegramUpdate) -> str | None:
         if not isinstance(update, TelegramUpdate) or update.message is None:
             return "update has no text message"
+        if type(update.update_id) is not int or not 0 <= update.update_id < 2**63 - 1:
+            return "update id is malformed"
         message = update.message
-        if message.from_user is None or message.from_user.id != self.allowed_user_id:
+        if not isinstance(message, TelegramMessage) or (
+            type(message.message_id) is not int or message.message_id <= 0
+        ):
+            return "message is malformed"
+        if not isinstance(message.chat, TelegramChat) or (
+            type(message.chat.id) is not int or message.chat.id <= 0
+        ):
+            return "chat is malformed"
+        if not isinstance(message.from_user, TelegramUser) or (
+            type(message.from_user.id) is not int
+            or message.from_user.id != self.allowed_user_id
+        ):
             return "sender is not allowed"
         if message.chat.type != "private":
             return "chat is not private"
-        if message.text is None or not message.text.strip():
+        if not isinstance(message.text, str) or not message.text.strip():
             return "message text is blank"
         return None
 

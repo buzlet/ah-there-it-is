@@ -34,9 +34,14 @@ def validate_telegram_settings(settings: Settings) -> None:
             "Telegram bot token is required for 'ah-there-it-is telegram-bot'"
         )
     user_id = settings.telegram_allowed_user_id
-    if user_id is None or isinstance(user_id, bool):
+    if type(user_id) is not int or user_id <= 0:
         raise TelegramRuntimeConfigurationError(
             "Telegram allowed user id is required for 'ah-there-it-is telegram-bot'"
+        )
+    label = settings.telegram_source_label
+    if label is not None and settings.telegram_bot_token.strip() in label:
+        raise TelegramRuntimeConfigurationError(
+            "Telegram source label must not contain the bot token"
         )
 
 

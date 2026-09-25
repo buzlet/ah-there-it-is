@@ -3,7 +3,7 @@ from __future__ import annotations
 from datetime import datetime, timezone
 
 import pytest
-from sqlalchemy import inspect, select, text
+from sqlalchemy import event, inspect, select, text
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
@@ -14,6 +14,8 @@ from ah_there_it_is.db.models import Base, Event, Item, ItemMedia
 from ah_there_it_is.domain.exceptions import DuplicateEntityError
 from ah_there_it_is.db.session import create_db_engine
 from ah_there_it_is.services.inventory import InventoryService
+from ah_there_it_is.services.catalog import CatalogService
+from ah_there_it_is.services.undo import UndoService, UndoUnavailableError
 
 
 def test_fresh_metadata_has_item_media_constraints() -> None:
@@ -135,6 +137,52 @@ def test_item_photo_service_orders_updates_and_records_history(session: Session)
     assert all("bytes" not in str(event.payload).lower() for event in photo_events)
 
 
+def test_media_caption_validation_is_shared_at_service_boundary(session: Session) -> None:
+    inventory = InventoryService(session)
+    item = inventory.create_item("Caption target")
+
+    with pytest.raises(ValueError, match="caption"):
+        inventory.attach_item_photo(item.id, "local", "bad-type", caption=123)  # type: ignore[arg-type]
+    with pytest.raises(ValueError, match="caption"):
+        inventory.attach_item_photo(item.id, "local", "too-long", caption="x" * 20_001)
+    assert inventory.list_item_photos(item.id) == []
+
+    media = inventory.attach_item_photo(item.id, "local", "valid", caption="front")
+    with pytest.raises(ValueError, match="caption"):
+        inventory.update_item_photo(media.id, caption={"malformed": True})  # type: ignore[arg-type]
+    assert inventory.list_item_photos(item.id)[0].caption == "front"
+
+
+def test_media_list_projection_batches_association_reads(session: Session) -> None:
+    inventory = InventoryService(session)
+    for index in range(20):
+        item = inventory.create_item(f"Media item {index}")
+        inventory.attach_item_photo(item.id, "local", f"photo-{index}")
+
+    statements: list[str] = []
+    def count_media_reads(_conn, _cursor, statement, _params, _context, _many):
+        if "FROM item_media" in statement:
+            statements.append(statement)
+
+    engine = session.get_bind()
+    event.listen(engine, "before_cursor_execute", count_media_reads)
+    try:
+        session.expire_all()
+        page = CatalogService(session).item_page(page_size=20)
+        assert len(page.items) == 20
+        assert all(len(item["media"]) == 1 for item in page.items)
+        assert len(statements) <= 2
+
+        statements.clear()
+        session.expire_all()
+        rows = CatalogService(session).list_items()
+        assert len(rows) == 20
+        assert all(len(item["media"]) == 1 for item in rows)
+        assert len(statements) <= 2
+    finally:
+        event.remove(engine, "before_cursor_execute", count_media_reads)
+
+
 def test_item_photo_service_retains_media_across_remove_restore(session: Session) -> None:
     inventory = InventoryService(session)
     item = inventory.create_item("Retained camera")
@@ -166,6 +214,39 @@ def test_item_photo_service_split_keeps_source_media_and_not_child_media(
         first.id,
         second.id,
     ]
+    assert inventory.list_item_photos(child.id) == []
+
+
+@pytest.mark.parametrize(
+    ("source_mode", "source_quantity", "portion", "action"),
+    [
+        ("approximate", 20, {"mode": "exact", "value": 3}, "move"),
+        ("unknown", None, {"mode": "exact", "value": 3}, "take"),
+        ("exact", 10, {"mode": "exact", "value": 3}, "remove"),
+    ],
+)
+def test_other_partial_lifecycle_splits_leave_media_on_source_only(
+    session: Session, source_mode, source_quantity, portion, action
+) -> None:
+    inventory = InventoryService(session)
+    shelf = inventory.create_location("Photo shelf")
+    destination = inventory.create_location("Photo destination")
+    source = inventory.create_item(
+        "Photo lot", location_id=shelf.id,
+        quantity_mode=source_mode, quantity=source_quantity,
+    )
+    media = inventory.attach_item_photo(source.id, "local", "source-photo")
+    if action == "move":
+        child = inventory.move_item(source.id, destination.id, portion=portion)
+    elif action == "take":
+        child = inventory.take_item(source.id, portion=portion)
+    else:
+        child = inventory.remove_item(
+            source.id, reason="partial removal", reason_source="explicit", portion=portion
+        )
+
+    assert child.id != source.id
+    assert [photo.id for photo in inventory.list_item_photos(source.id)] == [media.id]
     assert inventory.list_item_photos(child.id) == []
 
 
@@ -222,3 +303,75 @@ def test_item_photo_agent_attach_and_immediate_undo(session: Session) -> None:
         ),
     ).run("Undo that", conversation_id=attach_run.conversation_id)
     assert inventory.list_item_photos(item.id) == []
+
+
+def test_undo_compensates_two_photo_attaches_in_one_turn(session: Session) -> None:
+    inventory = InventoryService(session)
+    item = inventory.create_item("Two photo camera")
+    run = AgentRunner(
+        session,
+        ScriptedLLMClient([
+            LLMResponse(tool_calls=(ToolCall(
+                id="search", name="search_items", arguments={"query": "Two photo camera"}
+            ),)),
+            LLMResponse(tool_calls=(
+                ToolCall(id="front", name="attach_item_photo", arguments={
+                    "item_id": item.id, "provider": "local", "media_reference": "front"
+                }),
+                ToolCall(id="back", name="attach_item_photo", arguments={
+                    "item_id": item.id, "provider": "local", "media_reference": "back"
+                }),
+            )),
+            LLMResponse(content="Attached both."),
+        ]),
+    ).run("Attach both supplied references")
+    assert [receipt.operation for receipt in run.receipts] == [
+        "attach_item_photo", "attach_item_photo"
+    ]
+    assert len(inventory.list_item_photos(item.id)) == 2
+
+    AgentRunner(
+        session,
+        ScriptedLLMClient([
+            LLMResponse(tool_calls=(ToolCall(
+                id="undo", name="undo_last_action", arguments={}
+            ),)),
+            LLMResponse(content="Undone."),
+        ]),
+    ).run("Undo", conversation_id=run.conversation_id)
+    assert inventory.list_item_photos(item.id) == []
+    assert len([event for event in inventory.get_item_history(item.id)
+                if event.event_type == "item_undo_compensated"]) == 2
+
+
+def test_media_undo_stale_post_state_rolls_back_all_compensation(session: Session) -> None:
+    inventory = InventoryService(session)
+    item = inventory.create_item("Stale photo camera")
+    run = AgentRunner(
+        session,
+        ScriptedLLMClient([
+            LLMResponse(tool_calls=(ToolCall(
+                id="search", name="search_items", arguments={"query": "Stale photo camera"}
+            ),)),
+            LLMResponse(tool_calls=(
+                ToolCall(id="first", name="attach_item_photo", arguments={
+                    "item_id": item.id, "provider": "local", "media_reference": "first"
+                }),
+                ToolCall(id="second", name="attach_item_photo", arguments={
+                    "item_id": item.id, "provider": "local", "media_reference": "second"
+                }),
+            )),
+            LLMResponse(content="Attached."),
+        ]),
+    ).run("Attach both references")
+    photos = inventory.list_item_photos(item.id)
+    inventory.update_item_photo(photos[0].id, caption="changed after turn")
+    before_event_ids = [event.id for event in inventory.get_item_history(item.id)]
+
+    with pytest.raises(UndoUnavailableError, match="post-state"):
+        UndoService(session, autocommit=True).undo(run.conversation_id)
+
+    assert [photo.id for photo in inventory.list_item_photos(item.id)] == [
+        photo.id for photo in photos
+    ]
+    assert [event.id for event in inventory.get_item_history(item.id)] == before_event_ids
