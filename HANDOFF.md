@@ -4,9 +4,11 @@
 
 Repository: `buzlet/ah-there-it-is`.
 
-Product stages through Stage 26 and assignments through 0083 are complete on main.
+Product stages through Stage 26 and implementation/review work through 0090 are complete on main.
 
 Media/Telegram 0071–0080 and model-evaluation 0081–0083 are merged. Their independent review corrections are also merged: PR #84 for media/Telegram and PR #83 for model-evaluation hardening.
+
+Final code-level MVP hardening 0084–0090 was implemented by PR #87. Independent review corrections were integrated by PR #88 and then carried into PR #87 before its merge. Final post-merge application CI on main was green.
 
 Batch 0061–0070 merged as PR #77 at `33710743ba1d3c7a380cf4a2a37457fb94e89eaa`; its exact PR head was `35ee225e9a9159457a395d0f03bed37c5c6777af`. Authoritative CI was green.
 
@@ -17,8 +19,8 @@ Active implementation protocol for newly issued work:
 Execution environment is selected separately through one profile under
 `agent-tasks/executors/`; task files do not embed the executor selection.
 
-Batches already issued under v8 finish under v8; do not migrate an in-flight
-batch mid-run.
+v8 remains historical authority for work issued under it. No active batch remains
+in the v8 lifecycle at v9 adoption.
 
 Historical process material is archived and is not normal implementation context.
 
@@ -129,10 +131,10 @@ Accepted and closed in:
 
 ## Remaining work before MVP acceptance
 
-1. Run one sandbox-only final correctness/hardening batch 0084–0090 across the integrated core. Fix only reproducible code-level findings; do not add product scope.
-2. Subject that batch to an independent reviewer. Implementer and reviewer stop at green PR CI and do not self-merge.
-3. After code correctness is accepted, run a separate Direct-shell deployment-readiness batch on the actual target server.
+Code-level MVP acceptance/hardening through 0090 is complete.
 
-The Direct batch, not the sandbox batch, owns host preparation: service manager, environment/secrets placement, filesystem layout, deployment/restart rehearsal, operational paths and other server-specific setup.
+Next is a Direct-shell deployment-readiness batch 0091+ on the actual target server. It owns host preparation: service manager, environment/secrets placement, filesystem layout, deployment/restart rehearsal, operational paths and other server-specific setup.
 
-Only after both code acceptance and Direct deployment readiness are green should the project be declared MVP-ready.
+The known Direct follow-up is to guarantee exactly one Telegram long-polling process for the production bot/database, including restart/upgrade overlap and crash timing around committed mutation versus reply/checkpoint.
+
+Only after Direct deployment readiness is green should the project be declared MVP-ready.
