@@ -1,0 +1,140 @@
+name: sandbox-offline-bundle
+
+permissions:
+  contents: read
+  actions: write
+
+'on':
+  push:
+    branches:
+      - sandbox/offline-test-bundle
+  pull_request:
+    branches:
+      - main
+    paths:
+      - '.github/workflows/sandbox-bundle.yml'
+      - 'tools/sandbox/**'
+  workflow_dispatch:
+
+concurrency:
+  group: sandbox-offline-bundle-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  bundle:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 1
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.13'
+
+      - uses: extractions/setup-just@v4
+
+      - name: Build sandbox-only wheelhouse
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p sandbox-bundle/wheelhouse
+          python -m pip install --upgrade pip
+          python -m pip wheel             --wheel-dir sandbox-bundle/wheelhouse             '.[test]'             'setuptools>=68'             wheel
+
+          test -n "$(find sandbox-bundle/wheelhouse -maxdepth 1 -type f -name '*.whl' -print -quit)"
+          if find sandbox-bundle/wheelhouse -maxdepth 1 -type f ! -name '*.whl' -print -quit | grep -q .; then
+            echo "wheelhouse contains non-wheel files" >&2
+            exit 1
+          fi
+
+      - name: Assemble minimal sandbox bundle
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p             sandbox-bundle/source/src             sandbox-bundle/source/tools             sandbox-bundle/bin
+
+          cp -a src/ah_there_it_is sandbox-bundle/source/src/
+          cp -a tests eval prompts sandbox-bundle/source/
+          cp -a tools/agent sandbox-bundle/source/tools/
+          cp Justfile pyproject.toml alembic.ini README.md sandbox-bundle/source/
+
+          cp "$(command -v just)" sandbox-bundle/bin/just
+          chmod 0755 sandbox-bundle/bin/just
+
+          cp tools/sandbox/bootstrap_offline.sh sandbox-bundle/bootstrap-sandbox.sh
+          chmod 0755 sandbox-bundle/bootstrap-sandbox.sh
+
+          {
+            echo "repository=buzlet/ah-there-it-is"
+            echo "commit=$(git rev-parse HEAD)"
+            echo "runner_arch=$(uname -m)"
+            echo "python=$(python --version 2>&1)"
+            echo "just=$(sandbox-bundle/bin/just --version)"
+          } > sandbox-bundle/MANIFEST.txt
+
+          (
+            cd sandbox-bundle
+            find source wheelhouse bin -type f -print0               | sort -z               | xargs -0 sha256sum
+          ) > sandbox-bundle/SHA256SUMS
+
+      - name: Prove bundle in isolated temporary directory
+        shell: bash
+        run: |
+          set -euo pipefail
+          rm -rf /tmp/ah-there-it-is-sandbox-smoke
+          cp -a sandbox-bundle /tmp/ah-there-it-is-sandbox-smoke
+
+          (
+            cd /tmp/ah-there-it-is-sandbox-smoke
+            ./bootstrap-sandbox.sh --python python3.13
+            cd source
+            ../bin/just compile
+            .venv/bin/python -m pytest -q
+            ../bin/just migration-check
+            ../bin/just corpus-check
+            ../bin/just scenario-check
+            ../bin/just scenario-eval > /tmp/sandbox-scenario-eval.json
+            ../bin/just retrieval-eval > /tmp/sandbox-retrieval-eval.log
+          )
+
+      - name: Report exact bundle size
+        shell: bash
+        run: |
+          set -euo pipefail
+          du -sh sandbox-bundle
+          du -sh sandbox-bundle/source sandbox-bundle/wheelhouse sandbox-bundle/bin
+          find sandbox-bundle/wheelhouse -maxdepth 1 -type f -printf '%s %f\n'             | sort -nr
+
+      - id: upload
+        uses: actions/upload-artifact@v4
+        with:
+          name: ah-there-it-is-sandbox-bundle
+          path: sandbox-bundle/
+          if-no-files-found: error
+          retention-days: 1
+          compression-level: 6
+
+      - name: Delete older sandbox artifacts
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          CURRENT_ARTIFACT_ID: ${{ steps.upload.outputs.artifact-id }}
+        run: |
+          set -euo pipefail
+          mapfile -t artifact_ids < <(
+            gh api --paginate               "repos/${GITHUB_REPOSITORY}/actions/artifacts?per_page=100"               --jq '.artifacts[]
+                | select(
+                    .name == "ah-there-it-is-sandbox-bundle"
+                    or .name == "wheelhouse-py3.12"
+                    or .name == "wheelhouse-py3.13"
+                  )
+                | .id'
+          )
+
+          for artifact_id in "${artifact_ids[@]}"; do
+            if [[ "$artifact_id" == "$CURRENT_ARTIFACT_ID" ]]; then
+              continue
+            fi
+            gh api               --method DELETE               "repos/${GITHUB_REPOSITORY}/actions/artifacts/$artifact_id"
+          done
