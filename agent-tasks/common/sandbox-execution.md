@@ -1,3 +1,17 @@
+# Sandbox execution rules — legacy v8
+
+This file is retained only because batches already issued under v8 may reference
+it.
+
+New v9 batches do not use this file. Their sandbox environment is defined by:
+
+`agent-tasks/executors/chatgpt-sandbox.md`
+
+Do not migrate an in-flight v8 batch from this document to the v9 executor profile
+mid-execution.
+
+---
+
 # Sandbox execution rules
 
 This document defines the third supported implementation execution channel.
@@ -138,3 +152,4 @@ The sandbox bundle intentionally contains active project/runtime material and
 excludes `agent-tasks/archive/`.
 
 Do not reconstruct old batches by guessing missing archive content.
+
