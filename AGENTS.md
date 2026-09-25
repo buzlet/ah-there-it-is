@@ -87,6 +87,10 @@ separate reviewer-correction PR in v9.
 
 Do not migrate an already-running v8 batch to v9 mid-execution.
 
+Independent review is a separate role. The reviewer inspects the exact
+implementation result but does not consume the implementer's self-review, handoff,
+conclusions or remaining-risk list as review input.
+
 Do not run repository-wide regression after each task. Verification breadth and
 `full_local_required` come from the issued batch file.
 
