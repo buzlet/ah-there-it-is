@@ -2,24 +2,8 @@
 
 Only unresolved decisions are kept active here.
 
-## Quantity / physical instances
-
-Next mandatory product-semantic pause.
-
-Decide:
-
-- one Item per physical object vs fungible quantity;
-- identical units in different Locations;
-- partial move/sale/disposal;
-- split/merge identity and Event history;
-- alias/attribute copying;
-- portable semantics.
-
-Current recommended direction, not yet implementation authority:
-
-- distinguishable object → separate Item;
-- truly interchangeable co-located units → one Item with quantity;
-- partial operation → explicit split into a new stable Item/group with provenance.
+Resolved quantity/physical-instance semantics are recorded in:
+`agent-tasks/designs/quantity-physical-instance-decision.md`.
 
 ## Correction / undo
 

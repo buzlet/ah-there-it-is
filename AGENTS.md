@@ -35,6 +35,23 @@ Local-first personal inventory memory for roughly 100–250 nested Locations and
 
 `sold` and `discarded` are terminal. Move/take/location-unknown/sold/discard/reactivation are explicit operations.
 
+### Quantity / physical instances
+
+Accepted product semantics are defined in:
+
+`agent-tasks/designs/quantity-physical-instance-decision.md`
+
+Key direction:
+
+- Item is a homogeneous physical lot and may represent one object or interchangeable units;
+- quantity precision is exact / approximate / unknown;
+- partial operations use split while the source/remainder keeps its stable ID;
+- the separated lot receives a new stable ID;
+- Item merge is not implemented;
+- split copies the free-text description/comment, which remains user-editable and is not structured measurement truth.
+
+Do not implement the remaining open quantity questions by inference. Resolve them before issuing the implementation batch.
+
 ### Search
 
 Retrieval is deterministic and bounded. Fuzzy matching, transliteration, morphology and embeddings remain deferred pending measured need.
@@ -92,13 +109,18 @@ Do not recursively read `agent-tasks/archive/`.
 - `tools/agent/canonical_verifier.py` — optional durable full-local verifier for manifest-declared high-risk batches;
 - `tools/agent/ci_waiter.py` — bounded exact-head CI observer.
 
-
 ## Current status
 
-Product work through Stage 26 and assignments through 0050 are complete.
+Product work through Stage 26 and assignments through 0060 are complete.
+
+Batch 0051–0060 closed bounded portable import/database validation and aligned lifecycle tooling with the integrated-batch v8 manifest/checkpoint model.
 
 ## Next product gate
 
-Before partial quantity operations or Item split/merge, explicitly decide the physical-instance/quantity model.
+Quantity/physical-instance direction is accepted, but its implementation batch is not yet ready.
 
-See `agent-tasks/designs/future-decision-gates.md`.
+Resolve the open questions listed in:
+
+`agent-tasks/designs/quantity-physical-instance-decision.md`
+
+before implementing quantity precision, partial operations or Item split.
