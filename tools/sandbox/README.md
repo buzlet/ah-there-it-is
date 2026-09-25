@@ -1,28 +1,34 @@
 # Sandbox offline bundle
 
-This helper exists only to make the repository executable in the ChatGPT sandbox,
-which has no outbound package/GitHub access.
+Purpose: make this repository testable inside the current ChatGPT sandbox, which
+has Python 3.13 but no reliable outbound GitHub/PyPI access.
 
-Workflow:
+The artifact is intentionally sandbox-specific and minimal.
 
-`.github/workflows/sandbox-bundle.yml`
+Included:
 
-The generated artifact contains:
+- only source/test/runtime files needed by the test suite;
+- one Python 3.13 offline wheelhouse;
+- setuptools + wheel because tests build the project wheel with no build isolation;
+- Linux x86_64 `just`;
+- an offline bootstrap script;
+- checksums/build metadata.
 
-- a complete tracked source snapshot of the producing commit;
-- an offline wheelhouse for Python 3.12;
-- an offline wheelhouse for Python 3.13;
-- the project wheel plus all runtime/test dependencies and coverage;
-- a Linux x86_64 `just` binary installed by `extractions/setup-just@v4`;
-- `bootstrap-sandbox.sh`;
-- SHA-256 checksums and build metadata.
+Not included:
 
-The bootstrap script does not use the network and does not require the Python
-`build` package.
+- Python 3.12 wheelhouse;
+- project documentation/process archives;
+- GitHub workflow sources except what the package tests need (currently none);
+- AGENTS/HANDOFF;
+- existing build/pytest caches;
+- a prebuilt virtualenv;
+- Python `build` package.
 
-The workflow itself proves that each wheelhouse installs with `--no-index` and
-runs the full pytest suite. The final bundle is smoke-tested again with Python
-3.13 because that matches the current ChatGPT sandbox runtime.
+The bootstrap creates a tiny local Git repository around the extracted source
+because process-tool tests intentionally verify Git-worktree boundaries.
 
-This is additional verification only. Python 3.12 remains the project's required
-CI/test compatibility target.
+Python 3.12 remains the project's authoritative CI target. This bundle is only an
+additional Python 3.13 sandbox verification surface.
+
+Artifact retention is one day and only the final bundle is uploaded; wheelhouse
+intermediates are not uploaded separately.

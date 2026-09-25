@@ -9,145 +9,100 @@ permissions:
       - sandbox/offline-test-bundle
   workflow_dispatch:
 
+concurrency:
+  group: sandbox-offline-bundle-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
-  wheelhouse:
-    name: wheelhouse-py${{ matrix.python }}
-    runs-on: ubuntu-24.04
-    strategy:
-      fail-fast: false
-      matrix:
-        python:
-          - '3.12'
-          - '3.13'
-    steps:
-      - uses: actions/checkout@v4
-
-      - uses: actions/setup-python@v5
-        with:
-          python-version: ${{ matrix.python }}
-
-      - name: Build complete offline wheelhouse
-        shell: bash
-        run: |
-          set -euo pipefail
-          python -m pip install --upgrade pip
-          mkdir -p wheelhouse
-          python -m pip wheel             --wheel-dir wheelhouse             '.[test]'             'coverage>=7,<8'
-
-          test -n "$(find wheelhouse -maxdepth 1 -type f -name '*.whl' -print -quit)"
-          if find wheelhouse -maxdepth 1 -type f ! -name '*.whl' -print -quit | grep -q .; then
-            echo "wheelhouse contains non-wheel files" >&2
-            find wheelhouse -maxdepth 1 -type f -printf '%f\n' >&2
-            exit 1
-          fi
-
-          python - <<'PY'
-          from pathlib import Path
-          import hashlib
-          for path in sorted(Path("wheelhouse").glob("*.whl")):
-              digest = hashlib.sha256(path.read_bytes()).hexdigest()
-              print(f"{digest}  {path.name}")
-          PY
-
-      - name: Prove wheelhouse installs fully offline
-        shell: bash
-        run: |
-          set -euo pipefail
-          version="$(python - <<'PY'
-          import tomllib
-          with open("pyproject.toml", "rb") as handle:
-              print(tomllib.load(handle)["project"]["version"])
-          PY
-          )"
-          python -m venv offline-smoke
-          offline-smoke/bin/python -m pip install             --no-index             --find-links=wheelhouse             "ah-there-it-is[test]==$version"             'coverage>=7,<8'
-          PYTHONPATH=src offline-smoke/bin/python -m pytest -q
-
-      - uses: actions/upload-artifact@v4
-        with:
-          name: wheelhouse-py${{ matrix.python }}
-          path: wheelhouse/
-          if-no-files-found: error
-          retention-days: 30
-
   bundle:
-    name: assemble-sandbox-bundle
-    needs:
-      - wheelhouse
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v4
         with:
           fetch-depth: 1
 
-      - uses: extractions/setup-just@v4
-
       - uses: actions/setup-python@v5
         with:
           python-version: '3.13'
 
-      - uses: actions/download-artifact@v4
-        with:
-          name: wheelhouse-py3.12
-          path: bundle/wheelhouse/py312
+      - uses: extractions/setup-just@v4
 
-      - uses: actions/download-artifact@v4
-        with:
-          name: wheelhouse-py3.13
-          path: bundle/wheelhouse/py313
-
-      - name: Assemble tracked source snapshot
+      - name: Build sandbox-only wheelhouse
         shell: bash
         run: |
           set -euo pipefail
-          mkdir -p bundle/source bundle/bin
+          mkdir -p sandbox-bundle/wheelhouse
+          python -m pip install --upgrade pip
+          python -m pip wheel             --wheel-dir sandbox-bundle/wheelhouse             '.[test]'             'setuptools>=68'             wheel
 
-          git archive HEAD | tar -x -C bundle/source
+          test -n "$(find sandbox-bundle/wheelhouse -maxdepth 1 -type f -name '*.whl' -print -quit)"
+          if find sandbox-bundle/wheelhouse -maxdepth 1 -type f ! -name '*.whl' -print -quit | grep -q .; then
+            echo "wheelhouse contains non-wheel files" >&2
+            exit 1
+          fi
 
-          cp "$(command -v just)" bundle/bin/just
-          chmod 0755 bundle/bin/just
+      - name: Assemble minimal sandbox bundle
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p             sandbox-bundle/source/src             sandbox-bundle/source/tools             sandbox-bundle/bin
 
-          cp tools/sandbox/bootstrap_offline.sh bundle/bootstrap-sandbox.sh
-          chmod 0755 bundle/bootstrap-sandbox.sh
+          cp -a src/ah_there_it_is sandbox-bundle/source/src/
+          cp -a tests eval prompts sandbox-bundle/source/
+          cp -a tools/agent sandbox-bundle/source/tools/
+          cp Justfile pyproject.toml alembic.ini README.md sandbox-bundle/source/
+
+          cp "$(command -v just)" sandbox-bundle/bin/just
+          chmod 0755 sandbox-bundle/bin/just
+
+          cp tools/sandbox/bootstrap_offline.sh sandbox-bundle/bootstrap-sandbox.sh
+          chmod 0755 sandbox-bundle/bootstrap-sandbox.sh
 
           {
             echo "repository=buzlet/ah-there-it-is"
             echo "commit=$(git rev-parse HEAD)"
             echo "runner_arch=$(uname -m)"
-            echo "just=$(bundle/bin/just --version)"
-            echo "python313=$(python --version 2>&1)"
-          } > bundle/MANIFEST.txt
+            echo "python=$(python --version 2>&1)"
+            echo "just=$(sandbox-bundle/bin/just --version)"
+          } > sandbox-bundle/MANIFEST.txt
 
           (
-            cd bundle
+            cd sandbox-bundle
             find source wheelhouse bin -type f -print0               | sort -z               | xargs -0 sha256sum
-          ) > bundle/SHA256SUMS
+          ) > sandbox-bundle/SHA256SUMS
 
-      - name: Sandbox-like offline smoke
+      - name: Prove bundle in isolated temporary directory
         shell: bash
         run: |
           set -euo pipefail
+          rm -rf /tmp/ah-there-it-is-sandbox-smoke
+          cp -a sandbox-bundle /tmp/ah-there-it-is-sandbox-smoke
+
           (
-            cd bundle
+            cd /tmp/ah-there-it-is-sandbox-smoke
             ./bootstrap-sandbox.sh --python python3.13
             cd source
             ../bin/just compile
             .venv/bin/python -m pytest -q
+            ../bin/just migration-check
+            ../bin/just corpus-check
+            ../bin/just scenario-check
+            ../bin/just scenario-eval > /tmp/sandbox-scenario-eval.json
+            ../bin/just retrieval-eval > /tmp/sandbox-retrieval-eval.log
           )
 
-      - name: Pack bundle
+      - name: Report exact bundle size
         shell: bash
         run: |
           set -euo pipefail
-          tar -C bundle -czf ah-there-it-is-sandbox-bundle.tar.gz .
-          sha256sum ah-there-it-is-sandbox-bundle.tar.gz             > ah-there-it-is-sandbox-bundle.tar.gz.sha256
-          ls -lh ah-there-it-is-sandbox-bundle.tar.gz
+          du -sh sandbox-bundle
+          du -sh sandbox-bundle/source sandbox-bundle/wheelhouse sandbox-bundle/bin
+          find sandbox-bundle/wheelhouse -maxdepth 1 -type f -printf '%s %f\n'             | sort -nr
 
       - uses: actions/upload-artifact@v4
         with:
           name: ah-there-it-is-sandbox-bundle
-          path: |
-            ah-there-it-is-sandbox-bundle.tar.gz
-            ah-there-it-is-sandbox-bundle.tar.gz.sha256
+          path: sandbox-bundle/
           if-no-files-found: error
-          retention-days: 30
+          retention-days: 1
+          compression-level: 6
