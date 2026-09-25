@@ -16,7 +16,7 @@ from ah_there_it_is.storage import (
     stream_portable_inventory,
     import_portable_inventory,
     validate_portable_import_target,
-    validate_portable_inventory,
+    _validated_portable_workspace,
     restore_backup,
     rehearse_restore,
     sqlite_path_from_url,
@@ -104,19 +104,19 @@ def main() -> int:
             "events": export.events,
         }
     elif args.dry_run:
-        document = validate_portable_inventory(args.source)
         target = validate_portable_import_target(database_url, args.destination)
-        result = {
-            "dry_run": True,
-            "source": args.source,
-            "destination": str(target),
-            "format": document.format,
-            "source_alembic_revision": document.source.alembic_revision,
-            "categories": len(document.inventory.categories),
-            "locations": len(document.inventory.locations),
-            "items": len(document.inventory.items),
-            "events": len(document.history.events),
-        }
+        with _validated_portable_workspace(args.source) as (_workspace, summary):
+            result = {
+                "dry_run": True,
+                "source": args.source,
+                "destination": str(target),
+                "format": summary.format,
+                "source_alembic_revision": summary.source_alembic_revision,
+                "categories": summary.categories,
+                "locations": summary.locations,
+                "items": summary.items,
+                "events": summary.events,
+            }
     else:
         result = import_portable_inventory(
             database_url,

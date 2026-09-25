@@ -3,6 +3,7 @@ from __future__ import annotations
 import io
 import json
 from pathlib import Path
+import sys
 
 import pytest
 from sqlalchemy import event as sqlalchemy_event, func, select
@@ -11,6 +12,7 @@ from sqlalchemy.orm import Session
 from ah_there_it_is.db.migrations import upgrade_database
 from ah_there_it_is.db.models import Alias, Category, Event, Item, ItemTag, Location, Tag
 from ah_there_it_is.db.session import create_db_engine
+from ah_there_it_is.config import Settings
 from ah_there_it_is.portable_stream import (
     PortableInputError,
     SpoolMarker,
@@ -449,3 +451,72 @@ def test_portable_import_validation_failure_precedes_destination_creation(
         import_portable_inventory(active_url, source, destination)
 
     assert not destination.parent.exists()
+
+
+def test_portable_dry_run_is_bounded_and_database_pure(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    from ah_there_it_is import portable_stream, storage, storage_cli
+
+    source = tmp_path / "dry-run.json"
+    source.write_text(json.dumps(_valid_document()), encoding="utf-8")
+    active = tmp_path / "active.db"
+    active_url = f"sqlite:///{active}"
+    upgrade_database(active_url)
+    destination = tmp_path / "absent" / "destination.db"
+    before = active.read_bytes()
+    monkeypatch.setattr(portable_stream.tempfile, "tempdir", str(tmp_path))
+    monkeypatch.setattr(storage_cli, "get_settings", lambda: Settings(database_url=active_url))
+    monkeypatch.setattr(
+        storage,
+        "validate_portable_inventory",
+        lambda _source: (_ for _ in ()).throw(AssertionError("complete validator used")),
+    )
+    monkeypatch.setattr(
+        sys,
+        "argv",
+        ["storage_cli", "import-json", str(source), str(destination), "--dry-run"],
+    )
+
+    assert storage_cli.main() == 0
+    result = json.loads(capsys.readouterr().out)
+
+    assert result["dry_run"] is True
+    assert result["format"] == "inventory-portable-v2"
+    assert result["categories"] == 2
+    assert result["locations"] == result["items"] == result["events"] == 1
+    assert active.read_bytes() == before
+    assert not destination.parent.exists()
+    assert not Path(str(destination) + "-wal").exists()
+    assert not Path(str(destination) + "-shm").exists()
+    assert not list(tmp_path.glob("ah-portable-input-*"))
+
+
+def test_portable_v1_fixture_uses_bounded_dry_run(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    from ah_there_it_is import storage_cli
+
+    fixture = Path(__file__).parent / "fixtures" / "inventory-portable-v1.json"
+    active = tmp_path / "active.db"
+    active_url = f"sqlite:///{active}"
+    upgrade_database(active_url)
+    destination = tmp_path / "v1-import.db"
+    monkeypatch.setattr(storage_cli, "get_settings", lambda: Settings(database_url=active_url))
+    monkeypatch.setattr(
+        sys,
+        "argv",
+        ["storage_cli", "import-json", str(fixture), str(destination), "--dry-run"],
+    )
+
+    assert storage_cli.main() == 0
+    result = json.loads(capsys.readouterr().out)
+
+    assert result["format"] == "inventory-portable-v1"
+    assert result["source_alembic_revision"] == "c4cfe3a3e921"
+    assert result["items"] == result["events"] == 3
+    assert not destination.exists()
