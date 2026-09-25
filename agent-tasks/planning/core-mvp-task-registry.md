@@ -1,6 +1,6 @@
-# Core MVP task registry after reviewed 0071–0083
+# Core MVP task registry after reviewed 0084–0090
 
-Status: 0071–0083 implemented, independently reviewed, corrected and merged.
+Status: implementation/review work through 0090 is complete and merged.
 
 ## Completed
 
@@ -9,28 +9,13 @@ Status: 0071–0083 implemented, independently reviewed, corrected and merged.
 - 0081–0083 — provider/model benchmark campaign, comparison and promotion evidence.
 - PR #84 — independent media/Telegram corrections.
 - PR #83 — independent model-evaluation corrections.
+- 0084–0090 — final integrated MVP correctness/hardening.
+- PR #87 — implementation of 0084–0090.
+- PR #88 — independent review corrections for 0084–0090, integrated into PR #87 before final merge.
 
 Historical specs are archived and are not active implementation authority.
 
-## Next sandbox batch: 0084–0090
-
-Purpose: final integrated MVP correctness/hardening only.
-
-The sandbox batch may:
-- reproduce suspected defects;
-- add adversarial/regression tests;
-- make narrow code corrections;
-- check cross-surface invariants, crash/idempotency, Undo/lifecycle/media interactions, security/privacy, boundedness, package/startup semantics and integrated MVP acceptance evidence.
-
-The sandbox batch must not:
-- add new product features;
-- perform target-server preparation;
-- configure systemd/services;
-- choose production filesystem/env/secrets locations;
-- implement deployment scripts tied to the target host;
-- rehearse real deployment/restart/backup paths.
-
-## Following Direct batch: 0091+
+## Next Direct batch: 0091+
 
 Purpose: deployment/environment readiness on the actual target server.
 
@@ -47,15 +32,16 @@ Direct work must not silently reopen product semantics.
 
 ## Review lifecycle
 
-The currently running 0084–0090 batch was issued under v8 and finishes under v8.
+0084–0090 completed under v8. New work is issued under v9.
 
 For batches issued after v9 is adopted:
 
 implementation → PR self-review → exact-head CI green → READY FOR REVIEW
 
-Then an independent reviewer records the implementation head and reviews the same
-PR. If corrections are needed, the reviewer appends correction commits to that
-same implementation branch/PR and obtains new exact-head CI.
+Then an independent reviewer receives the exact implementation head and reviews
+the code/tests without reading the implementer's self-review, handoff, conclusions
+or remaining-risk list. If corrections are needed, the reviewer appends correction
+commits to that same implementation branch/PR and obtains new exact-head CI.
 
 Implementer and reviewer do not merge. The orchestrator verifies the final
 review range/current-main compatibility and performs integration.
