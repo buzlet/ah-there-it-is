@@ -13,7 +13,7 @@ import pytest
 from tools.agent import canonical_verifier as verifier
 
 
-FAKE_JUST = f'''#!{sys.executable}
+FAKE_MAKE = f'''#!{sys.executable}
 import os
 import signal
 import subprocess
@@ -59,10 +59,10 @@ def verifier_workspace(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> dict[
 
     fake_bin = tmp_path / "fake-bin"
     fake_bin.mkdir()
-    fake_just = fake_bin / "just"
-    fake_just.write_text(FAKE_JUST, encoding="utf-8")
-    fake_just.chmod(0o755)
-    calls = tmp_path / "just-calls.log"
+    fake_make = fake_bin / "make"
+    fake_make.write_text(FAKE_MAKE, encoding="utf-8")
+    fake_make.chmod(0o755)
+    calls = tmp_path / "make-calls.log"
     child_pid = tmp_path / "child.pid"
     monkeypatch.setenv("PATH", str(fake_bin) + os.pathsep + os.environ.get("PATH", ""))
     monkeypatch.setenv("HOME", str(tmp_path / "home"))
@@ -71,7 +71,7 @@ def verifier_workspace(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> dict[
     return {
         "root": tmp_path,
         "repo": repo,
-        "fake_just": fake_just,
+        "fake_make": fake_make,
         "calls": calls,
         "child_pid": child_pid,
         "runs": tmp_path / "state" / "runs",
@@ -126,7 +126,7 @@ def _partial_state(
         repo=repo,
         state_dir=run_dir,
         head_sha=verifier._git_head(repo),
-        just_path=str(workspace["fake_just"]),
+        make_path=str(workspace["fake_make"]),
         timeout_seconds=60.0,
     )
     stdout = run_dir / "01-check-attempt-1.stdout.log"
@@ -139,7 +139,7 @@ def _partial_state(
         {
             "index": 0,
             "recipe": "check",
-            "command": ["just", "check"],
+            "command": ["make", "check"],
             "attempt": 1,
             "head_sha": state["head_sha"],
             "started_at": "2026-09-24T00:00:00Z",
@@ -179,7 +179,7 @@ def test_runs_exact_canonical_order_with_durable_head_and_stream_logs(
         text=True,
     ).stdout.strip()
     for check in summary["checks"]:
-        assert check["command"] == ["just", check["recipe"]]
+        assert check["command"] == ["make", check["recipe"]]
         assert check["head_sha"] == summary["head_sha"]
         assert check["exit_code"] == 0
         assert check["status"] == "success"
@@ -387,7 +387,7 @@ def test_status_blocks_resume_while_orphaned_just_group_is_alive(
             repo=verifier_workspace["repo"],
             state_dir=run_dir,
             head_sha=verifier._git_head(verifier_workspace["repo"]),
-            just_path=str(verifier_workspace["fake_just"]),
+            make_path=str(verifier_workspace["fake_make"]),
             timeout_seconds=60.0,
         )
         state["attempts"][0] = 1
@@ -444,7 +444,7 @@ def test_new_start_refuses_previous_orphaned_command_group(
             repo=verifier_workspace["repo"],
             state_dir=previous_dir,
             head_sha=verifier._git_head(verifier_workspace["repo"]),
-            just_path=str(verifier_workspace["fake_just"]),
+            make_path=str(verifier_workspace["fake_make"]),
             timeout_seconds=60.0,
         )
         state["attempts"][0] = 1

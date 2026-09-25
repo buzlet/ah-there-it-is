@@ -39,19 +39,19 @@ CI, and merge facts in an atomic private file outside the repository. Legacy
 Durably supervises the optional full-local integration sequence:
 
 ```text
-just check
-just migration-check
-just corpus-check
-just scenario-check
-just scenario-eval
-just retrieval-eval
+make check
+make migration-check
+make corpus-check
+make scenario-check
+make scenario-eval
+make retrieval-eval
 ```
 
 Use it only when the active batch manifest sets `full_local_required: true`.
 
 Do not run it after every task.
 
-`just provider-contract` is a focused recipe, not part of universal full-local verification, because those tests already run inside full pytest.
+`make provider-contract` is a focused recipe, not part of universal full-local verification, because those tests already run inside full pytest.
 
 ## Bounded CI waiter
 

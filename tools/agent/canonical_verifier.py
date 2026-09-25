@@ -187,11 +187,11 @@ def _git_head(repo: Path) -> str:
     return head
 
 
-def _find_just() -> str:
-    just = shutil.which("just")
-    if not just:
-        raise VerifierError("cannot find the just executable on PATH")
-    return str(Path(just).resolve())
+def _find_make() -> str:
+    make = shutil.which("make")
+    if not make:
+        raise VerifierError("cannot find the make executable on PATH")
+    return str(Path(make).resolve())
 
 
 def _lock_path(repo: Path) -> Path:
@@ -265,7 +265,7 @@ def _validate_state(state_dir: Path, state: dict[str, Any]) -> None:
         "head_sha",
         "recipes",
         "recipe_definitions_sha256",
-        "just_path",
+        "make_path",
         "timeout_seconds",
         "status",
         "started_at",
@@ -279,7 +279,7 @@ def _validate_state(state_dir: Path, state: dict[str, Any]) -> None:
     if not required.issubset(state):
         raise VerifierError("run.json is missing required fields")
     schema_version = state.get("schema_version")
-    if not isinstance(schema_version, int) or isinstance(schema_version, bool) or schema_version != 1:
+    if not isinstance(schema_version, int) or isinstance(schema_version, bool) or schema_version != 2:
         raise VerifierError("run.json schema version is invalid")
     if state.get("run_id") != state_dir.name:
         raise VerifierError("run.json identity does not match its state directory")
@@ -305,11 +305,11 @@ def _validate_state(state_dir: Path, state: dict[str, Any]) -> None:
     if not _valid_sha(state.get("recipe_definitions_sha256")):
         raise VerifierError("run.json command definition digest is invalid")
     if (
-        not isinstance(state.get("just_path"), str)
-        or not state["just_path"]
-        or "\x00" in state["just_path"]
+        not isinstance(state.get("make_path"), str)
+        or not state["make_path"]
+        or "\x00" in state["make_path"]
     ):
-        raise VerifierError("run.json Just executable is invalid")
+        raise VerifierError("run.json Make executable is invalid")
     try:
         _valid_timeout(state.get("timeout_seconds"))
     except VerifierError as exc:
@@ -390,20 +390,20 @@ def _initial_state(
     repo: Path,
     state_dir: Path,
     head_sha: str,
-    just_path: str,
+    make_path: str,
     timeout_seconds: float,
 ) -> dict[str, Any]:
     now = _utc_now()
     recipes = list(CANONICAL_RECIPES)
     return {
-        "schema_version": 1,
+        "schema_version": 2,
         "run_id": state_dir.name,
         "repo_path": str(repo),
         "state_dir": str(state_dir),
         "head_sha": head_sha,
         "recipes": recipes,
         "recipe_definitions_sha256": _recipes_digest(recipes),
-        "just_path": just_path,
+        "make_path": make_path,
         "timeout_seconds": timeout_seconds,
         "status": "starting",
         "started_at": now,
@@ -451,7 +451,7 @@ def _summary_if_present(
     if (
         not isinstance(schema_version, int)
         or isinstance(schema_version, bool)
-        or schema_version != 1
+        or schema_version != 2
         or summary.get("run_id") != run_id
     ):
         raise VerifierError("summary.json identity or schema is invalid")
@@ -480,7 +480,7 @@ def _summary_if_present(
 def _resume_reasons(state: dict[str, Any], repo: Path) -> list[str]:
     reasons: list[str] = []
     if tuple(state["recipes"]) != CANONICAL_RECIPES:
-        reasons.append("stored Just recipes differ from the fixed canonical sequence")
+        reasons.append("stored Make recipes differ from the fixed canonical sequence")
     if state["recipe_definitions_sha256"] != _recipes_digest(CANONICAL_RECIPES):
         reasons.append("stored canonical command definition digest differs")
     try:
@@ -598,7 +598,7 @@ def start_run(
     timeout = _valid_timeout(
         DEFAULT_TIMEOUT_SECONDS if timeout_seconds is None else timeout_seconds
     )
-    just_path = _find_just()
+    make_path = _find_make()
     if run_dir.exists():
         if not run_dir.is_dir():
             raise VerifierError("run-state path already exists and is not a directory")
@@ -634,7 +634,7 @@ def start_run(
             repo=repo,
             state_dir=run_dir,
             head_sha=head,
-            just_path=just_path,
+            make_path=make_path,
             timeout_seconds=timeout,
         )
         _write_state(run_dir, state)
@@ -786,7 +786,7 @@ def status_run(*, state_dir: str) -> dict[str, Any]:
                 return {"status": summary["status"], "summary": summary, "state": state}
             return {
                 "status": "invalid",
-                "reason": f"cannot verify active Just process identity ({child_state})",
+                "reason": f"cannot verify active Make process identity ({child_state})",
                 "state_dir": str(run_dir),
             }
         if child_state == "live":
@@ -797,7 +797,7 @@ def status_run(*, state_dir: str) -> dict[str, Any]:
                 "current_recipe": state.get("active_command", {}).get("recipe"),
                 "active_command": state.get("active_command"),
                 "resume_allowed": False,
-                "reason": "the previous supervisor stopped while its Just process group is still alive",
+                "reason": "the previous supervisor stopped while its Make process group is still alive",
             }
         if summary is not None:
             return {"status": summary["status"], "summary": summary, "state": state}
@@ -932,7 +932,7 @@ def _create_command_wrapper_state(
         or active.get("recipe") != recipe
         or active.get("attempt") != attempt
     ):
-        raise VerifierError("active Just command no longer matches run state")
+        raise VerifierError("active Make command no longer matches run state")
     active.update({"pid": pid, "pgid": pgid, "process_start_ticks": start_ticks})
     state["active_command"] = active
     _write_state(state_dir, state)
@@ -944,14 +944,14 @@ def _command_entry(argv: list[str]) -> int:
     parser.add_argument("--index", type=int, required=True)
     parser.add_argument("--recipe", required=True)
     parser.add_argument("--attempt", type=int, required=True)
-    parser.add_argument("--just-path", required=True)
+    parser.add_argument("--make-path", required=True)
     parser.add_argument("--lock-fd", type=int, required=True)
     args = parser.parse_args(argv)
     try:
         run_dir = _state_dir_for_status(args.state_dir)
         process = _read_proc_stat(os.getpid())
         if process is None or process["pgrp"] != os.getpgrp():
-            raise VerifierError("cannot record Just process identity")
+            raise VerifierError("cannot record Make process identity")
         _create_command_wrapper_state(
             run_dir,
             index=args.index,
@@ -963,7 +963,7 @@ def _command_entry(argv: list[str]) -> int:
         )
         descriptor_flags = fcntl.fcntl(args.lock_fd, fcntl.F_GETFD)
         fcntl.fcntl(args.lock_fd, fcntl.F_SETFD, descriptor_flags | fcntl.FD_CLOEXEC)
-        os.execvpe(args.just_path, [args.just_path, args.recipe], os.environ.copy())
+        os.execvpe(args.make_path, [args.make_path, args.recipe], os.environ.copy())
     except Exception as exc:
         print(f"canonical verifier command launch failed: {type(exc).__name__}: {exc}", file=sys.stderr)
         return 127
@@ -1010,8 +1010,8 @@ def _execute_recipe(
         recipe,
         "--attempt",
         str(attempt),
-        "--just-path",
-        state["just_path"],
+        "--make-path",
+        state["make_path"],
         "--lock-fd",
         str(lock_fd),
     ]
@@ -1055,7 +1055,7 @@ def _execute_recipe(
             except subprocess.TimeoutExpired:
                 _signal_group(process.pid, signal.SIGKILL)
                 process.wait(timeout=2.0)
-            raise VerifierError("Just command process identity was not durably recorded")
+            raise VerifierError("Make command process identity was not durably recorded")
 
         assert process.stdout is not None and process.stderr is not None
         for stream, sink in ((process.stdout, stdout_log), (process.stderr, stderr_log)):
@@ -1135,7 +1135,7 @@ def _execute_recipe(
     return {
         "index": index,
         "recipe": recipe,
-        "command": ["just", recipe],
+        "command": ["make", recipe],
         "attempt": attempt,
         "head_sha": state["head_sha"],
         "started_at": started_at,
@@ -1158,7 +1158,7 @@ def _write_summary(
     observed_head: str | None = None,
 ) -> dict[str, Any]:
     summary: dict[str, Any] = {
-        "schema_version": 1,
+        "schema_version": 2,
         "run_id": state["run_id"],
         "status": status,
         "repo_path": state["repo_path"],

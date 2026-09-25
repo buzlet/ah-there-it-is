@@ -4,9 +4,9 @@
 
 Repository: `buzlet/ah-there-it-is`.
 
-Product stages through Stage 26 and assignments through 0060 are complete.
+Product stages through Stage 26 and assignments through 0070 are complete.
 
-Batch 0051–0060 merged as PR #71 at `c07f5a95f844f10f58f13b44e8e43978d966803a`; its exact PR head was `6518c0761cfe1a2d738a6aa95cec9ad843f67d88`.
+Batch 0061–0070 merged as PR #77 at `33710743ba1d3c7a380cf4a2a37457fb94e89eaa`; its exact PR head was `35ee225e9a9159457a395d0f03bed37c5c6777af`. Authoritative CI was green.
 
 Active implementation protocol:
 
@@ -22,13 +22,20 @@ Each issued patch/batch receives its own exact checkout path under:
 
 `/home/rdu01/projects/<patch-name>`
 
-The agent must stay inside that checkout for Git, edits, Python, Just and tests. Do not switch to `gpt`, do not use sudo, and do not reuse another patch checkout.
+The agent must stay inside that checkout for Git, edits, Python, Make and tests. Do not switch to `gpt`, do not use sudo, and do not reuse another patch checkout.
 
 The direct-shell environment is already connected to U24.
 
 Remote Commander on U24 remains available when explicitly selected.
 
-Python 3.12 is the only required CI/test compatibility target. Do not add Python 3.13+ verification lanes without an explicit future decision.
+A third execution channel is the ChatGPT sandbox. It uses the exact
+`sandbox-bundle-<start-main-sha>` CI artifact, works only under an issued
+`/mnt/data/<patch-name>` directory, runs `make sandbox-bootstrap`, and does not
+use shell network access. See `agent-tasks/common/sandbox-execution.md`.
+
+Python 3.12 remains the authoritative CI/test compatibility target. Sandbox
+execution currently uses its preinstalled Python 3.13 environment as an additional
+implementation environment, not as a new required CI matrix lane.
 
 ## Verification model
 
@@ -94,9 +101,9 @@ Important decisions:
 - backup scheduling/retention/off-machine copying is external infrastructure;
 - traces are retained for future replay/evaluation/model improvement; purge/retention management is external;
 - voice-to-text is external and the application receives text;
-- future photo support may associate one-or-many external media references with an Item;
+- Item photo support is required before MVP completion and associates one-or-many external media references with an Item while media bytes remain external;
 - QR/barcodes are not implemented;
-- Telegram bot is the only currently desired external chat transport; its single-account security/binding lives in Telegram adapter infrastructure;
+- a single-user Telegram text bot is required before MVP completion; its single-account security/binding lives in Telegram adapter infrastructure;
 - provider/model comparison is a separate evaluation subsystem;
 - Russian is the only supported natural language; Latin product/model identifiers remain ordinary data;
 - no generic WhatsApp/transport abstraction is planned now.
@@ -115,8 +122,14 @@ Accepted and closed in:
 - unsupported structural reversal may be reported rather than forcing deletion;
 - no generic hard-delete/purge feature is implemented.
 
-## Remaining product decisions
+## Remaining work before MVP acceptance
 
-None required for core MVP.
+No unresolved product-semantic gate blocks the next work.
 
-Further semantic changes require a new explicit decision. The next work is implementation planning/batching.
+Two implementation lanes are planned from the same post-0070 main:
+
+- 0071–0080 media + Telegram;
+- 0081–0083 provider/model evaluation campaign tooling.
+
+They are designed to be merge-order independent. After both land, run one final
+correctness audit and fix only concrete findings before MVP acceptance.

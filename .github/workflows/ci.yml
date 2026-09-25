@@ -6,10 +6,10 @@ permissions:
 'on':
   pull_request:
     paths-ignore:
-      - 'AGENTS.md'
-      - 'HANDOFF.md'
-      - 'README.md'
-      - 'agent-tasks/**'
+      - 'agent-tasks/archive/**'
+  push:
+    branches:
+      - main
 
 jobs:
   verify:
@@ -20,30 +20,116 @@ jobs:
         with:
           python-version: '3.12'
           cache: pip
-      - uses: extractions/setup-just@v4
       - run: python -m pip install -e '.[test]'
       - name: Install CI-only coverage tooling
         run: python -m pip install 'coverage>=7,<8'
-      - run: just compile
+      - run: make PYTHON=python compile
       - name: Tests with coverage
         run: |
           python -m coverage run --branch --source=ah_there_it_is -m pytest
           python -m coverage report --show-missing --precision=2 --fail-under=83.00
-      - run: just migration-check
-      - run: just corpus-check
-      - run: just scenario-check
-      - run: just scenario-eval > scenario-eval.json
+      - run: make PYTHON=python migration-check
+      - run: make PYTHON=python corpus-check
+      - run: make PYTHON=python scenario-check
+      - run: make PYTHON=python scenario-eval > scenario-eval.json
       - name: Retrieval evaluation
         run: |
-          just retrieval-eval | tee retrieval-eval.log
+          make PYTHON=python retrieval-eval | tee retrieval-eval.log
           report_path="$(sed -n 's/^report: //p' retrieval-eval.log | tail -n 1)"
           test -n "$report_path"
           cp "$report_path" retrieval-eval.json
       - uses: actions/upload-artifact@v4
         if: always()
         with:
-          name: application-evaluation-reports
+          name: application-evaluation-reports-${{ github.sha }}
           path: |
             scenario-eval.json
             retrieval-eval.json
           if-no-files-found: warn
+          retention-days: 5
+
+  sandbox-bundle:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 1
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.13'
+
+      - name: Assemble compact sandbox source
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p sandbox-bundle/.sandbox/wheelhouse
+
+          cp -a src tests eval prompts sandbox-bundle/
+          mkdir -p sandbox-bundle/tools
+          cp -a tools/agent tools/sandbox sandbox-bundle/tools/
+          mkdir -p sandbox-bundle/agent-tasks
+          for directory in common designs planning batches assignments reviews; do
+            if [ -d "agent-tasks/$directory" ]; then
+              cp -a "agent-tasks/$directory" sandbox-bundle/agent-tasks/
+            fi
+          done
+
+          for file in Makefile pyproject.toml alembic.ini README.md AGENTS.md HANDOFF.md PROJECT-MODULE-MAP.md .env.example .gitignore; do
+            if [ -e "$file" ]; then
+              cp -a "$file" sandbox-bundle/
+            fi
+          done
+
+      - name: Add only the missing sandbox wheel package
+        shell: bash
+        run: |
+          set -euo pipefail
+          python -m pip download --only-binary=:all: --no-deps --dest sandbox-bundle/.sandbox/wheelhouse 'wheel==0.48.0'
+          test "$(find sandbox-bundle/.sandbox/wheelhouse -maxdepth 1 -type f -name '*.whl' | wc -l)" -eq 1
+
+      - name: Bind artifact to exact upstream source and create local Git baseline
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          cat > sandbox-bundle/.sandbox/MANIFEST.txt <<EOF
+          repository=buzlet/ah-there-it-is
+          source_commit=$GITHUB_SHA
+          run_id=$GITHUB_RUN_ID
+          run_number=$GITHUB_RUN_NUMBER
+          ref=$GITHUB_REF
+          ref_name=$GITHUB_REF_NAME
+          event=$GITHUB_EVENT_NAME
+          runner_arch=$(uname -m)
+          sandbox_python=3.13
+          wheel=0.48.0
+          EOF
+
+          (
+            cd sandbox-bundle
+            git init -q
+            git config user.name sandbox-bundle
+            git config user.email sandbox-bundle@invalid
+            printf '.sandbox/\n.venv/\n' >> .git/info/exclude
+            git add -A
+            git commit -q -m "sandbox baseline for $GITHUB_SHA"
+            git tag sandbox-base
+            test -z "$(git status --porcelain)"
+            make help >/dev/null
+          )
+
+      - name: Report bundle size
+        shell: bash
+        run: |
+          set -euo pipefail
+          du -sh sandbox-bundle
+          du -sh sandbox-bundle/.git sandbox-bundle/.sandbox/wheelhouse sandbox-bundle/src sandbox-bundle/tests
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: sandbox-bundle-${{ github.sha }}
+          path: sandbox-bundle/
+          if-no-files-found: error
+          retention-days: 5
+          compression-level: 9

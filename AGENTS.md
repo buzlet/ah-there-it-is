@@ -86,15 +86,21 @@ The agent must not expand verification scope on its own.
 
 ## Execution
 
+Supported implementation execution channels are direct U24 shell, explicitly selected Remote Commander, and the ChatGPT sandbox.
+
 Direct U24 execution is already connected to the machine and runs as OS user `rdu01`.
 
 The launcher supplies a unique patch checkout under:
 
 `/home/rdu01/projects/<patch-name>`
 
-All Git, edits, Python, Just and tests must run only inside that exact checkout. Do not switch users, use sudo, or operate in another repository checkout.
+All Git, edits, Python, Make and tests must run only inside that exact checkout. Do not switch users, use sudo, or operate in another repository checkout.
 
 Remote Commander on U24 remains supported when explicitly selected.
+
+Sandbox execution uses the exact CI artifact `sandbox-bundle-<start-main-sha>`,
+an issued workdir under `/mnt/data/`, `make sandbox-bootstrap`, and no shell
+network access. See `agent-tasks/common/sandbox-execution.md`.
 
 Windows Git Bash through Remote Commander is prepared but pending native validation.
 
@@ -132,16 +138,16 @@ Key rules:
 - trace retention/purge management is external; traces are retained for replay/evaluation/model improvement;
 - voice recognition is external and the application receives text;
 - QR/barcodes are out of scope;
-- Telegram bot is an optional future single-user text transport whose account security lives in its adapter/infrastructure;
-- future Item photos may be represented by one-or-many external media references;
+- a single-user Telegram bot text adapter is required before core MVP completion; its account security lives in its adapter/infrastructure;
+- Item photo support is required before core MVP completion and uses one-or-many external media references without storing image bytes in inventory SQLite;
 - provider/model evaluation is a separate subsystem, not inventory-domain behavior;
 - WhatsApp and other hypothetical transports are not designed now.
 
 ## Current status
 
-Product work through Stage 26 and assignments through 0060 are complete.
+Product work through Stage 26 and assignments through 0070 are complete.
 
-Batch 0051–0060 closed bounded portable import/database validation and aligned lifecycle tooling with the integrated-batch v8 manifest/checkpoint model.
+Batch 0061–0070 implemented exact/approximate/unknown quantity truth, homogeneous-lot partial splitting, generic removed/restore, portable-v3, immediate one-level Undo, Russian scenarios and runtime integration.
 
 ### Correction / Undo
 
@@ -161,12 +167,17 @@ Key rules:
 
 ## Next product step
 
-All required product-semantic gates for core MVP are closed.
+All required product-semantic gates for the implemented inventory core are closed.
 
-Next: prepare and issue implementation batches from the accepted design documents, beginning with:
+Before core MVP acceptance, the planned independent implementation lanes are:
 
-`agent-tasks/designs/quantity-physical-instance-decision.md`
+- 0071–0080: Item photo references + single-user Telegram text adapter;
+- 0081–0083: provider/model benchmark and promotion-report tooling.
 
-and incorporating the narrow immediate-Undo contract where implementation ordering makes sense.
+Their accepted/planned scope is documented under `agent-tasks/planning/`.
 
-Do not reopen merge, Product/SKU, continuous-measurement, multi-user, multilingual, QR/barcode, built-in voice, backup-policy, trace-purge or generic hard-delete scope unless a new explicit product decision does so.
+After both lanes merge: final correctness audit, concrete fixes only, then MVP acceptance.
+
+Do not reopen merge, Product/SKU, continuous-measurement, multi-user, multilingual,
+QR/barcode, built-in voice, backup-policy, trace-purge or generic hard-delete
+scope unless a new explicit product decision does so.
