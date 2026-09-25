@@ -8,6 +8,12 @@ permissions:
   push:
     branches:
       - sandbox/offline-test-bundle
+  pull_request:
+    branches:
+      - main
+    paths:
+      - '.github/workflows/sandbox-bundle.yml'
+      - 'tools/sandbox/**'
   workflow_dispatch:
 
 concurrency:
