@@ -52,8 +52,12 @@ These overlap the active implementation or need its final interfaces.
 ## Core sequence
 
 1. finish and merge 0061-0070;
-2. reconcile this branch;
-3. issue/implement 0071-0080 media + Telegram batch;
-4. final correctness audit/fixes;
-5. provider/model evaluation promotion tooling;
+2. reconcile this branch against the resulting main;
+3. issue **two independent branches from the same reconciled SHA**:
+   - fast lane 0071-0080 — media + Telegram;
+   - slow lane 0081-0083 — provider/model evaluation campaign tooling;
+4. merge either lane first; keep ownership disjoint;
+5. once both are in main, run final correctness audit/fixes;
 6. core MVP acceptance.
+
+The fast lane must not depend on any 0081-0083 artifact. The slow lane must not modify media/Telegram/runtime-domain files or project-wide status docs.
