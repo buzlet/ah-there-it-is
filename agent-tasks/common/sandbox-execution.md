@@ -27,12 +27,12 @@ After extraction, verify:
 
 - `.sandbox/MANIFEST.txt` says `repository=buzlet/ah-there-it-is`;
 - `source_commit` equals the launcher expected start-main SHA;
-- the artifact's GitHub run/ref metadata is present;
-- local Git status is clean;
-- local tag `sandbox-base` exists.
+- the artifact's GitHub run/ref metadata is present.
 
-The artifact contains a synthetic local Git baseline. Its local commit SHA is not
-the GitHub upstream SHA; `.sandbox/MANIFEST.txt` is the binding between them.
+Then run `make sandbox-bootstrap` before edits. Bootstrap creates the synthetic
+local Git repository, clean baseline commit and `sandbox-base` tag locally. The
+synthetic commit SHA is not the GitHub upstream SHA; `.sandbox/MANIFEST.txt` is
+the binding between them.
 
 If the exact artifact expired, rerun application CI for that exact GitHub commit
 or issue a new batch from a current main. Do not silently use a different SHA.
@@ -108,7 +108,7 @@ make retrieval-eval
 
 ## Git and publication
 
-Use the synthetic local Git repository for diff review and local task checkpoints.
+Use the synthetic local Git repository created by `make sandbox-bootstrap` for diff review and local task checkpoints.
 
 The upstream implementation branch is still a real GitHub branch based on the
 launcher-declared upstream start-main SHA. GitHub reads/writes use the GitHub

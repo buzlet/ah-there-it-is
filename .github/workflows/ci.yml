@@ -80,7 +80,7 @@ jobs:
             fi
           done
 
-      - name: Bind artifact to exact upstream source and create local Git baseline
+      - name: Bind artifact to exact upstream source
         shell: bash
         run: |
           set -euo pipefail
@@ -99,14 +99,6 @@ jobs:
 
           (
             cd sandbox-bundle
-            git init -q
-            git config user.name sandbox-bundle
-            git config user.email sandbox-bundle@invalid
-            printf '.sandbox/\n.venv/\n' >> .git/info/exclude
-            git add -A
-            git commit -q -m "sandbox baseline for $SOURCE_SHA"
-            git tag sandbox-base
-            test -z "$(git status --porcelain)"
             make help >/dev/null
           )
 
@@ -115,7 +107,7 @@ jobs:
         run: |
           set -euo pipefail
           du -sh sandbox-bundle
-          du -sh sandbox-bundle/.git sandbox-bundle/.sandbox sandbox-bundle/src sandbox-bundle/tests
+          du -sh sandbox-bundle/.sandbox sandbox-bundle/src sandbox-bundle/tests
 
       - uses: actions/upload-artifact@v4
         with:

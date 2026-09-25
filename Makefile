@@ -163,6 +163,19 @@ sandbox-preflight:
 	@"$(SANDBOX_PYTHON)" -c 'import importlib.util; required=("setuptools.build_meta","fastapi","pydantic","sqlalchemy","alembic","jinja2","httpx","uvicorn","pytest","packaging"); missing=[name for name in required if importlib.util.find_spec(name) is None]; assert not missing, f"missing sandbox packages: {missing}"'
 
 sandbox-bootstrap: sandbox-preflight
+	@if [ ! -d .git ]; then \
+	  source_sha="$$(sed -n 's/^source_commit=//p' .sandbox/MANIFEST.txt)"; \
+	  test -n "$${source_sha}"; \
+	  git init -q --initial-branch=sandbox-work; \
+	  git config user.name sandbox-bundle; \
+	  git config user.email sandbox-bundle@invalid; \
+	  printf '.sandbox/\n.venv/\n' >> .git/info/exclude; \
+	  git add -A; \
+	  git commit -q -m "sandbox baseline for $${source_sha}"; \
+	  git tag sandbox-base; \
+	fi
+	@test "$$(git tag --list sandbox-base)" = "sandbox-base"
+	@test -z "$$(git status --porcelain)"
 	rm -rf .venv
 	"$(SANDBOX_PYTHON)" -m venv .venv
 	@parent_site="$$("$(SANDBOX_PYTHON)" -c 'import site; print(site.getsitepackages()[0])')"; \
