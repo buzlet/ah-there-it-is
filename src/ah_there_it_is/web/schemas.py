@@ -90,7 +90,7 @@ class ItemCreateRequest(BaseModel):
     name: str = Field(min_length=1, max_length=300)
     description: str | None = Field(default=None, max_length=20_000)
     state: ItemState = ItemState.UNKNOWN
-    quantity_mode: Literal["exact", "approx", "unknown"] = "exact"
+    quantity_mode: Literal["exact", "approximate", "unknown"] = "exact"
     quantity: int | None = Field(default=1, ge=1)
     category_id: int | None = Field(default=None, gt=0)
     location_id: int | None = Field(default=None, gt=0)
@@ -152,7 +152,7 @@ class ItemMoveRequest(BaseModel):
 class ItemPortionRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
-    mode: Literal["exact", "approx", "unknown"]
+    mode: Literal["exact", "approximate", "unknown"]
     value: int | None = Field(default=None, ge=1)
 
     @model_validator(mode="after")
@@ -168,7 +168,7 @@ class ItemTakeRequest(BaseModel):
 
 class ItemQuantityChangeRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
-    quantity_mode: Literal["exact", "approx", "unknown"]
+    quantity_mode: Literal["exact", "approximate", "unknown"]
     quantity: int | None = Field(default=None, ge=1)
     reason: str = Field(min_length=1, max_length=500)
     reason_source: Literal["explicit", "context"]

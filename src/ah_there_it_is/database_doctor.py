@@ -211,7 +211,7 @@ def _inspect_identity(connection: sqlite3.Connection, report: DoctorReport) -> N
 def _inspect_scalars(connection: sqlite3.Connection, report: DoctorReport) -> None:
     allowed = tuple(state.value for state in ItemState)
     allowed_locations = tuple(status.value for status in LocationStatus)
-    terminal_states = (ItemState.DISCARDED.value, ItemState.SOLD.value)
+    terminal_states = (ItemState.REMOVED.value,)
     _sql_check(
         connection,
         report,
@@ -223,7 +223,9 @@ def _inspect_scalars(connection: sqlite3.Connection, report: DoctorReport) -> No
         connection,
         report,
         'item_quantities',
-        "SELECT id FROM items WHERE typeof(quantity) != 'integer' OR quantity < 1",
+        "SELECT id FROM items WHERE quantity_mode NOT IN ('exact', 'approximate', 'unknown') "
+        "OR (quantity_mode = 'unknown') != (quantity IS NULL) "
+        "OR (quantity IS NOT NULL AND (typeof(quantity) != 'integer' OR quantity < 1))",
     )
     _sql_check(
         connection,
@@ -233,6 +235,13 @@ def _inspect_scalars(connection: sqlite3.Connection, report: DoctorReport) -> No
         "OR (location_status = ?) != (current_location_id IS NOT NULL) "
         f"OR (state IN ({','.join('?' for _ in terminal_states)})) != (location_status = ?)",
         (*allowed_locations, LocationStatus.KNOWN.value, *terminal_states, LocationStatus.NOT_APPLICABLE.value),
+    )
+    _sql_check(
+        connection,
+        report,
+        'item_removal_truth',
+        "SELECT id FROM items WHERE (state = 'removed') != (removal_reason IS NOT NULL) "
+        "OR (removal_reason IS NOT NULL AND trim(removal_reason) = '')",
     )
 
 

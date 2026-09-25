@@ -69,7 +69,7 @@ class CreateItemInput(_ToolInput):
     state: ItemState = ItemState.UNKNOWN
     category_id: int | None = Field(default=None, gt=0)
     location_id: int | None = Field(default=None, gt=0)
-    quantity_mode: Literal["exact", "approx", "unknown"] = "exact"
+    quantity_mode: Literal["exact", "approximate", "unknown"] = "exact"
     quantity: int | None = Field(default=1, ge=1)
     attributes: dict[str, Any] = Field(default_factory=dict)
     aliases: list[str] = Field(default_factory=list)
@@ -97,7 +97,7 @@ class ItemMutationInput(_ToolInput):
 
 
 class PortionInput(_ToolInput):
-    mode: Literal["exact", "approx", "unknown"]
+    mode: Literal["exact", "approximate", "unknown"]
     value: int | None = Field(default=None, ge=1)
 
     @model_validator(mode="after")
@@ -119,7 +119,7 @@ class PortionedItemInput(_ToolInput):
 
 class ChangeItemQuantityInput(_ToolInput):
     item_id: int = Field(gt=0)
-    quantity_mode: Literal["exact", "approx", "unknown"]
+    quantity_mode: Literal["exact", "approximate", "unknown"]
     quantity: int | None = Field(default=None, ge=1)
     reason: str = Field(min_length=1, max_length=500)
     reason_source: Literal["explicit", "context"]

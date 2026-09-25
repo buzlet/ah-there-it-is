@@ -608,6 +608,16 @@ def _large_portable_document() -> dict:
 def _portable_semantics(value: dict) -> dict:
     normalized = json.loads(json.dumps(value))
     normalized.pop("exported_at", None)
+    normalized["source"].pop("alembic_revision", None)
+    if normalized["format"] == "inventory-portable-v2":
+        normalized["format"] = "inventory-portable-v3"
+        for item in normalized["inventory"]["items"]:
+            item["quantity_mode"] = "exact"
+            if item["state"] in {"sold", "discarded"}:
+                item["removal_reason"] = item["state"]
+                item["state"] = "removed"
+            else:
+                item["removal_reason"] = None
     for section in ("categories", "locations", "items"):
         normalized["inventory"][section].sort(key=lambda row: row["id"])
     normalized["history"]["events"].sort(key=lambda row: row["id"])
