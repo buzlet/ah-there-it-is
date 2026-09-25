@@ -36,6 +36,7 @@ from ah_there_it_is.domain.states import ItemState, LocationStatus
 PORTABLE_V1_VERSION = "inventory-portable-v1"
 PORTABLE_EXPORT_VERSION = "inventory-portable-v2"
 CURRENT_SCHEMA_REVISION = "a4b7c9d2e610"
+_VALIDATION_SAMPLE_LIMIT = 20
 
 
 class StorageError(RuntimeError):
@@ -591,17 +592,16 @@ def validate_database(
         try:
             integrity = tuple(
                 str(row[0])
-                for row in connection.execute("PRAGMA integrity_check").fetchall()
+                for row in connection.execute(
+                    f"PRAGMA integrity_check({_VALIDATION_SAMPLE_LIMIT})"
+                )
             )
-            foreign_keys = tuple(
-                tuple(row)
-                for row in connection.execute("PRAGMA foreign_key_check").fetchall()
-            )
+            foreign_key_count, foreign_keys = _foreign_key_summary(connection)
             versions = [
                 str(row[0])
                 for row in connection.execute(
                     "SELECT version_num FROM alembic_version"
-                ).fetchall()
+                )
             ]
         except sqlite3.Error as exc:
             raise DatabaseValidationError(
@@ -613,8 +613,10 @@ def validate_database(
     problems: list[str] = []
     if integrity != ("ok",):
         problems.append(f"integrity_check={integrity!r}")
-    if foreign_keys:
-        problems.append(f"foreign_key_check={foreign_keys!r}")
+    if foreign_key_count:
+        problems.append(
+            f"foreign_key_check count={foreign_key_count} samples={foreign_keys!r}"
+        )
     if versions != [revision]:
         problems.append(
             f"alembic revision {versions!r} does not match expected {revision!r}"
@@ -630,6 +632,25 @@ def validate_database(
         integrity_check=integrity,
         foreign_key_violations=foreign_keys,
     )
+
+
+def _foreign_key_summary(
+    connection: sqlite3.Connection,
+) -> tuple[int, tuple[tuple[Any, ...], ...]]:
+    count = int(
+        connection.execute(
+            "SELECT count(*) FROM pragma_foreign_key_check"
+        ).fetchone()[0]
+    )
+    samples = tuple(
+        tuple(row)
+        for row in connection.execute(
+            "SELECT * FROM pragma_foreign_key_check "
+            "ORDER BY \"table\", rowid, parent, fkid LIMIT ?",
+            (_VALIDATION_SAMPLE_LIMIT,),
+        )
+    )
+    return count, samples
 
 
 def create_backup(
