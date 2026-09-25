@@ -59,18 +59,27 @@ The main direction is accepted and recorded in:
 
 `agent-tasks/designs/quantity-physical-instance-decision.md`
 
-Accepted:
+Accepted and closed:
 
-- Item is a homogeneous physical lot;
-- Item may represent one object or interchangeable units;
-- quantity precision is exact / approximate / unknown;
-- partial operations use split;
-- source/remainder keeps its stable ID and the separated lot gets a new stable ID;
+- Item is a homogeneous physical lot and may represent one object or interchangeable units;
+- quantity precision is exact / approximate / unknown; zero is never stored;
+- a single semantic quantity-change operation may change both value and precision and keeps original text plus explicit/context reason;
+- approximate arithmetic is performed; inconsistent/nonpositive approximate remainders become unknown unless the user explicitly indicates all;
+- quantity ambiguity normally does not block an otherwise safe operation;
+- partial move/take/removal uses an internal atomic split; source/remainder keeps its stable ID and the child receives a new stable ID;
+- split provenance uses structured Events only; no lineage table;
+- equivalent duplicate lots are allowed while accidental creation remains guarded;
 - merge is not implemented;
+- the future generic terminal state is removed with textual reason stored on Item and Event, and removal requires user intent;
+- removed Items keep their last meaningful quantity and may be restored under the same stable ID;
 - split copies Item description/comment and the user may edit either copy;
-- free-text comments may hold measurements such as cable meters without making them structured quantity truth.
+- free-text comments may hold measurements such as cable meters without making them structured quantity truth;
+- high-level tools express partial user intent directly and hide low-level split orchestration from the LLM;
+- user-facing receipts/search presentation remain agent-driven rather than fixed;
+- portable export advances to v3; frozen v1/v2 imports map legacy integer quantity to exact;
+- existing sold/discarded Items migrate to removed while historical Events are preserved.
 
-Before implementation, resolve the explicit open questions in that decision document, especially approximate split arithmetic, semantic quantity operations, lineage persistence, duplicate-lot policy, portable-format evolution, existing-data migration and agent/API operation shape.
+The next step is implementation planning/batching, not further quantity product-semantic design.
 
 ## Other future decisions
 
