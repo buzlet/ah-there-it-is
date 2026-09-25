@@ -725,3 +725,35 @@ def test_experiment_pages_show_side_by_side_and_accept_review() -> None:
         assert review.json()["variant_rating"] == 5
     finally:
         engine.dispose()
+
+
+def test_web_integer_payload_fields_reject_json_booleans() -> None:
+    app, _, engine = build_test_app()
+    try:
+        with TestClient(app) as client:
+            item = client.post(
+                "/api/items",
+                json={"name": "Boolean quantity", "quantity": True},
+            )
+            valid_item = client.post(
+                "/api/items",
+                json={"name": "Media boundary"},
+            )
+            media = client.post(
+                f"/api/items/{valid_item.json()['id']}/media",
+                json={
+                    "provider": "local",
+                    "media_reference": "bool-position",
+                    "position": True,
+                },
+            )
+            chat = client.post(
+                "/api/chat",
+                json={"message": "Where is it?", "conversation_id": True},
+            )
+        assert item.status_code == 422
+        assert valid_item.status_code == 201
+        assert media.status_code == 422
+        assert chat.status_code == 422
+    finally:
+        engine.dispose()

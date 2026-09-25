@@ -12,7 +12,9 @@ from urllib.parse import quote
 from urllib.request import Request, urlopen
 
 from ah_there_it_is.agent.errors import ProviderProtocolError, ProviderRequestError
-from ah_there_it_is.agent.metadata import safe_trace_base_url
+from ah_there_it_is.agent.metadata import (
+    provider_sensitive_values, redact_sensitive_text, safe_trace_base_url,
+)
 from ah_there_it_is.agent.protocol import (
     AgentMessage,
     LLMClientInfo,
@@ -71,6 +73,16 @@ class GeminiLLMClient:
             provider=self.config.provider_name,
             model=self.config.model,
             config=logged_config,
+        )
+
+    def _safe_error_detail(self, value: object) -> str:
+        return redact_sensitive_text(
+            value,
+            provider_sensitive_values(
+                api_key=self.config.api_key,
+                base_url=self.config.base_url,
+                extra_body=self.config.extra_body,
+            ),
         )
 
     def complete(
@@ -155,10 +167,12 @@ class GeminiLLMClient:
                 with urlopen(request, timeout=self.config.timeout_seconds) as response:
                     return response.read().decode("utf-8")
             except HTTPError as exc:
-                detail = exc.read().decode("utf-8", errors="replace")[:4000]
+                detail = self._safe_error_detail(
+                    exc.read().decode("utf-8", errors="replace")[:4000]
+                )
                 if exc.code not in transient_statuses or attempt >= self.config.max_retries:
                     raise ProviderRequestError(
-                        f"provider HTTP {exc.code}: {detail or exc.reason}"
+                        f"provider HTTP {exc.code}: {detail or self._safe_error_detail(exc.reason)}"
                     ) from exc
                 self._retry_sleep(
                     attempt,
@@ -171,7 +185,7 @@ class GeminiLLMClient:
             except URLError as exc:
                 if attempt >= self.config.max_retries:
                     raise ProviderRequestError(
-                        f"provider request failed: {exc.reason}"
+                        f"provider request failed: {self._safe_error_detail(exc.reason)}"
                     ) from exc
                 self._retry_sleep(attempt)
 

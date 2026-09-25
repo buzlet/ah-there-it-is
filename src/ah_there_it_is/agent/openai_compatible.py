@@ -11,7 +11,9 @@ from typing import Any
 import httpx
 
 from ah_there_it_is.agent.errors import ProviderProtocolError, ProviderRequestError
-from ah_there_it_is.agent.metadata import safe_trace_base_url
+from ah_there_it_is.agent.metadata import (
+    provider_sensitive_values, redact_sensitive_text, safe_trace_base_url,
+)
 from ah_there_it_is.agent.protocol import (
     AgentMessage,
     LLMClientInfo,
@@ -86,6 +88,16 @@ class OpenAICompatibleLLMClient:
             provider=self.config.provider_name,
             model=self.config.model,
             config=logged_config,
+        )
+
+    def _safe_error_detail(self, value: object) -> str:
+        return redact_sensitive_text(
+            value,
+            provider_sensitive_values(
+                api_key=self.config.api_key,
+                base_url=self.config.base_url,
+                extra_body=self.config.extra_body,
+            ),
         )
 
     def close(self) -> None:
@@ -196,7 +208,7 @@ class OpenAICompatibleLLMClient:
             except httpx.RequestError as exc:
                 if attempt >= self.config.max_retries:
                     raise ProviderRequestError(
-                        f"provider request failed: {exc}"
+                        f"provider request failed: {self._safe_error_detail(exc)}"
                     ) from exc
                 delay = self._retry_sleep(attempt)
                 retry_events.append(
@@ -208,14 +220,14 @@ class OpenAICompatibleLLMClient:
                 continue
 
             if response.status_code >= 400:
-                detail = response.text[:4000]
+                detail = self._safe_error_detail(response.text[:4000])
                 if (
                     response.status_code not in transient_statuses
                     or attempt >= self.config.max_retries
                 ):
                     raise ProviderRequestError(
                         f"provider HTTP {response.status_code}: "
-                        f"{detail or response.reason_phrase}"
+                        f"{detail or self._safe_error_detail(response.reason_phrase)}"
                     )
                 delay = self._retry_sleep(
                     attempt, response.headers.get("Retry-After")
