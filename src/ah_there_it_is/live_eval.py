@@ -10,12 +10,14 @@ import argparse
 import hashlib
 import json
 import time
+from collections.abc import Callable
 from pathlib import Path
 from typing import Any
 
 from sqlalchemy import select
 
 from ah_there_it_is.agent.factory import build_llm_factory
+from ah_there_it_is.agent.protocol import LLMClient
 from ah_there_it_is.agent.runner import AgentRunner, SYSTEM_PROMPT
 from ah_there_it_is.config import get_settings
 from ah_there_it_is.db.models import AgentRunLog, Base
@@ -62,6 +64,7 @@ def run_case(
     prompt: str,
     prompt_version: str,
     allow_heuristic: bool = False,
+    llm_factory: Callable[[], LLMClient] | None = None,
 ) -> dict[str, Any]:
     case_started = time.perf_counter()
     settings = get_settings()
@@ -81,7 +84,8 @@ def run_case(
         with factory() as session:
             seed_inventory_fixture(session)
             events_before = event_count(session)
-            llm = build_llm_factory(settings)()
+            provider_factory = llm_factory or build_llm_factory(settings)
+            llm = provider_factory()
             runner = AgentRunner(
                 session,
                 llm,

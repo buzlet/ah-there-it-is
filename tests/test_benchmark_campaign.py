@@ -247,3 +247,27 @@ def test_campaign_result_does_not_persist_provider_or_evidence_secrets(tmp_path:
     assert "attempt-secret" not in text
     assert "tokenvalue" not in text
     assert "temperature" in text
+
+
+def test_campaign_request_throttle_delays_between_underlying_provider_calls() -> None:
+    from ah_there_it_is.agent.protocol import LLMClientInfo, LLMResponse
+    from ah_there_it_is.benchmark_campaign import _RequestThrottle, _ThrottledLLMClient
+
+    class FakeClient:
+        @property
+        def info(self):
+            return LLMClientInfo(provider="fake", model="fake-1", config={})
+
+        def complete(self, messages, tools):
+            return LLMResponse(content="ok")
+
+    sleeps: list[float] = []
+    throttle = _RequestThrottle(0.75, sleep=sleeps.append)
+    first = _ThrottledLLMClient(FakeClient(), throttle)
+    second = _ThrottledLLMClient(FakeClient(), throttle)
+
+    first.complete([], [])
+    first.complete([], [])
+    second.complete([], [])
+
+    assert sleeps == [0.75, 0.75]

@@ -8,13 +8,20 @@ import json
 import os
 import re
 import time
-from collections.abc import Callable, Mapping
+from collections.abc import Callable, Mapping, Sequence
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
+from ah_there_it_is.agent.protocol import (
+    AgentMessage,
+    LLMClient,
+    LLMClientInfo,
+    LLMResponse,
+    ToolDefinition,
+)
 from ah_there_it_is.eval_corpus import EvaluationCase, load_corpus
 from ah_there_it_is.model_probe import ModelProbeCase, load_probe_suite
 
@@ -110,6 +117,41 @@ LiveExecutor = Callable[[EvaluationCase, str, str], dict[str, Any]]
 ProbeExecutor = Callable[[ModelProbeCase], dict[str, Any]]
 NowFn = Callable[[], str]
 SleepFn = Callable[[float], None]
+
+
+class _RequestThrottle:
+    def __init__(self, delay_seconds: float, *, sleep: SleepFn = time.sleep) -> None:
+        self.delay_seconds = delay_seconds
+        self.sleep = sleep
+        self.request_count = 0
+
+    def before_request(self) -> None:
+        if self.request_count and self.delay_seconds:
+            self.sleep(self.delay_seconds)
+        self.request_count += 1
+
+
+class _ThrottledLLMClient:
+    def __init__(self, client: LLMClient, throttle: _RequestThrottle) -> None:
+        self._client = client
+        self._throttle = throttle
+
+    @property
+    def info(self) -> LLMClientInfo:
+        return self._client.info
+
+    def complete(
+        self,
+        messages: Sequence[AgentMessage],
+        tools: Sequence[ToolDefinition],
+    ) -> LLMResponse:
+        self._throttle.before_request()
+        return self._client.complete(messages, tools)
+
+    def close(self) -> None:
+        close = getattr(self._client, "close", None)
+        if callable(close):
+            close()
 
 
 def _walk_scalars(value: Any, prefix: str = "") -> list[tuple[str, Any]]:
@@ -373,6 +415,7 @@ def run_campaign(
     result_path: str | Path | None = None,
     now: NowFn = _utc_now,
     sleep: SleepFn = time.sleep,
+    _delay_between_attempts: bool = True,
 ) -> dict[str, Any]:
     """Execute or resume one campaign using injected provider execution hooks."""
 
@@ -396,7 +439,7 @@ def run_campaign(
         slot = _slot_id(pipeline, case_id, repetition)
         if slot in completed_slots:
             continue
-        if pending_started and manifest.delay_seconds:
+        if pending_started and manifest.delay_seconds and _delay_between_attempts:
             sleep(manifest.delay_seconds)
         pending_started = True
         started_at = now()
@@ -457,9 +500,12 @@ def run_configured_campaign(
     from ah_there_it_is.model_probe import run_probe_case
 
     settings = get_settings()
-    client = build_llm_factory(settings)()
+    provider_factory = build_llm_factory(settings)
+    info_client = provider_factory()
+    throttle = _RequestThrottle(manifest.delay_seconds)
+    probe_client = _ThrottledLLMClient(info_client, throttle)
     try:
-        provider_info = client.info.model_dump(mode="json")
+        provider_info = info_client.info.model_dump(mode="json")
 
         def live_executor(
             case: EvaluationCase, prompt: str, prompt_version: str
@@ -469,10 +515,11 @@ def run_configured_campaign(
                 prompt=prompt,
                 prompt_version=prompt_version,
                 allow_heuristic=False,
+                llm_factory=lambda: _ThrottledLLMClient(provider_factory(), throttle),
             )
 
         def probe_executor(case: ModelProbeCase) -> dict[str, Any]:
-            return run_probe_case(client, case)
+            return run_probe_case(probe_client, case)
 
         return run_campaign(
             manifest,
@@ -481,11 +528,10 @@ def run_configured_campaign(
             probe_executor=probe_executor,
             base_dir=base_dir,
             result_path=result_path,
+            _delay_between_attempts=False,
         )
     finally:
-        close = getattr(client, "close", None)
-        if callable(close):
-            close()
+        probe_client.close()
 
 
 def main() -> None:

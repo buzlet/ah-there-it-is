@@ -11,7 +11,7 @@ Copy `eval/benchmark-campaign-v1.example.json` and pin all identity fields:
 - live-eval corpus version/file and ordered case IDs;
 - model-probe suite version/file and ordered case IDs;
 - live-case repetition count;
-- optional delay between attempts;
+- optional delay between provider requests;
 - output directory and file prefix.
 
 Campaign files must not contain API keys, authorization headers or other credentials.
