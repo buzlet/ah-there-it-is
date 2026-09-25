@@ -20,22 +20,32 @@ import zipfile
 from ah_there_it_is.storage import CURRENT_SCHEMA_REVISION
 
 
+def _wheel_build_command(repo: Path, wheelhouse: Path) -> list[str]:
+    command = [
+        sys.executable,
+        "-m",
+        "pip",
+        "wheel",
+        "--no-deps",
+    ]
+    if (repo / ".sandbox" / "MANIFEST.txt").is_file():
+        command.append("--no-build-isolation")
+    command.extend(
+        [
+            "--wheel-dir",
+            str(wheelhouse),
+            str(repo),
+        ]
+    )
+    return command
+
+
 def test_quantity_removed_migration_is_packaged_in_wheel(tmp_path: Path) -> None:
     repo = Path(__file__).resolve().parents[1]
     wheelhouse = tmp_path / "wheelhouse"
     wheelhouse.mkdir()
     subprocess.run(
-        [
-            sys.executable,
-            "-m",
-            "pip",
-            "wheel",
-            "--no-deps",
-            "--no-build-isolation",
-            "--wheel-dir",
-            str(wheelhouse),
-            str(repo),
-        ],
+        _wheel_build_command(repo, wheelhouse),
         check=True,
         capture_output=True,
         text=True,
@@ -71,17 +81,7 @@ def test_wheel_contains_and_runs_packaged_migrations_and_runtime(
     outside.mkdir()
     shutil.copy2(repo / "tests/fixtures/inventory-portable-v1.json", fixture)
 
-    build_command = [
-        sys.executable,
-        "-m",
-        "pip",
-        "wheel",
-        "--no-deps",
-        "--no-build-isolation",
-        "--wheel-dir",
-        str(wheelhouse),
-        str(repo),
-    ]
+    build_command = _wheel_build_command(repo, wheelhouse)
 
     subprocess.run(
         build_command,
