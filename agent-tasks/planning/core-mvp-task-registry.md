@@ -47,10 +47,15 @@ Direct work must not silently reopen product semantics.
 
 ## Review lifecycle
 
-For both sandbox and Direct batches:
+The currently running 0084–0090 batch was issued under v8 and finishes under v8.
 
-implementation → self-review → PR → exact-head CI green → READY FOR INDEPENDENT REVIEW
+For batches issued after v9 is adopted:
 
-Then a separate reviewer independently reconstructs requirements, performs adversarial review/tests, and places any corrections in a separate PR.
+implementation → PR self-review → exact-head CI green → READY FOR REVIEW
 
-Implementer and reviewer do not self-merge. Orchestrator verifies findings/corrections and performs final integration.
+Then an independent reviewer records the implementation head and reviews the same
+PR. If corrections are needed, the reviewer appends correction commits to that
+same implementation branch/PR and obtains new exact-head CI.
+
+Implementer and reviewer do not merge. The orchestrator verifies the final
+review range/current-main compatibility and performs integration.
