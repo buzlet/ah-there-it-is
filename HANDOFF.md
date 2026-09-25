@@ -101,13 +101,22 @@ Important decisions:
 - Russian is the only supported natural language; Latin product/model identifiers remain ordinary data;
 - no generic WhatsApp/transport abstraction is planned now.
 
+## Correction / Undo and purge
+
+Accepted and closed in:
+
+`agent-tasks/designs/undo-correction-decision.md`
+
+- ordinary corrections are compensating mutations/Events;
+- one-level Undo is desirable only for the immediately preceding committed user mutation action;
+- no redo or arbitrary older undo;
+- compensation must be atomic and fail closed if current state no longer matches the expected post-state;
+- partial-operation Undo does not merge lots; split children may remain separate after being moved/restored back;
+- unsupported structural reversal may be reported rather than forcing deletion;
+- no generic hard-delete/purge feature is implemented.
+
 ## Remaining product decisions
 
-Only two explicit product-semantic gates remain in:
+None required for core MVP.
 
-`agent-tasks/designs/future-decision-gates.md`
-
-- generic correction/Undo UX;
-- exceptional destructive hard-delete/purge semantics.
-
-Neither blocks the accepted quantity implementation.
+Further semantic changes require a new explicit decision. The next work is implementation planning/batching.
