@@ -1,12 +1,10 @@
 # Core MVP task registry after active batch 0061-0070
 
-Status: planning/reservation only. Batch 0061-0070 is merged; finalize exact control/start SHA when issuing.
+Status: planning/reservation only. Batch 0061-0070 is merged; 0071-0083 are ready for issuance from a reconciled main SHA.
 
-## Active now
+## Completed prerequisite
 
-0061-0070 — quantity / removed / portable-v3 / immediate Undo.
-
-Owned by the currently running implementation agent.
+0061-0070 — quantity / removed / portable-v3 / immediate Undo — merged in PR #77.
 
 ## Reserved next core batch: 0071-0080
 
