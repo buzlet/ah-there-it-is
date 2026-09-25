@@ -11,6 +11,10 @@ from ah_there_it_is.portable_stream import (
     SpoolMarker,
     read_portable_workspace,
 )
+from ah_there_it_is.storage import (
+    PortableInventoryValidationError,
+    validate_portable_workspace,
+)
 
 
 def _document(*, events: int = 2) -> dict:
@@ -27,6 +31,53 @@ def _document(*, events: int = 2) -> dict:
             "events": [
                 {"id": index, "payload": {"body": "x" * 2048}}
                 for index in range(1, events + 1)
+            ]
+        },
+        "excluded": ["agent_run_logs"],
+    }
+
+
+def _valid_document() -> dict:
+    stamp = "2026-09-25T00:00:00+00:00"
+    return {
+        "format": "inventory-portable-v2",
+        "exported_at": stamp,
+        "source": {"alembic_revision": "a4b7c9d2e610"},
+        "inventory": {
+            "categories": [
+                {
+                    "id": 2, "parent_id": 1, "name": "Child",
+                    "description": None, "created_at": stamp, "updated_at": stamp,
+                },
+                {
+                    "id": 1, "parent_id": None, "name": "Root",
+                    "description": None, "created_at": stamp, "updated_at": stamp,
+                },
+            ],
+            "locations": [
+                {
+                    "id": 1, "parent_id": None, "name": "Office",
+                    "description": None, "created_at": stamp, "updated_at": stamp,
+                }
+            ],
+            "items": [
+                {
+                    "id": 1, "name": "Meter", "description": None,
+                    "state": "working", "category_id": 2, "location_id": 1,
+                    "location_status": "known", "quantity": 1,
+                    "attributes": {"range": "auto"}, "aliases": ["DMM"],
+                    "tags": ["Tools"], "created_at": stamp, "updated_at": stamp,
+                }
+            ],
+        },
+        "history": {
+            "events": [
+                {
+                    "id": 1, "event_type": "item_created", "item_id": 1,
+                    "from_location_id": None, "to_location_id": 1,
+                    "payload": {"name": "Meter"}, "original_text": "add meter",
+                    "created_at": stamp,
+                }
             ]
         },
         "excluded": ["agent_run_logs"],
@@ -135,3 +186,59 @@ def test_malformed_late_json_cleans_spool_workspace(tmp_path: Path) -> None:
             pass
 
     assert not list(tmp_path.glob("ah-portable-input-*"))
+
+
+def test_streaming_semantic_validation_returns_compact_summary(tmp_path: Path) -> None:
+    source = tmp_path / "valid.json"
+    source.write_text(json.dumps(_valid_document()), encoding="utf-8")
+
+    with read_portable_workspace(source, chunk_size=29) as workspace:
+        summary = validate_portable_workspace(workspace)
+
+    assert summary.format == "inventory-portable-v2"
+    assert summary.source_alembic_revision == "a4b7c9d2e610"
+    assert summary.as_dict() == {
+        "format": "inventory-portable-v2",
+        "source_alembic_revision": "a4b7c9d2e610",
+        "categories": 2,
+        "locations": 1,
+        "items": 1,
+        "events": 1,
+    }
+    assert not hasattr(summary, "inventory")
+
+
+@pytest.mark.parametrize(
+    ("mutation", "message"),
+    [
+        (lambda raw: raw["inventory"]["items"].append(dict(raw["inventory"]["items"][0])), "duplicate item"),
+        (lambda raw: raw["inventory"]["items"][0].update(category_id=999), "missing category"),
+        (lambda raw: raw["history"]["events"][0].update(item_id=999), "missing item"),
+        (lambda raw: raw["inventory"]["categories"][1].update(parent_id=2), "hierarchy cycle"),
+        (lambda raw: raw["inventory"]["items"][0].update(aliases=["DMM", " dmm "]), "duplicate normalized"),
+    ],
+)
+def test_streaming_semantic_validation_rejects_invariants(
+    tmp_path: Path,
+    mutation,
+    message: str,
+) -> None:
+    raw = _valid_document()
+    mutation(raw)
+    source = tmp_path / "invalid-semantic.json"
+    source.write_text(json.dumps(raw), encoding="utf-8")
+
+    with read_portable_workspace(source) as workspace:
+        with pytest.raises(PortableInventoryValidationError, match=message):
+            validate_portable_workspace(workspace)
+
+
+def test_streaming_validation_rejects_extra_fields(tmp_path: Path) -> None:
+    raw = _valid_document()
+    raw["inventory"]["items"][0]["unexpected"] = True
+    source = tmp_path / "extra.json"
+    source.write_text(json.dumps(raw), encoding="utf-8")
+
+    with read_portable_workspace(source) as workspace:
+        with pytest.raises(PortableInventoryValidationError, match="Extra inputs"):
+            validate_portable_workspace(workspace)
