@@ -60,7 +60,7 @@ class GeminiLLMClient:
     @property
     def info(self) -> LLMClientInfo:
         logged_config: dict[str, Any] = {
-            "base_url": safe_trace_base_url(self.config.base_url),
+            "base_url": self._safe_error_detail(safe_trace_base_url(self.config.base_url)),
             "timeout_seconds": self.config.timeout_seconds,
             "max_retries": self.config.max_retries,
             "retry_backoff_seconds": self.config.retry_backoff_seconds,
@@ -173,20 +173,20 @@ class GeminiLLMClient:
                 if exc.code not in transient_statuses or attempt >= self.config.max_retries:
                     raise ProviderRequestError(
                         f"provider HTTP {exc.code}: {detail or self._safe_error_detail(exc.reason)}"
-                    ) from exc
+                    ) from None
                 self._retry_sleep(
                     attempt,
                     exc.headers.get("Retry-After") if exc.headers else None,
                 )
             except TimeoutError as exc:
                 if attempt >= self.config.max_retries:
-                    raise ProviderRequestError("provider request timed out") from exc
+                    raise ProviderRequestError("provider request timed out") from None
                 self._retry_sleep(attempt)
             except URLError as exc:
                 if attempt >= self.config.max_retries:
                     raise ProviderRequestError(
                         f"provider request failed: {self._safe_error_detail(exc.reason)}"
-                    ) from exc
+                    ) from None
                 self._retry_sleep(attempt)
 
         raise AssertionError("retry loop exhausted unexpectedly")

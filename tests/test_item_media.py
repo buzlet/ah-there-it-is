@@ -493,3 +493,13 @@ def test_media_update_detach_and_quantity_same_turn_undo_restores_all(
     assert restored_media[0].media_reference == "receipt-photo"
     assert restored_media[0].caption == "before"
     assert restored_media[0].position == 3
+
+
+def test_media_position_above_sqlite_integer_range_fails_before_flush(
+    session: Session,
+) -> None:
+    inventory = InventoryService(session)
+    item = inventory.create_item("Camera")
+    with pytest.raises(ValueError, match="position must be between"):
+        inventory.attach_item_photo(item.id, "local", "oversized", position=2**63)
+    assert inventory.list_item_photos(item.id) == []

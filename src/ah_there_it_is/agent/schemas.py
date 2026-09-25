@@ -7,11 +7,13 @@ from typing import Annotated, Any, Literal
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 from ah_there_it_is.domain.states import ItemState
+from ah_there_it_is.domain.quantity import MAX_SQLITE_INTEGER
 
 
-PositiveInt = Annotated[int, Field(strict=True, gt=0)]
-NonNegativeInt = Annotated[int, Field(strict=True, ge=0)]
-CountInt = Annotated[int, Field(strict=True, ge=1)]
+PositiveInt = Annotated[int, Field(strict=True, gt=0, le=MAX_SQLITE_INTEGER)]
+NonNegativeInt = Annotated[int, Field(strict=True, ge=0, le=MAX_SQLITE_INTEGER)]
+CountInt = Annotated[int, Field(strict=True, ge=1, le=MAX_SQLITE_INTEGER)]
+PageInt = Annotated[int, Field(strict=True, ge=1, le=MAX_SQLITE_INTEGER // 100)]
 Limit20Int = Annotated[int, Field(strict=True, ge=1, le=20)]
 PageSize100Int = Annotated[int, Field(strict=True, ge=1, le=100)]
 
@@ -47,7 +49,7 @@ class IdInput(_ToolInput):
 
 class ItemIdInput(_ToolInput):
     item_id: PositiveInt
-    page: CountInt = 1
+    page: PageInt = 1
     page_size: PageSize100Int = 50
 
 
@@ -75,7 +77,7 @@ class ItemPhotoIdInput(_ToolInput):
 
 class LocationIdInput(_ToolInput):
     location_id: PositiveInt
-    page: CountInt = 1
+    page: PageInt = 1
     page_size: PageSize100Int = 50
 
 

@@ -8,12 +8,13 @@ from typing import Annotated, Any, Literal
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
 from ah_there_it_is.domain.states import ItemState
+from ah_there_it_is.domain.quantity import MAX_SQLITE_INTEGER
 from ah_there_it_is.agent.receipts import MutationReceipt
 
 
-PositiveInt = Annotated[int, Field(strict=True, gt=0)]
-NonNegativeInt = Annotated[int, Field(strict=True, ge=0)]
-CountInt = Annotated[int, Field(strict=True, ge=1)]
+PositiveInt = Annotated[int, Field(strict=True, gt=0, le=MAX_SQLITE_INTEGER)]
+NonNegativeInt = Annotated[int, Field(strict=True, ge=0, le=MAX_SQLITE_INTEGER)]
+CountInt = Annotated[int, Field(strict=True, ge=1, le=MAX_SQLITE_INTEGER)]
 RatingInt = Annotated[int, Field(strict=True, ge=1, le=5)]
 
 
