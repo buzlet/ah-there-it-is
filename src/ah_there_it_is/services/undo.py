@@ -131,8 +131,14 @@ class UndoService:
         item.quantity = target["quantity"]
         item.removal_reason = target["removal_reason"]
         item.attributes = dict(target["attributes"])
-        self.inventory._replace_aliases(item, target["aliases"])
-        self.inventory._replace_tags(item, target["tags"])
+        if [alias.name for alias in item.aliases] != target["aliases"]:
+            item.aliases.clear()
+            self.session.flush()
+            self.inventory._replace_aliases(item, target["aliases"])
+        if [link.tag.name for link in item.tag_links] != target["tags"]:
+            item.tag_links.clear()
+            self.session.flush()
+            self.inventory._replace_tags(item, target["tags"])
         item.updated_at = utc_now()
         self.session.add(Event(
             event_type="item_undo_compensated",

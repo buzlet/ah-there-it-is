@@ -36,6 +36,12 @@ def test_shared_oracle_reads_item_state_fields(session) -> None:
             quantity=3,
         ),
         ExpectedCheck(
+            kind="item_quantity_truth",
+            item_query="Безымянные клипсы",
+            quantity_mode="unknown",
+            quantity=None,
+        ),
+        ExpectedCheck(
             kind="item_description_contains",
             item_query="ORICO",
             text="SSD",

@@ -159,6 +159,22 @@ def evaluate_expected_check(
             },
         }
 
+    if check.kind == "item_quantity_truth":
+        return {
+            "kind": check.kind,
+            "ok": (
+                item.quantity_mode == check.quantity_mode
+                and item.quantity == check.quantity
+            ),
+            "detail": {
+                "item_id": item.id,
+                "actual_mode": item.quantity_mode,
+                "actual_quantity": item.quantity,
+                "expected_mode": check.quantity_mode,
+                "expected_quantity": check.quantity,
+            },
+        }
+
     if check.kind == "item_description_contains":
         description = item.description or ""
         needle = check.text or ""

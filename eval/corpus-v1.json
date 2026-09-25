@@ -584,7 +584,7 @@
         {
           "kind": "item_event",
           "item_query": "HDMI 2 метра",
-          "event_type": "item_updated"
+          "event_type": "item_quantity_changed"
         }
       ]
     },
@@ -1002,7 +1002,7 @@
         {
           "kind": "item_state",
           "item_query": "CH341A",
-          "state": "discarded"
+          "state": "removed"
         },
         {
           "kind": "item_location_status",
@@ -1020,7 +1020,7 @@
         {
           "kind": "item_event",
           "item_query": "CH341A",
-          "event_type": "item_discarded"
+          "event_type": "item_removed"
         }
       ]
     },
@@ -1035,7 +1035,7 @@
         {
           "kind": "item_state",
           "item_query": "CH341A",
-          "state": "sold"
+          "state": "removed"
         },
         {
           "kind": "item_location_status",
@@ -1053,7 +1053,7 @@
         {
           "kind": "item_event",
           "item_query": "CH341A",
-          "event_type": "item_sold"
+          "event_type": "item_removed"
         }
       ]
     },
@@ -1061,7 +1061,7 @@
       "id": "loc-truth-discard-unknown",
       "group": "location_truth",
       "turns": [
-        "CH341A: discard_item, затем вернуть в состояние working."
+        "Сними CH341A с учёта, затем восстанови в состоянии working."
       ],
       "focus": "Sold or discarded items reactivate only through the explicit non-terminal operation.",
       "checks": [
@@ -1082,7 +1082,7 @@
         {
           "kind": "item_event",
           "item_query": "CH341A",
-          "event_type": "item_reactivated"
+          "event_type": "item_restored"
         },
         {
           "kind": "item_location_none",
@@ -1094,7 +1094,7 @@
       "id": "loc-truth-sold-unknown",
       "group": "location_truth",
       "turns": [
-        "CH341A: mark_item_sold, затем вернуть в состояние needs_test."
+        "Сними проданный CH341A с учёта, затем восстанови в состоянии needs_test."
       ],
       "focus": "Sold or discarded items reactivate only through the explicit non-terminal operation.",
       "checks": [
@@ -1115,7 +1115,7 @@
         {
           "kind": "item_event",
           "item_query": "CH341A",
-          "event_type": "item_reactivated"
+          "event_type": "item_restored"
         },
         {
           "kind": "item_location_none",
@@ -1127,7 +1127,7 @@
       "id": "loc-truth-discard-known",
       "group": "location_truth",
       "turns": [
-        "CH341A: discard_item, затем вернуть в состояние working."
+        "Сними CH341A с учёта, затем восстанови в состоянии working."
       ],
       "focus": "Sold or discarded items reactivate only through the explicit non-terminal operation.",
       "checks": [
@@ -1148,7 +1148,7 @@
         {
           "kind": "item_event",
           "item_query": "CH341A",
-          "event_type": "item_reactivated"
+          "event_type": "item_restored"
         },
         {
           "kind": "item_location",
@@ -1161,7 +1161,7 @@
       "id": "loc-truth-sold-known",
       "group": "location_truth",
       "turns": [
-        "CH341A: mark_item_sold, затем вернуть в состояние used."
+        "Сними проданный CH341A с учёта, затем восстанови в состоянии used."
       ],
       "focus": "Sold or discarded items reactivate only through the explicit non-terminal operation.",
       "checks": [
@@ -1182,7 +1182,7 @@
         {
           "kind": "item_event",
           "item_query": "CH341A",
-          "event_type": "item_reactivated"
+          "event_type": "item_restored"
         },
         {
           "kind": "item_location",
@@ -1203,7 +1203,7 @@
         {
           "kind": "item_state",
           "item_query": "CH341A",
-          "state": "discarded"
+          "state": "removed"
         },
         {
           "kind": "item_location_status",
@@ -1221,7 +1221,7 @@
         {
           "kind": "item_event",
           "item_query": "CH341A",
-          "event_type": "item_discarded"
+          "event_type": "item_removed"
         }
       ],
       "expected_error": "AgentTurnFailedError: tool take_item failed: ValueError"
@@ -1286,7 +1286,7 @@
         {
           "kind": "item_state",
           "item_query": "CH341A",
-          "state": "discarded"
+          "state": "removed"
         },
         {
           "kind": "item_location_status",
@@ -1302,7 +1302,7 @@
           "expected_delta": 1
         }
       ],
-      "expected_error": "AgentTurnFailedError: tool reactivate_item failed: invalid_arguments"
+      "expected_error": "AgentTurnFailedError: tool restore_item failed: invalid_arguments"
     },
     {
       "id": "loc-truth-noop-receipt",
@@ -1344,7 +1344,7 @@
         {
           "kind": "item_state",
           "item_query": "CH341A",
-          "state": "discarded"
+          "state": "removed"
         },
         {
           "kind": "item_location_status",
@@ -1362,7 +1362,7 @@
         {
           "kind": "item_event",
           "item_query": "CH341A",
-          "event_type": "item_discarded"
+          "event_type": "item_removed"
         }
       ],
       "expected_error": "AgentTurnFailedError: tool move_item failed: ValueError"
@@ -1379,7 +1379,7 @@
         {
           "kind": "item_state",
           "item_query": "CH341A",
-          "state": "discarded"
+          "state": "removed"
         },
         {
           "kind": "item_location_status",
@@ -1397,10 +1397,282 @@
         {
           "kind": "item_event",
           "item_query": "CH341A",
-          "event_type": "item_discarded"
+          "event_type": "item_removed"
         }
       ],
       "expected_error": "AgentTurnFailedError: tool mark_item_location_unknown failed: ValueError"
+    },
+    {
+      "id": "quantity-ru-exact-partial",
+      "group": "quantity_lifecycle_ru",
+      "turns": [
+        "Переложи 3 крепёжных болта в Средний ящик."
+      ],
+      "focus": "Exact partial move.",
+      "checks": [
+        {
+          "kind": "item_quantity_truth",
+          "item_query": "Крепёжные болты",
+          "quantity_mode": "exact",
+          "quantity": 7
+        },
+        {
+          "kind": "event_count_delta",
+          "expected_delta": 3
+        },
+        {
+          "kind": "item_event",
+          "item_query": "Крепёжные болты",
+          "event_type": "item_split"
+        }
+      ]
+    },
+    {
+      "id": "quantity-ru-approx-partial",
+      "group": "quantity_lifecycle_ru",
+      "turns": [
+        "Переложи примерно 3 шайбы в Средний ящик."
+      ],
+      "focus": "Approximate partial move.",
+      "checks": [
+        {
+          "kind": "item_quantity_truth",
+          "item_query": "Шайбы россыпью",
+          "quantity_mode": "approximate",
+          "quantity": 5
+        },
+        {
+          "kind": "event_count_delta",
+          "expected_delta": 3
+        }
+      ]
+    },
+    {
+      "id": "quantity-ru-unknown-exact-child",
+      "group": "quantity_lifecycle_ru",
+      "turns": [
+        "Переложи ровно 2 безымянные клипсы в Средний ящик."
+      ],
+      "focus": "Known child from unknown source.",
+      "checks": [
+        {
+          "kind": "item_quantity_truth",
+          "item_query": "Безымянные клипсы",
+          "quantity_mode": "unknown",
+          "quantity": null
+        },
+        {
+          "kind": "event_count_delta",
+          "expected_delta": 3
+        }
+      ]
+    },
+    {
+      "id": "quantity-ru-vague-partial",
+      "group": "quantity_lifecycle_ru",
+      "turns": [
+        "Переложи немного крепёжных болтов в Средний ящик."
+      ],
+      "focus": "Vague part proceeds with unknown precision.",
+      "checks": [
+        {
+          "kind": "item_quantity_truth",
+          "item_query": "Крепёжные болты",
+          "quantity_mode": "unknown",
+          "quantity": null
+        },
+        {
+          "kind": "event_count_delta",
+          "expected_delta": 3
+        }
+      ]
+    },
+    {
+      "id": "quantity-ru-approx-underflow",
+      "group": "quantity_lifecycle_ru",
+      "turns": [
+        "Переложи примерно 10 шайб в Средний ящик."
+      ],
+      "focus": "Inconsistent estimate degrades precision.",
+      "checks": [
+        {
+          "kind": "item_quantity_truth",
+          "item_query": "Шайбы россыпью",
+          "quantity_mode": "unknown",
+          "quantity": null
+        },
+        {
+          "kind": "event_count_delta",
+          "expected_delta": 3
+        }
+      ]
+    },
+    {
+      "id": "quantity-ru-partial-remove",
+      "group": "quantity_lifecycle_ru",
+      "turns": [
+        "Отдай 2 крепёжных болта."
+      ],
+      "focus": "Partial generic removal.",
+      "checks": [
+        {
+          "kind": "item_quantity_truth",
+          "item_query": "Крепёжные болты",
+          "quantity_mode": "exact",
+          "quantity": 8
+        },
+        {
+          "kind": "event_count_delta",
+          "expected_delta": 3
+        }
+      ]
+    },
+    {
+      "id": "quantity-ru-whole-remove",
+      "group": "quantity_lifecycle_ru",
+      "turns": [
+        "Сними CH341A с учёта: больше не храню."
+      ],
+      "focus": "Whole generic removal.",
+      "checks": [
+        {
+          "kind": "item_state",
+          "item_query": "CH341A",
+          "state": "removed"
+        },
+        {
+          "kind": "item_location_status",
+          "item_query": "CH341A",
+          "location_status": "not_applicable"
+        },
+        {
+          "kind": "event_count_delta",
+          "expected_delta": 1
+        }
+      ]
+    },
+    {
+      "id": "quantity-ru-restore",
+      "group": "quantity_lifecycle_ru",
+      "turns": [
+        "Сними CH341A с учёта: отдал.",
+        "Верни CH341A на учёт в Средний ящик, состояние working."
+      ],
+      "focus": "Explicit restore.",
+      "checks": [
+        {
+          "kind": "item_state",
+          "item_query": "CH341A",
+          "state": "working"
+        },
+        {
+          "kind": "item_location",
+          "item_query": "CH341A",
+          "location_query": "Средний ящик"
+        },
+        {
+          "kind": "event_count_delta",
+          "expected_delta": 2
+        },
+        {
+          "kind": "item_event",
+          "item_query": "CH341A",
+          "event_type": "item_restored"
+        }
+      ]
+    },
+    {
+      "id": "quantity-ru-equivalent-lots",
+      "group": "quantity_lifecycle_ru",
+      "turns": [
+        "Перемести Type-C шнур в Средний ящик."
+      ],
+      "focus": "Equivalent lots require stable evidence.",
+      "checks": [
+        {
+          "kind": "no_mutation"
+        }
+      ]
+    },
+    {
+      "id": "quantity-ru-copied-length",
+      "group": "quantity_lifecycle_ru",
+      "turns": [
+        "Переложи один HDMI cable 2m в Средний ящик."
+      ],
+      "focus": "Copied length comment is surfaced after split.",
+      "checks": [
+        {
+          "kind": "item_quantity_truth",
+          "item_query": "HDMI cable 2m",
+          "quantity_mode": "exact",
+          "quantity": 2
+        },
+        {
+          "kind": "event_count_delta",
+          "expected_delta": 3
+        }
+      ]
+    },
+    {
+      "id": "quantity-ru-immediate-undo",
+      "group": "quantity_lifecycle_ru",
+      "turns": [
+        "Перемести CH341A в Средний ящик.",
+        "Отмени."
+      ],
+      "focus": "Immediate supported Undo.",
+      "checks": [
+        {
+          "kind": "item_location",
+          "item_query": "CH341A",
+          "location_query": "Правый ящик"
+        },
+        {
+          "kind": "event_count_delta",
+          "expected_delta": 2
+        },
+        {
+          "kind": "item_event",
+          "item_query": "CH341A",
+          "event_type": "item_undo_compensated"
+        }
+      ]
+    },
+    {
+      "id": "quantity-ru-undo-after-read",
+      "group": "quantity_lifecycle_ru",
+      "turns": [
+        "Возьми CH341A.",
+        "Где сейчас CH341A?",
+        "Отмени."
+      ],
+      "focus": "Read-only turn blocks backward Undo search.",
+      "checks": [
+        {
+          "kind": "item_location_status",
+          "item_query": "CH341A",
+          "location_status": "in_use"
+        },
+        {
+          "kind": "event_count_delta",
+          "expected_delta": 1
+        }
+      ],
+      "expected_error": "AgentTurnFailedError: tool undo_last_action failed: UndoUnavailableError"
+    },
+    {
+      "id": "quantity-ru-target-ambiguity",
+      "group": "quantity_lifecycle_ru",
+      "turns": [
+        "Возьми Type-C шнур."
+      ],
+      "focus": "Ambiguous target clarifies before write.",
+      "checks": [
+        {
+          "kind": "no_mutation"
+        }
+      ]
     }
   ]
 }

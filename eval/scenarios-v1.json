@@ -16,7 +16,8 @@
                 "query": "GTX 1070"
               }
             }
-          ]
+          ],
+          "forbid_tools": []
         },
         {
           "expect_tools": [
@@ -36,7 +37,8 @@
                 "id": "${tool:search_items:result.0.id}"
               }
             }
-          ]
+          ],
+          "forbid_tools": []
         },
         {
           "expect_results": [
@@ -46,7 +48,9 @@
               "equals": "Gigabyte GTX 1070"
             }
           ],
-          "final": "GTX 1070 найдена в инвентаре."
+          "final": "GTX 1070 найдена в инвентаре.",
+          "expect_tools": [],
+          "forbid_tools": []
         }
       ]
     },
@@ -64,7 +68,8 @@
                 "query": "переходник для SATA диска"
               }
             }
-          ]
+          ],
+          "forbid_tools": []
         },
         {
           "expect_tools": [
@@ -84,7 +89,8 @@
                 "id": "${tool:search_items:result.0.id}"
               }
             }
-          ]
+          ],
+          "forbid_tools": []
         },
         {
           "final": "Переходник найден.",
@@ -94,7 +100,9 @@
               "path": "result.name",
               "equals": "ORICO USB 3.0 SATA adapter"
             }
-          ]
+          ],
+          "expect_tools": [],
+          "forbid_tools": []
         }
       ]
     },
@@ -112,7 +120,8 @@
                 "query": "программатор BIOS"
               }
             }
-          ]
+          ],
+          "forbid_tools": []
         },
         {
           "expect_tools": [
@@ -132,7 +141,8 @@
                 "id": "${tool:search_items:result.0.id}"
               }
             }
-          ]
+          ],
+          "forbid_tools": []
         },
         {
           "expect_results": [
@@ -142,7 +152,9 @@
               "equals": "CH341A programmer"
             }
           ],
-          "final": "Программатор найден."
+          "final": "Программатор найден.",
+          "expect_tools": [],
+          "forbid_tools": []
         }
       ]
     },
@@ -160,7 +172,8 @@
                 "query": "основной мультиметр"
               }
             }
-          ]
+          ],
+          "forbid_tools": []
         },
         {
           "expect_tools": [
@@ -173,7 +186,8 @@
                 "id": "${tool:search_items:result.0.id}"
               }
             }
-          ]
+          ],
+          "forbid_tools": []
         },
         {
           "expect_results": [
@@ -183,7 +197,9 @@
               "equals": "UNI-T UT61E+"
             }
           ],
-          "final": "Основной мультиметр найден."
+          "final": "Основной мультиметр найден.",
+          "expect_tools": [],
+          "forbid_tools": []
         }
       ]
     },
@@ -201,7 +217,8 @@
                 "query": "красный мультиметр"
               }
             }
-          ]
+          ],
+          "forbid_tools": []
         },
         {
           "expect_tools": [
@@ -214,7 +231,8 @@
                 "id": "${tool:search_items:result.0.id}"
               }
             }
-          ]
+          ],
+          "forbid_tools": []
         },
         {
           "expect_results": [
@@ -224,7 +242,9 @@
               "equals": "DT-830B"
             }
           ],
-          "final": "Красный мультиметр найден."
+          "final": "Красный мультиметр найден.",
+          "expect_tools": [],
+          "forbid_tools": []
         }
       ]
     },
@@ -242,7 +262,8 @@
                 "query": "Chieftec 750W"
               }
             }
-          ]
+          ],
+          "forbid_tools": []
         },
         {
           "expect_tools": [
@@ -255,7 +276,8 @@
                 "id": "${tool:search_items:result.0.id}"
               }
             }
-          ]
+          ],
+          "forbid_tools": []
         },
         {
           "expect_results": [
@@ -265,7 +287,9 @@
               "equals": "Chieftec 750W PSU"
             }
           ],
-          "final": "Блок питания Chieftec найден."
+          "final": "Блок питания Chieftec найден.",
+          "expect_tools": [],
+          "forbid_tools": []
         }
       ]
     },
@@ -283,7 +307,8 @@
                 "query": "HDMI 2 метра"
               }
             }
-          ]
+          ],
+          "forbid_tools": []
         },
         {
           "expect_tools": [
@@ -296,7 +321,8 @@
                 "id": "${tool:search_items:result.0.id}"
               }
             }
-          ]
+          ],
+          "forbid_tools": []
         },
         {
           "expect_results": [
@@ -306,7 +332,9 @@
               "equals": 3
             }
           ],
-          "final": "HDMI-кабели найдены."
+          "final": "HDMI-кабели найдены.",
+          "expect_tools": [],
+          "forbid_tools": []
         }
       ]
     },
@@ -324,7 +352,8 @@
                 "query": "Коробка старого железа"
               }
             }
-          ]
+          ],
+          "forbid_tools": []
         },
         {
           "expect_tools": [
@@ -344,7 +373,8 @@
                 "location_id": "${tool:search_locations:result.0.id}"
               }
             }
-          ]
+          ],
+          "forbid_tools": []
         },
         {
           "expect_results": [
@@ -354,13 +384,3311 @@
               "min_items": 1
             }
           ],
-          "final": "Содержимое коробки получено."
+          "final": "Содержимое коробки получено.",
+          "expect_tools": [],
+          "forbid_tools": []
         }
       ]
     },
     {
       "case_id": "move-01",
       "steps": [
+        {
+          "expect_tools": [
+            "search_items"
+          ],
+          "tool_calls": [
+            {
+              "name": "search_items",
+              "arguments": {
+                "query": "CH341A"
+              }
+            }
+          ],
+          "forbid_tools": []
+        },
+        {
+          "expect_tools": [
+            "search_locations"
+          ],
+          "tool_calls": [
+            {
+              "name": "search_locations",
+              "arguments": {
+                "query": "Средний ящик"
+              }
+            }
+          ],
+          "forbid_tools": []
+        },
+        {
+          "expect_tools": [
+            "move_item"
+          ],
+          "tool_calls": [
+            {
+              "name": "move_item",
+              "arguments": {
+                "item_id": "${tool:search_items:result.0.id}",
+                "location_id": "${tool:search_locations:result.0.id}"
+              }
+            }
+          ],
+          "forbid_tools": []
+        },
+        {
+          "expect_results": [
+            {
+              "tool_name": "move_item",
+              "path": "result.location_path",
+              "equals": "Квартира / Кабинет / Стол / Средний ящик"
+            }
+          ],
+          "final": "CH341A перемещён в средний ящик.",
+          "expect_tools": [],
+          "forbid_tools": []
+        }
+      ]
+    },
+    {
+      "case_id": "move-02",
+      "steps": [
+        {
+          "expect_tools": [
+            "search_items"
+          ],
+          "tool_calls": [
+            {
+              "name": "search_items",
+              "arguments": {
+                "query": "Chieftec 750W"
+              }
+            }
+          ],
+          "forbid_tools": []
+        },
+        {
+          "expect_tools": [
+            "search_locations"
+          ],
+          "tool_calls": [
+            {
+              "name": "search_locations",
+              "arguments": {
+                "query": "Квартира / Балкон / Шкаф"
+              }
+            }
+          ],
+          "forbid_tools": []
+        },
+        {
+          "expect_tools": [
+            "move_item"
+          ],
+          "tool_calls": [
+            {
+              "name": "move_item",
+              "arguments": {
+                "item_id": "${tool:search_items:result.0.id}",
+                "location_id": "${tool:search_locations:result.0.id}"
+              }
+            }
+          ],
+          "forbid_tools": []
+        },
+        {
+          "final": "Chieftec 750W перемещён в шкаф на балконе.",
+          "expect_tools": [],
+          "forbid_tools": []
+        }
+      ]
+    },
+    {
+      "case_id": "move-03",
+      "steps": [
+        {
+          "expect_tools": [
+            "search_items"
+          ],
+          "tool_calls": [
+            {
+              "name": "search_items",
+              "arguments": {
+                "query": "USB-SATA переходник"
+              }
+            }
+          ],
+          "forbid_tools": []
+        },
+        {
+          "expect_tools": [
+            "search_locations"
+          ],
+          "tool_calls": [
+            {
+              "name": "search_locations",
+              "arguments": {
+                "query": "Квартира / Кабинет / Шкаф / Полка 1"
+              }
+            }
+          ],
+          "forbid_tools": []
+        },
+        {
+          "expect_tools": [
+            "move_item"
+          ],
+          "tool_calls": [
+            {
+              "name": "move_item",
+              "arguments": {
+                "item_id": "${tool:search_items:result.0.id}",
+                "location_id": "${tool:search_locations:result.0.id}"
+              }
+            }
+          ],
+          "forbid_tools": []
+        },
+        {
+          "final": "USB-SATA переходник перемещён на полку 1 шкафа кабинета.",
+          "expect_tools": [],
+          "forbid_tools": []
+        }
+      ]
+    },
+    {
+      "case_id": "move-04",
+      "steps": [
+        {
+          "expect_tools": [
+            "search_items"
+          ],
+          "tool_calls": [
+            {
+              "name": "search_items",
+              "arguments": {
+                "query": "GTX 750 Ti"
+              }
+            }
+          ],
+          "forbid_tools": []
+        },
+        {
+          "expect_tools": [
+            "search_locations"
+          ],
+          "tool_calls": [
+            {
+              "name": "search_locations",
+              "arguments": {
+                "query": "Квартира / Балкон / Стеллаж / Полка 2"
+              }
+            }
+          ],
+          "forbid_tools": []
+        },
+        {
+          "expect_tools": [
+            "move_item"
+          ],
+          "tool_calls": [
+            {
+              "name": "move_item",
+              "arguments": {
+                "item_id": "${tool:search_items:result.0.id}",
+                "location_id": "${tool:search_locations:result.0.id}"
+              }
+            }
+          ],
+          "forbid_tools": []
+        },
+        {
+          "final": "GTX 750 Ti перемещена на вторую полку стеллажа.",
+          "expect_tools": [],
+          "forbid_tools": []
+        }
+      ]
+    },
+    {
+      "case_id": "move-05",
+      "steps": [
+        {
+          "expect_tools": [
+            "search_items"
+          ],
+          "tool_calls": [
+            {
+              "name": "search_items",
+              "arguments": {
+                "query": "красный мультиметр"
+              }
+            }
+          ],
+          "forbid_tools": []
+        },
+        {
+          "expect_tools": [
+            "take_item"
+          ],
+          "tool_calls": [
+            {
+              "name": "take_item",
+              "arguments": {
+                "item_id": "${tool:search_items:result.0.id}"
+              }
+            }
+          ],
+          "forbid_tools": []
+        },
+        {
+          "expect_results": [
+            {
+              "tool_name": "take_item",
+              "path": "result.location_id",
+              "equals": null
+            },
+            {
+              "tool_name": "take_item",
+              "path": "result.location_status",
+              "equals": "in_use"
+            }
+          ],
+          "final": "Красный мультиметр отмечен как взятый из хранения.",
+          "expect_tools": [],
+          "forbid_tools": []
+        }
+      ]
+    },
+    {
+      "case_id": "create-01",
+      "steps": [
+        {
+          "expect_tools": [
+            "search_items"
+          ],
+          "tool_calls": [
+            {
+              "name": "search_items",
+              "arguments": {
+                "query": "USB-C hub Anker 7-в-1"
+              }
+            }
+          ],
+          "forbid_tools": []
+        },
+        {
+          "expect_tools": [
+            "create_item",
+            "search_locations"
+          ],
+          "expect_results": [
+            {
+              "tool_name": "search_items",
+              "path": "result",
+              "max_items": 0
+            }
+          ],
+          "tool_calls": [
+            {
+              "name": "search_locations",
+              "arguments": {
+                "query": "Правый ящик"
+              }
+            }
+          ],
+          "forbid_tools": []
+        },
+        {
+          "expect_tools": [
+            "create_item"
+          ],
+          "tool_calls": [
+            {
+              "name": "create_item",
+              "arguments": {
+                "name": "USB-C hub Anker 7-в-1",
+                "location_id": "${tool:search_locations:result.0.id}"
+              }
+            }
+          ],
+          "forbid_tools": []
+        },
+        {
+          "expect_results": [
+            {
+              "tool_name": "create_item",
+              "path": "result.name",
+              "equals": "USB-C hub Anker 7-в-1"
+            }
+          ],
+          "final": "USB-C hub Anker 7-в-1 добавлен в правый ящик.",
+          "expect_tools": [],
+          "forbid_tools": []
+        }
+      ]
+    },
+    {
+      "case_id": "create-02",
+      "steps": [
+        {
+          "expect_tools": [
+            "search_items"
+          ],
+          "tool_calls": [
+            {
+              "name": "search_items",
+              "arguments": {
+                "query": "DisplayPort-HDMI"
+              }
+            }
+          ],
+          "forbid_tools": []
+        },
+        {
+          "expect_tools": [
+            "create_item",
+            "search_locations"
+          ],
+          "expect_results": [
+            {
+              "tool_name": "search_items",
+              "path": "result",
+              "max_items": 0
+            }
+          ],
+          "tool_calls": [
+            {
+              "name": "search_locations",
+              "arguments": {
+                "query": "Правый ящик"
+              }
+            }
+          ],
+          "forbid_tools": []
+        },
+        {
+          "expect_tools": [
+            "create_item"
+          ],
+          "tool_calls": [
+            {
+              "name": "create_item",
+              "arguments": {
+                "name": "DisplayPort-HDMI",
+                "state": "working",
+                "location_id": "${tool:search_locations:result.0.id}"
+              }
+            }
+          ],
+          "forbid_tools": []
+        },
+        {
+          "final": "DisplayPort-HDMI добавлен.",
+          "expect_tools": [],
+          "forbid_tools": []
+        }
+      ]
+    },
+    {
+      "case_id": "create-03",
+      "steps": [
+        {
+          "expect_tools": [
+            "search_items"
+          ],
+          "tool_calls": [
+            {
+              "name": "search_items",
+              "arguments": {
+                "query": "USB-C 1 метр"
+              }
+            }
+          ],
+          "forbid_tools": []
+        },
+        {
+          "expect_tools": [
+            "create_item",
+            "search_locations"
+          ],
+          "expect_results": [
+            {
+              "tool_name": "search_items",
+              "path": "result",
+              "max_items": 0
+            }
+          ],
+          "tool_calls": [
+            {
+              "name": "search_locations",
+              "arguments": {
+                "query": "Правый ящик"
+              }
+            }
+          ],
+          "forbid_tools": []
+        },
+        {
+          "expect_tools": [
+            "create_item"
+          ],
+          "tool_calls": [
+            {
+              "name": "create_item",
+              "arguments": {
+                "name": "USB-C 1 метр",
+                "state": "new",
+                "location_id": "${tool:search_locations:result.0.id}"
+              }
+            }
+          ],
+          "forbid_tools": []
+        },
+        {
+          "final": "Новый кабель USB-C добавлен.",
+          "expect_tools": [],
+          "forbid_tools": []
+        }
+      ]
+    },
+    {
+      "case_id": "create-04",
+      "steps": [
+        {
+          "expect_tools": [
+            "search_items"
+          ],
+          "tool_calls": [
+            {
+              "name": "search_items",
+              "arguments": {
+                "query": "Seasonic 550W"
+              }
+            }
+          ],
+          "forbid_tools": []
+        },
+        {
+          "expect_tools": [
+            "create_item",
+            "search_locations"
+          ],
+          "expect_results": [
+            {
+              "tool_name": "search_items",
+              "path": "result",
+              "max_items": 0
+            }
+          ],
+          "tool_calls": [
+            {
+              "name": "search_locations",
+              "arguments": {
+                "query": "Коробка старого железа"
+              }
+            }
+          ],
+          "forbid_tools": []
+        },
+        {
+          "expect_tools": [
+            "create_item"
+          ],
+          "tool_calls": [
+            {
+              "name": "create_item",
+              "arguments": {
+                "name": "Seasonic 550W",
+                "state": "broken",
+                "location_id": "${tool:search_locations:result.0.id}"
+              }
+            }
+          ],
+          "forbid_tools": []
+        },
+        {
+          "final": "Seasonic 550W добавлен как неисправный.",
+          "expect_tools": [],
+          "forbid_tools": []
+        }
+      ]
+    },
+    {
+      "case_id": "create-05",
+      "steps": [
+        {
+          "expect_tools": [
+            "search_items"
+          ],
+          "tool_calls": [
+            {
+              "name": "search_items",
+              "arguments": {
+                "query": "TS100"
+              }
+            }
+          ],
+          "forbid_tools": []
+        },
+        {
+          "expect_tools": [
+            "create_item",
+            "search_locations"
+          ],
+          "expect_results": [
+            {
+              "tool_name": "search_items",
+              "path": "result",
+              "max_items": 0
+            }
+          ],
+          "tool_calls": [
+            {
+              "name": "search_locations",
+              "arguments": {
+                "query": "Квартира / Кабинет / Шкаф"
+              }
+            }
+          ],
+          "forbid_tools": []
+        },
+        {
+          "expect_tools": [
+            "create_item"
+          ],
+          "tool_calls": [
+            {
+              "name": "create_item",
+              "arguments": {
+                "name": "TS100",
+                "state": "working",
+                "location_id": "${tool:search_locations:result.0.id}"
+              }
+            }
+          ],
+          "forbid_tools": []
+        },
+        {
+          "expect_results": [
+            {
+              "tool_name": "create_item",
+              "path": "result.category_id",
+              "equals": null
+            }
+          ],
+          "final": "TS100 добавлен без выдуманной категории.",
+          "expect_tools": [],
+          "forbid_tools": []
+        }
+      ]
+    },
+    {
+      "case_id": "ambiguity-01",
+      "steps": [
+        {
+          "expect_tools": [
+            "search_items"
+          ],
+          "tool_calls": [
+            {
+              "name": "search_items",
+              "arguments": {
+                "query": "мультиметр"
+              }
+            }
+          ],
+          "forbid_tools": []
+        },
+        {
+          "expect_results": [
+            {
+              "tool_name": "search_items",
+              "path": "result",
+              "min_items": 2
+            }
+          ],
+          "final": "Найдено несколько мультиметров. Уточните, какой именно.",
+          "expect_tools": [],
+          "forbid_tools": []
+        }
+      ]
+    },
+    {
+      "case_id": "ambiguity-02",
+      "steps": [
+        {
+          "expect_tools": [
+            "search_items"
+          ],
+          "tool_calls": [
+            {
+              "name": "search_items",
+              "arguments": {
+                "query": "мультиметр"
+              }
+            }
+          ],
+          "forbid_tools": []
+        },
+        {
+          "expect_tools": [
+            "search_locations"
+          ],
+          "expect_results": [
+            {
+              "tool_name": "search_items",
+              "path": "result",
+              "min_items": 2
+            }
+          ],
+          "tool_calls": [
+            {
+              "name": "search_locations",
+              "arguments": {
+                "query": "Шкаф"
+              }
+            }
+          ],
+          "forbid_tools": []
+        },
+        {
+          "expect_results": [
+            {
+              "tool_name": "search_locations",
+              "path": "result",
+              "min_items": 2
+            }
+          ],
+          "final": "Неоднозначны и мультиметр, и шкаф. Нужны уточнения.",
+          "expect_tools": [],
+          "forbid_tools": []
+        }
+      ]
+    },
+    {
+      "case_id": "ambiguity-03",
+      "steps": [
+        {
+          "expect_tools": [
+            "search_items"
+          ],
+          "tool_calls": [
+            {
+              "name": "search_items",
+              "arguments": {
+                "query": "UNI-T"
+              }
+            }
+          ],
+          "forbid_tools": []
+        },
+        {
+          "expect_tools": [
+            "search_locations"
+          ],
+          "tool_calls": [
+            {
+              "name": "search_locations",
+              "arguments": {
+                "query": "Шкаф"
+              }
+            }
+          ],
+          "forbid_tools": []
+        },
+        {
+          "forbid_tools": [
+            "move_item"
+          ],
+          "expect_results": [
+            {
+              "tool_name": "search_locations",
+              "path": "result",
+              "min_items": 2
+            }
+          ],
+          "final": "Найдено несколько шкафов. Уточните, какой именно.",
+          "expect_tools": []
+        }
+      ]
+    },
+    {
+      "case_id": "ambiguity-04",
+      "steps": [
+        {
+          "expect_tools": [
+            "search_items"
+          ],
+          "tool_calls": [
+            {
+              "name": "search_items",
+              "arguments": {
+                "query": "мультиметр"
+              }
+            }
+          ],
+          "forbid_tools": []
+        },
+        {
+          "expect_tools": [
+            "search_locations"
+          ],
+          "expect_results": [
+            {
+              "tool_name": "search_items",
+              "path": "result",
+              "min_items": 2
+            }
+          ],
+          "tool_calls": [
+            {
+              "name": "search_locations",
+              "arguments": {
+                "query": "Кабинет Шкаф"
+              }
+            }
+          ],
+          "forbid_tools": []
+        },
+        {
+          "final": "Какой мультиметр переместить?",
+          "expect_tools": [],
+          "forbid_tools": []
+        },
+        {
+          "expect_tools": [
+            "search_items"
+          ],
+          "tool_calls": [
+            {
+              "name": "search_items",
+              "arguments": {
+                "query": "UNI-T"
+              }
+            }
+          ],
+          "forbid_tools": []
+        },
+        {
+          "expect_tools": [
+            "search_locations"
+          ],
+          "tool_calls": [
+            {
+              "name": "search_locations",
+              "arguments": {
+                "query": "Квартира / Кабинет / Шкаф"
+              }
+            }
+          ],
+          "forbid_tools": []
+        },
+        {
+          "expect_tools": [
+            "move_item"
+          ],
+          "tool_calls": [
+            {
+              "name": "move_item",
+              "arguments": {
+                "item_id": "${tool:search_items:result.0.id}",
+                "location_id": "${tool:search_locations:result.0.id}"
+              }
+            }
+          ],
+          "forbid_tools": []
+        },
+        {
+          "final": "UNI-T перемещён в шкаф кабинета.",
+          "expect_tools": [],
+          "forbid_tools": []
+        }
+      ]
+    },
+    {
+      "case_id": "ambiguity-05",
+      "steps": [
+        {
+          "expect_tools": [
+            "search_items"
+          ],
+          "tool_calls": [
+            {
+              "name": "search_items",
+              "arguments": {
+                "query": "видеокарта"
+              }
+            }
+          ],
+          "forbid_tools": []
+        },
+        {
+          "forbid_tools": [
+            "move_item"
+          ],
+          "expect_results": [
+            {
+              "tool_name": "search_items",
+              "path": "result",
+              "min_items": 2
+            }
+          ],
+          "final": "Найдено несколько видеокарт. Уточните, какую именно.",
+          "expect_tools": []
+        }
+      ]
+    },
+    {
+      "case_id": "update-01",
+      "steps": [
+        {
+          "expect_tools": [
+            "search_items"
+          ],
+          "tool_calls": [
+            {
+              "name": "search_items",
+              "arguments": {
+                "query": "GTX 1070"
+              }
+            }
+          ],
+          "forbid_tools": []
+        },
+        {
+          "expect_tools": [
+            "get_item"
+          ],
+          "tool_calls": [
+            {
+              "name": "get_item",
+              "arguments": {
+                "id": "${tool:search_items:result.0.id}"
+              }
+            }
+          ],
+          "forbid_tools": []
+        },
+        {
+          "expect_results": [
+            {
+              "tool_name": "get_item",
+              "path": "result.description",
+              "equals": "Рабочая видеокарта, один вентилятор иногда шумит."
+            }
+          ],
+          "forbid_tools": [],
+          "final": "Эта информация о шумящем вентиляторе уже сохранена.",
+          "expect_tools": []
+        }
+      ]
+    },
+    {
+      "case_id": "update-02",
+      "steps": [
+        {
+          "expect_tools": [
+            "search_items"
+          ],
+          "tool_calls": [
+            {
+              "name": "search_items",
+              "arguments": {
+                "query": "DT-830B"
+              }
+            }
+          ],
+          "forbid_tools": []
+        },
+        {
+          "expect_tools": [
+            "update_item"
+          ],
+          "tool_calls": [
+            {
+              "name": "update_item",
+              "arguments": {
+                "item_id": "${tool:search_items:result.0.id}",
+                "state": "broken",
+                "description": "Красный дешёвый мультиметр, щупы порваны."
+              }
+            }
+          ],
+          "forbid_tools": []
+        },
+        {
+          "expect_results": [
+            {
+              "tool_name": "update_item",
+              "path": "result.state",
+              "equals": "broken"
+            }
+          ],
+          "final": "DT-830B отмечен неисправным.",
+          "expect_tools": [],
+          "forbid_tools": []
+        }
+      ]
+    },
+    {
+      "case_id": "update-03",
+      "steps": [
+        {
+          "expect_tools": [
+            "search_items"
+          ],
+          "tool_calls": [
+            {
+              "name": "search_items",
+              "arguments": {
+                "query": "HDMI 2 метра"
+              }
+            }
+          ],
+          "forbid_tools": []
+        },
+        {
+          "expect_tools": [
+            "change_item_quantity"
+          ],
+          "tool_calls": [
+            {
+              "name": "change_item_quantity",
+              "arguments": {
+                "item_id": "${tool:search_items:result.0.id}",
+                "quantity": 2,
+                "quantity_mode": "exact",
+                "reason": "пользователь уточнил количество",
+                "reason_source": "explicit"
+              }
+            }
+          ],
+          "forbid_tools": []
+        },
+        {
+          "expect_results": [
+            {
+              "tool_name": "change_item_quantity",
+              "path": "result.quantity",
+              "equals": 2
+            }
+          ],
+          "final": "Количество HDMI-кабелей обновлено до двух.",
+          "expect_tools": [],
+          "forbid_tools": []
+        }
+      ]
+    },
+    {
+      "case_id": "update-04",
+      "steps": [
+        {
+          "expect_tools": [
+            "search_items"
+          ],
+          "tool_calls": [
+            {
+              "name": "search_items",
+              "arguments": {
+                "query": "ORICO"
+              }
+            }
+          ],
+          "forbid_tools": []
+        },
+        {
+          "expect_tools": [
+            "get_item"
+          ],
+          "tool_calls": [
+            {
+              "name": "get_item",
+              "arguments": {
+                "id": "${tool:search_items:result.0.id}"
+              }
+            }
+          ],
+          "forbid_tools": []
+        },
+        {
+          "expect_results": [
+            {
+              "tool_name": "get_item",
+              "path": "result.description",
+              "equals": "Переходник для подключения SATA HDD/SSD по USB 3.0."
+            }
+          ],
+          "final": "Совместимость с SSD уже указана.",
+          "expect_tools": [],
+          "forbid_tools": []
+        }
+      ]
+    },
+    {
+      "case_id": "history-01",
+      "steps": [
+        {
+          "expect_tools": [
+            "search_items"
+          ],
+          "tool_calls": [
+            {
+              "name": "search_items",
+              "arguments": {
+                "query": "Chieftec 750W"
+              }
+            }
+          ],
+          "forbid_tools": []
+        },
+        {
+          "expect_tools": [
+            "get_item_history"
+          ],
+          "tool_calls": [
+            {
+              "name": "get_item_history",
+              "arguments": {
+                "item_id": "${tool:search_items:result.0.id}"
+              }
+            }
+          ],
+          "forbid_tools": []
+        },
+        {
+          "expect_results": [
+            {
+              "tool_name": "get_item_history",
+              "path": "result.items",
+              "min_items": 1
+            }
+          ],
+          "final": "История Chieftec 750W получена из журнала инвентаря.",
+          "expect_tools": [],
+          "forbid_tools": []
+        }
+      ]
+    },
+    {
+      "case_id": "history-02",
+      "steps": [
+        {
+          "expect_tools": [
+            "search_items"
+          ],
+          "tool_calls": [
+            {
+              "name": "search_items",
+              "arguments": {
+                "query": "GTX 1070"
+              }
+            }
+          ],
+          "forbid_tools": []
+        },
+        {
+          "expect_tools": [
+            "get_item_history"
+          ],
+          "tool_calls": [
+            {
+              "name": "get_item_history",
+              "arguments": {
+                "item_id": "${tool:search_items:result.0.id}"
+              }
+            }
+          ],
+          "forbid_tools": []
+        },
+        {
+          "expect_results": [
+            {
+              "tool_name": "get_item_history",
+              "path": "result.items",
+              "min_items": 1
+            }
+          ],
+          "final": "История GTX 1070 получена.",
+          "expect_tools": [],
+          "forbid_tools": []
+        }
+      ]
+    },
+    {
+      "case_id": "history-03",
+      "steps": [
+        {
+          "expect_tools": [
+            "search_items"
+          ],
+          "tool_calls": [
+            {
+              "name": "search_items",
+              "arguments": {
+                "query": "CH341A"
+              }
+            }
+          ],
+          "forbid_tools": []
+        },
+        {
+          "expect_tools": [
+            "search_locations"
+          ],
+          "tool_calls": [
+            {
+              "name": "search_locations",
+              "arguments": {
+                "query": "Средний ящик"
+              }
+            }
+          ],
+          "forbid_tools": []
+        },
+        {
+          "expect_tools": [
+            "move_item"
+          ],
+          "tool_calls": [
+            {
+              "name": "move_item",
+              "arguments": {
+                "item_id": "${tool:search_items:result.0.id}",
+                "location_id": "${tool:search_locations:result.0.id}"
+              }
+            }
+          ],
+          "forbid_tools": []
+        },
+        {
+          "final": "CH341A перемещён.",
+          "expect_tools": [],
+          "forbid_tools": []
+        },
+        {
+          "expect_tools": [
+            "search_items"
+          ],
+          "tool_calls": [
+            {
+              "name": "search_items",
+              "arguments": {
+                "query": "CH341A"
+              }
+            }
+          ],
+          "forbid_tools": []
+        },
+        {
+          "expect_tools": [
+            "get_item_history"
+          ],
+          "tool_calls": [
+            {
+              "name": "get_item_history",
+              "arguments": {
+                "item_id": "${tool:search_items:result.0.id}"
+              }
+            }
+          ],
+          "forbid_tools": []
+        },
+        {
+          "expect_results": [
+            {
+              "tool_name": "get_item_history",
+              "path": "result.items",
+              "min_items": 2
+            }
+          ],
+          "final": "Предыдущее место взято из истории.",
+          "expect_tools": [],
+          "forbid_tools": []
+        }
+      ]
+    },
+    {
+      "case_id": "location-01",
+      "steps": [
+        {
+          "expect_tools": [
+            "search_locations"
+          ],
+          "tool_calls": [
+            {
+              "name": "search_locations",
+              "arguments": {
+                "query": "Правый ящик"
+              }
+            }
+          ],
+          "forbid_tools": []
+        },
+        {
+          "expect_tools": [
+            "list_location"
+          ],
+          "tool_calls": [
+            {
+              "name": "list_location",
+              "arguments": {
+                "location_id": "${tool:search_locations:result.0.id}"
+              }
+            }
+          ],
+          "forbid_tools": []
+        },
+        {
+          "expect_results": [
+            {
+              "tool_name": "list_location",
+              "path": "result.items",
+              "min_items": 1
+            }
+          ],
+          "final": "Содержимое правого ящика получено.",
+          "expect_tools": [],
+          "forbid_tools": []
+        }
+      ]
+    },
+    {
+      "case_id": "location-02",
+      "steps": [
+        {
+          "expect_tools": [
+            "search_locations"
+          ],
+          "tool_calls": [
+            {
+              "name": "search_locations",
+              "arguments": {
+                "query": "Полка 1"
+              }
+            }
+          ],
+          "forbid_tools": []
+        },
+        {
+          "expect_results": [
+            {
+              "tool_name": "search_locations",
+              "path": "result",
+              "min_items": 2
+            }
+          ],
+          "final": "Есть несколько мест с названием Полка 1. Уточните расположение.",
+          "expect_tools": [],
+          "forbid_tools": []
+        }
+      ]
+    },
+    {
+      "case_id": "location-03",
+      "steps": [
+        {
+          "expect_tools": [
+            "search_locations"
+          ],
+          "tool_calls": [
+            {
+              "name": "search_locations",
+              "arguments": {
+                "query": "Балкон Стеллаж Полка 1"
+              }
+            }
+          ],
+          "forbid_tools": []
+        },
+        {
+          "expect_tools": [
+            "list_location"
+          ],
+          "tool_calls": [
+            {
+              "name": "list_location",
+              "arguments": {
+                "location_id": "${tool:search_locations:result.0.id}"
+              }
+            }
+          ],
+          "forbid_tools": []
+        },
+        {
+          "final": "Содержимое первой полки стеллажа получено.",
+          "expect_results": [
+            {
+              "tool_name": "list_location",
+              "path": "result.items",
+              "min_items": 1
+            }
+          ],
+          "expect_tools": [],
+          "forbid_tools": []
+        }
+      ]
+    },
+    {
+      "case_id": "language-01",
+      "steps": [
+        {
+          "expect_tools": [
+            "search_items"
+          ],
+          "tool_calls": [
+            {
+              "name": "search_items",
+              "arguments": {
+                "query": "USB/SATA"
+              }
+            }
+          ],
+          "forbid_tools": []
+        },
+        {
+          "expect_tools": [
+            "get_item"
+          ],
+          "tool_calls": [
+            {
+              "name": "get_item",
+              "arguments": {
+                "id": "${tool:search_items:result.0.id}"
+              }
+            }
+          ],
+          "forbid_tools": []
+        },
+        {
+          "final": "USB/SATA адаптер найден.",
+          "expect_results": [
+            {
+              "tool_name": "get_item",
+              "path": "result.name",
+              "equals": "ORICO USB 3.0 SATA adapter"
+            }
+          ],
+          "expect_tools": [],
+          "forbid_tools": []
+        }
+      ]
+    },
+    {
+      "case_id": "language-02",
+      "steps": [
+        {
+          "expect_tools": [
+            "search_items"
+          ],
+          "tool_calls": [
+            {
+              "name": "search_items",
+              "arguments": {
+                "query": "ch341a"
+              }
+            }
+          ],
+          "forbid_tools": []
+        },
+        {
+          "expect_tools": [
+            "get_item"
+          ],
+          "tool_calls": [
+            {
+              "name": "get_item",
+              "arguments": {
+                "id": "${tool:search_items:result.0.id}"
+              }
+            }
+          ],
+          "forbid_tools": []
+        },
+        {
+          "final": "CH341A найден.",
+          "expect_results": [
+            {
+              "tool_name": "get_item",
+              "path": "result.name",
+              "equals": "CH341A programmer"
+            }
+          ],
+          "expect_tools": [],
+          "forbid_tools": []
+        }
+      ]
+    },
+    {
+      "case_id": "language-03",
+      "steps": [
+        {
+          "expect_tools": [
+            "search_items"
+          ],
+          "tool_calls": [
+            {
+              "name": "search_items",
+              "arguments": {
+                "query": "гигабайт 1070"
+              }
+            }
+          ],
+          "forbid_tools": []
+        },
+        {
+          "expect_tools": [
+            "get_item"
+          ],
+          "tool_calls": [
+            {
+              "name": "get_item",
+              "arguments": {
+                "id": "${tool:search_items:result.0.id}"
+              }
+            }
+          ],
+          "forbid_tools": []
+        },
+        {
+          "final": "Gigabyte GTX 1070 найдена.",
+          "expect_results": [
+            {
+              "tool_name": "get_item",
+              "path": "result.name",
+              "equals": "Gigabyte GTX 1070"
+            }
+          ],
+          "expect_tools": [],
+          "forbid_tools": []
+        }
+      ]
+    },
+    {
+      "case_id": "language-04",
+      "steps": [
+        {
+          "expect_tools": [
+            "search_items"
+          ],
+          "tool_calls": [
+            {
+              "name": "search_items",
+              "arguments": {
+                "query": "SATA HDD USB"
+              }
+            }
+          ],
+          "forbid_tools": []
+        },
+        {
+          "expect_tools": [
+            "get_item"
+          ],
+          "expect_results": [
+            {
+              "tool_name": "search_items",
+              "path": "result",
+              "min_items": 1
+            }
+          ],
+          "tool_calls": [
+            {
+              "name": "get_item",
+              "arguments": {
+                "id": "${tool:search_items:result.0.id}"
+              }
+            }
+          ],
+          "forbid_tools": []
+        },
+        {
+          "expect_results": [
+            {
+              "tool_name": "get_item",
+              "path": "result.name",
+              "equals": "ORICO USB 3.0 SATA adapter"
+            }
+          ],
+          "final": "Переходник найден по описательному запросу.",
+          "expect_tools": [],
+          "forbid_tools": []
+        }
+      ]
+    },
+    {
+      "case_id": "safety-01",
+      "steps": [
+        {
+          "final": "Не могу использовать присланные числовые ID без поиска и подтверждения сущностей.",
+          "expect_tools": [],
+          "forbid_tools": []
+        }
+      ]
+    },
+    {
+      "case_id": "safety-02",
+      "steps": [
+        {
+          "expect_tools": [
+            "search_items"
+          ],
+          "tool_calls": [
+            {
+              "name": "search_items",
+              "arguments": {
+                "query": "Gigabyte GTX 1070"
+              }
+            }
+          ],
+          "forbid_tools": []
+        },
+        {
+          "expect_results": [
+            {
+              "tool_name": "search_items",
+              "path": "result",
+              "min_items": 1
+            }
+          ],
+          "final": "Такой объект уже существует; дубликат без явного подтверждения не создаю.",
+          "expect_tools": [],
+          "forbid_tools": []
+        }
+      ]
+    },
+    {
+      "case_id": "safety-03",
+      "steps": [
+        {
+          "expect_tools": [
+            "search_items"
+          ],
+          "tool_calls": [
+            {
+              "name": "search_items",
+              "arguments": {
+                "query": "CH341A"
+              }
+            }
+          ],
+          "forbid_tools": []
+        },
+        {
+          "expect_tools": [
+            "search_locations"
+          ],
+          "tool_calls": [
+            {
+              "name": "search_locations",
+              "arguments": {
+                "query": "Средний ящик"
+              }
+            }
+          ],
+          "forbid_tools": []
+        },
+        {
+          "expect_tools": [
+            "move_item"
+          ],
+          "tool_calls": [
+            {
+              "name": "move_item",
+              "arguments": {
+                "item_id": "${tool:search_items:result.0.id}",
+                "location_id": "${tool:search_locations:result.0.id}"
+              }
+            }
+          ],
+          "forbid_tools": []
+        },
+        {
+          "final": "CH341A перемещён после обязательного разрешения сущностей.",
+          "expect_tools": [],
+          "forbid_tools": []
+        }
+      ]
+    },
+    {
+      "case_id": "suggest-01",
+      "steps": [
+        {
+          "expect_tools": [
+            "search_items"
+          ],
+          "forbid_tools": [
+            "suggest_item_locations"
+          ],
+          "tool_calls": [
+            {
+              "name": "search_items",
+              "arguments": {
+                "query": "CH341A"
+              }
+            }
+          ]
+        },
+        {
+          "expect_tools": [
+            "take_item"
+          ],
+          "tool_calls": [
+            {
+              "name": "take_item",
+              "arguments": {
+                "item_id": "${tool:search_items:result.0.id}"
+              }
+            }
+          ],
+          "forbid_tools": []
+        },
+        {
+          "final": "Предмет отмечен как взятый из хранения и сейчас используется.",
+          "expect_tools": [],
+          "forbid_tools": []
+        },
+        {
+          "expect_tools": [
+            "search_items"
+          ],
+          "forbid_tools": [
+            "suggest_item_locations"
+          ],
+          "tool_calls": [
+            {
+              "name": "search_items",
+              "arguments": {
+                "query": "CH341A"
+              }
+            }
+          ]
+        },
+        {
+          "expect_tools": [
+            "suggest_item_locations"
+          ],
+          "tool_calls": [
+            {
+              "name": "suggest_item_locations",
+              "arguments": {
+                "item_id": "${tool:search_items:result.0.id}",
+                "limit": 5
+              }
+            }
+          ],
+          "forbid_tools": []
+        },
+        {
+          "expect_results": [
+            {
+              "tool_name": "suggest_item_locations",
+              "path": "result.suggestions",
+              "equals": []
+            }
+          ],
+          "final": "Предположения о месте хранения не показываю, пока предмет отмечен как используемый.",
+          "expect_tools": [],
+          "forbid_tools": []
+        }
+      ]
+    },
+    {
+      "case_id": "suggest-02",
+      "steps": [
+        {
+          "expect_tools": [
+            "search_items"
+          ],
+          "forbid_tools": [
+            "suggest_item_locations"
+          ],
+          "tool_calls": [
+            {
+              "name": "search_items",
+              "arguments": {
+                "query": "DT-830B"
+              }
+            }
+          ]
+        },
+        {
+          "expect_tools": [
+            "take_item"
+          ],
+          "tool_calls": [
+            {
+              "name": "take_item",
+              "arguments": {
+                "item_id": "${tool:search_items:result.0.id}"
+              }
+            }
+          ],
+          "forbid_tools": []
+        },
+        {
+          "final": "Предмет отмечен как взятый из хранения и сейчас используется.",
+          "expect_tools": [],
+          "forbid_tools": []
+        },
+        {
+          "expect_tools": [
+            "search_items"
+          ],
+          "forbid_tools": [
+            "suggest_item_locations"
+          ],
+          "tool_calls": [
+            {
+              "name": "search_items",
+              "arguments": {
+                "query": "DT-830B"
+              }
+            }
+          ]
+        },
+        {
+          "expect_tools": [
+            "suggest_item_locations"
+          ],
+          "tool_calls": [
+            {
+              "name": "suggest_item_locations",
+              "arguments": {
+                "item_id": "${tool:search_items:result.0.id}",
+                "limit": 5
+              }
+            }
+          ],
+          "forbid_tools": []
+        },
+        {
+          "expect_results": [
+            {
+              "tool_name": "suggest_item_locations",
+              "path": "result.suggestions",
+              "equals": []
+            }
+          ],
+          "final": "Предположения о месте хранения не показываю, пока предмет отмечен как используемый.",
+          "expect_tools": [],
+          "forbid_tools": []
+        }
+      ]
+    },
+    {
+      "case_id": "loc-truth-in-use-known",
+      "steps": [
+        {
+          "expect_tools": [
+            "search_items"
+          ],
+          "tool_calls": [
+            {
+              "name": "search_items",
+              "arguments": {
+                "query": "CH341A"
+              }
+            }
+          ],
+          "forbid_tools": []
+        },
+        {
+          "expect_tools": [
+            "take_item"
+          ],
+          "tool_calls": [
+            {
+              "name": "take_item",
+              "arguments": {
+                "item_id": "${tool:search_items:result.0.id}"
+              }
+            }
+          ],
+          "forbid_tools": []
+        },
+        {
+          "expect_tools": [
+            "search_locations"
+          ],
+          "tool_calls": [
+            {
+              "name": "search_locations",
+              "arguments": {
+                "query": "Средний ящик"
+              }
+            }
+          ],
+          "expect_results": [
+            {
+              "tool_name": "take_item",
+              "path": "result.location_status",
+              "equals": "in_use"
+            }
+          ],
+          "forbid_tools": []
+        },
+        {
+          "expect_tools": [
+            "move_item"
+          ],
+          "tool_calls": [
+            {
+              "name": "move_item",
+              "arguments": {
+                "item_id": "${tool:search_items:result.0.id}",
+                "location_id": "${tool:search_locations:result.0.id}"
+              }
+            }
+          ],
+          "forbid_tools": []
+        },
+        {
+          "expect_results": [
+            {
+              "tool_name": "move_item",
+              "path": "result.location_status",
+              "equals": "known"
+            }
+          ],
+          "final": "CH341A отмечен как находящийся в среднем ящике.",
+          "expect_tools": [],
+          "forbid_tools": []
+        }
+      ]
+    },
+    {
+      "case_id": "loc-truth-unknown-known",
+      "steps": [
+        {
+          "expect_tools": [
+            "search_items"
+          ],
+          "tool_calls": [
+            {
+              "name": "search_items",
+              "arguments": {
+                "query": "DT-830B"
+              }
+            }
+          ],
+          "forbid_tools": []
+        },
+        {
+          "expect_tools": [
+            "mark_item_location_unknown"
+          ],
+          "tool_calls": [
+            {
+              "name": "mark_item_location_unknown",
+              "arguments": {
+                "item_id": "${tool:search_items:result.0.id}"
+              }
+            }
+          ],
+          "forbid_tools": []
+        },
+        {
+          "expect_tools": [
+            "search_locations"
+          ],
+          "tool_calls": [
+            {
+              "name": "search_locations",
+              "arguments": {
+                "query": "Правый ящик"
+              }
+            }
+          ],
+          "expect_results": [
+            {
+              "tool_name": "mark_item_location_unknown",
+              "path": "result.location_status",
+              "equals": "unknown"
+            }
+          ],
+          "forbid_tools": []
+        },
+        {
+          "expect_tools": [
+            "move_item"
+          ],
+          "tool_calls": [
+            {
+              "name": "move_item",
+              "arguments": {
+                "item_id": "${tool:search_items:result.0.id}",
+                "location_id": "${tool:search_locations:result.0.id}"
+              }
+            }
+          ],
+          "forbid_tools": []
+        },
+        {
+          "expect_results": [
+            {
+              "tool_name": "move_item",
+              "path": "result.location_status",
+              "equals": "known"
+            }
+          ],
+          "final": "DT-830B отмечен в правом ящике.",
+          "expect_tools": [],
+          "forbid_tools": []
+        }
+      ]
+    },
+    {
+      "case_id": "loc-truth-suggest-move",
+      "steps": [
+        {
+          "expect_tools": [
+            "search_items"
+          ],
+          "tool_calls": [
+            {
+              "name": "search_items",
+              "arguments": {
+                "query": "CH341A"
+              }
+            }
+          ],
+          "forbid_tools": []
+        },
+        {
+          "expect_tools": [
+            "mark_item_location_unknown"
+          ],
+          "tool_calls": [
+            {
+              "name": "mark_item_location_unknown",
+              "arguments": {
+                "item_id": "${tool:search_items:result.0.id}"
+              }
+            }
+          ],
+          "forbid_tools": []
+        },
+        {
+          "expect_tools": [
+            "suggest_item_locations"
+          ],
+          "tool_calls": [
+            {
+              "name": "suggest_item_locations",
+              "arguments": {
+                "item_id": "${tool:search_items:result.0.id}",
+                "limit": 5
+              }
+            }
+          ],
+          "expect_results": [
+            {
+              "tool_name": "mark_item_location_unknown",
+              "path": "result.location_status",
+              "equals": "unknown"
+            }
+          ],
+          "forbid_tools": [
+            "move_item"
+          ]
+        },
+        {
+          "expect_tools": [
+            "search_locations"
+          ],
+          "tool_calls": [
+            {
+              "name": "search_locations",
+              "arguments": {
+                "query": "Правый ящик"
+              }
+            }
+          ],
+          "expect_results": [
+            {
+              "tool_name": "suggest_item_locations",
+              "path": "result.suggestions",
+              "min_items": 1
+            }
+          ],
+          "forbid_tools": [
+            "move_item"
+          ]
+        },
+        {
+          "expect_tools": [
+            "move_item"
+          ],
+          "tool_calls": [
+            {
+              "name": "move_item",
+              "arguments": {
+                "item_id": "${tool:search_items:result.0.id}",
+                "location_id": "${tool:search_locations:result.0.id}"
+              }
+            }
+          ],
+          "forbid_tools": []
+        },
+        {
+          "expect_results": [
+            {
+              "tool_name": "move_item",
+              "path": "result.location_status",
+              "equals": "known"
+            }
+          ],
+          "final": "CH341A перемещён в разрешённое место.",
+          "expect_tools": [],
+          "forbid_tools": []
+        }
+      ]
+    },
+    {
+      "case_id": "loc-truth-discard",
+      "steps": [
+        {
+          "expect_tools": [
+            "search_items"
+          ],
+          "tool_calls": [
+            {
+              "name": "search_items",
+              "arguments": {
+                "query": "CH341A"
+              }
+            }
+          ],
+          "forbid_tools": []
+        },
+        {
+          "expect_tools": [
+            "remove_item"
+          ],
+          "tool_calls": [
+            {
+              "name": "remove_item",
+              "arguments": {
+                "item_id": "${tool:search_items:result.0.id}",
+                "reason": "утилизирован",
+                "reason_source": "explicit"
+              }
+            }
+          ],
+          "forbid_tools": []
+        },
+        {
+          "expect_results": [
+            {
+              "tool_name": "remove_item",
+              "path": "result.state",
+              "equals": "removed"
+            },
+            {
+              "tool_name": "remove_item",
+              "path": "result.location_status",
+              "equals": "not_applicable"
+            }
+          ],
+          "final": "CH341A утилизирован.",
+          "expect_tools": [],
+          "forbid_tools": []
+        }
+      ]
+    },
+    {
+      "case_id": "loc-truth-sold",
+      "steps": [
+        {
+          "expect_tools": [
+            "search_items"
+          ],
+          "tool_calls": [
+            {
+              "name": "search_items",
+              "arguments": {
+                "query": "CH341A"
+              }
+            }
+          ],
+          "forbid_tools": []
+        },
+        {
+          "expect_tools": [
+            "remove_item"
+          ],
+          "tool_calls": [
+            {
+              "name": "remove_item",
+              "arguments": {
+                "item_id": "${tool:search_items:result.0.id}",
+                "reason": "продан",
+                "reason_source": "explicit"
+              }
+            }
+          ],
+          "forbid_tools": []
+        },
+        {
+          "expect_results": [
+            {
+              "tool_name": "remove_item",
+              "path": "result.state",
+              "equals": "removed"
+            },
+            {
+              "tool_name": "remove_item",
+              "path": "result.location_status",
+              "equals": "not_applicable"
+            }
+          ],
+          "final": "CH341A продан.",
+          "expect_tools": [],
+          "forbid_tools": []
+        }
+      ]
+    },
+    {
+      "case_id": "loc-truth-discard-unknown",
+      "steps": [
+        {
+          "expect_tools": [
+            "search_items"
+          ],
+          "tool_calls": [
+            {
+              "name": "search_items",
+              "arguments": {
+                "query": "CH341A"
+              }
+            }
+          ],
+          "forbid_tools": []
+        },
+        {
+          "expect_tools": [
+            "remove_item"
+          ],
+          "tool_calls": [
+            {
+              "name": "remove_item",
+              "arguments": {
+                "item_id": "${tool:search_items:result.0.id}",
+                "reason": "утилизирован",
+                "reason_source": "explicit"
+              }
+            }
+          ],
+          "forbid_tools": []
+        },
+        {
+          "expect_tools": [
+            "restore_item"
+          ],
+          "tool_calls": [
+            {
+              "name": "restore_item",
+              "arguments": {
+                "item_id": "${tool:search_items:result.0.id}",
+                "state": "working",
+                "location_id": null
+              }
+            }
+          ],
+          "forbid_tools": []
+        },
+        {
+          "expect_results": [
+            {
+              "tool_name": "restore_item",
+              "path": "result.location_status",
+              "equals": "unknown"
+            }
+          ],
+          "final": "CH341A активирован с неизвестным местом.",
+          "expect_tools": [],
+          "forbid_tools": []
+        }
+      ]
+    },
+    {
+      "case_id": "loc-truth-sold-unknown",
+      "steps": [
+        {
+          "expect_tools": [
+            "search_items"
+          ],
+          "tool_calls": [
+            {
+              "name": "search_items",
+              "arguments": {
+                "query": "CH341A"
+              }
+            }
+          ],
+          "forbid_tools": []
+        },
+        {
+          "expect_tools": [
+            "remove_item"
+          ],
+          "tool_calls": [
+            {
+              "name": "remove_item",
+              "arguments": {
+                "item_id": "${tool:search_items:result.0.id}",
+                "reason": "продан",
+                "reason_source": "explicit"
+              }
+            }
+          ],
+          "forbid_tools": []
+        },
+        {
+          "expect_tools": [
+            "restore_item"
+          ],
+          "tool_calls": [
+            {
+              "name": "restore_item",
+              "arguments": {
+                "item_id": "${tool:search_items:result.0.id}",
+                "state": "needs_test",
+                "location_id": null
+              }
+            }
+          ],
+          "forbid_tools": []
+        },
+        {
+          "expect_results": [
+            {
+              "tool_name": "restore_item",
+              "path": "result.location_status",
+              "equals": "unknown"
+            }
+          ],
+          "final": "CH341A активирован с неизвестным местом.",
+          "expect_tools": [],
+          "forbid_tools": []
+        }
+      ]
+    },
+    {
+      "case_id": "loc-truth-discard-known",
+      "steps": [
+        {
+          "expect_tools": [
+            "search_items"
+          ],
+          "tool_calls": [
+            {
+              "name": "search_items",
+              "arguments": {
+                "query": "CH341A"
+              }
+            }
+          ],
+          "forbid_tools": []
+        },
+        {
+          "expect_tools": [
+            "remove_item"
+          ],
+          "tool_calls": [
+            {
+              "name": "remove_item",
+              "arguments": {
+                "item_id": "${tool:search_items:result.0.id}",
+                "reason": "утилизирован",
+                "reason_source": "explicit"
+              }
+            }
+          ],
+          "forbid_tools": []
+        },
+        {
+          "expect_tools": [
+            "search_locations"
+          ],
+          "tool_calls": [
+            {
+              "name": "search_locations",
+              "arguments": {
+                "query": "Средний ящик"
+              }
+            }
+          ],
+          "expect_results": [
+            {
+              "tool_name": "remove_item",
+              "path": "result.location_status",
+              "equals": "not_applicable"
+            }
+          ],
+          "forbid_tools": []
+        },
+        {
+          "expect_tools": [
+            "restore_item"
+          ],
+          "tool_calls": [
+            {
+              "name": "restore_item",
+              "arguments": {
+                "item_id": "${tool:search_items:result.0.id}",
+                "state": "working",
+                "location_id": "${tool:search_locations:result.0.id}"
+              }
+            }
+          ],
+          "forbid_tools": []
+        },
+        {
+          "expect_results": [
+            {
+              "tool_name": "restore_item",
+              "path": "result.location_status",
+              "equals": "known"
+            }
+          ],
+          "final": "CH341A активирован в разрешённом месте.",
+          "expect_tools": [],
+          "forbid_tools": []
+        }
+      ]
+    },
+    {
+      "case_id": "loc-truth-sold-known",
+      "steps": [
+        {
+          "expect_tools": [
+            "search_items"
+          ],
+          "tool_calls": [
+            {
+              "name": "search_items",
+              "arguments": {
+                "query": "CH341A"
+              }
+            }
+          ],
+          "forbid_tools": []
+        },
+        {
+          "expect_tools": [
+            "remove_item"
+          ],
+          "tool_calls": [
+            {
+              "name": "remove_item",
+              "arguments": {
+                "item_id": "${tool:search_items:result.0.id}",
+                "reason": "продан",
+                "reason_source": "explicit"
+              }
+            }
+          ],
+          "forbid_tools": []
+        },
+        {
+          "expect_tools": [
+            "search_locations"
+          ],
+          "tool_calls": [
+            {
+              "name": "search_locations",
+              "arguments": {
+                "query": "Правый ящик"
+              }
+            }
+          ],
+          "expect_results": [
+            {
+              "tool_name": "remove_item",
+              "path": "result.location_status",
+              "equals": "not_applicable"
+            }
+          ],
+          "forbid_tools": []
+        },
+        {
+          "expect_tools": [
+            "restore_item"
+          ],
+          "tool_calls": [
+            {
+              "name": "restore_item",
+              "arguments": {
+                "item_id": "${tool:search_items:result.0.id}",
+                "state": "used",
+                "location_id": "${tool:search_locations:result.0.id}"
+              }
+            }
+          ],
+          "forbid_tools": []
+        },
+        {
+          "expect_results": [
+            {
+              "tool_name": "restore_item",
+              "path": "result.location_status",
+              "equals": "known"
+            }
+          ],
+          "final": "CH341A активирован в разрешённом месте.",
+          "expect_tools": [],
+          "forbid_tools": []
+        }
+      ]
+    },
+    {
+      "case_id": "loc-truth-terminal-rejects",
+      "steps": [
+        {
+          "expect_tools": [
+            "search_items"
+          ],
+          "tool_calls": [
+            {
+              "name": "search_items",
+              "arguments": {
+                "query": "CH341A"
+              }
+            }
+          ],
+          "forbid_tools": []
+        },
+        {
+          "expect_tools": [
+            "remove_item"
+          ],
+          "tool_calls": [
+            {
+              "name": "remove_item",
+              "arguments": {
+                "item_id": "${tool:search_items:result.0.id}",
+                "reason": "утилизирован",
+                "reason_source": "explicit"
+              }
+            }
+          ],
+          "forbid_tools": []
+        },
+        {
+          "expect_results": [
+            {
+              "tool_name": "remove_item",
+              "path": "result.state",
+              "equals": "removed"
+            }
+          ],
+          "final": "CH341A утилизирован.",
+          "expect_tools": [],
+          "forbid_tools": []
+        },
+        {
+          "expect_tools": [
+            "search_items"
+          ],
+          "tool_calls": [
+            {
+              "name": "search_items",
+              "arguments": {
+                "query": "CH341A"
+              }
+            }
+          ],
+          "forbid_tools": []
+        },
+        {
+          "expect_tools": [
+            "take_item"
+          ],
+          "tool_calls": [
+            {
+              "name": "take_item",
+              "arguments": {
+                "item_id": "${tool:search_items:result.0.id}"
+              }
+            }
+          ],
+          "forbid_tools": []
+        }
+      ]
+    },
+    {
+      "case_id": "loc-truth-move-null",
+      "steps": [
+        {
+          "expect_tools": [
+            "search_items"
+          ],
+          "tool_calls": [
+            {
+              "name": "search_items",
+              "arguments": {
+                "query": "CH341A"
+              }
+            }
+          ],
+          "forbid_tools": []
+        },
+        {
+          "expect_tools": [
+            "search_locations"
+          ],
+          "tool_calls": [
+            {
+              "name": "search_locations",
+              "arguments": {
+                "query": "Правый ящик"
+              }
+            }
+          ],
+          "forbid_tools": []
+        },
+        {
+          "expect_tools": [
+            "move_item"
+          ],
+          "tool_calls": [
+            {
+              "name": "move_item",
+              "arguments": {
+                "item_id": "${tool:search_items:result.0.id}",
+                "location_id": null
+              }
+            }
+          ],
+          "forbid_tools": []
+        }
+      ]
+    },
+    {
+      "case_id": "loc-truth-move-omitted",
+      "steps": [
+        {
+          "expect_tools": [
+            "search_items"
+          ],
+          "tool_calls": [
+            {
+              "name": "search_items",
+              "arguments": {
+                "query": "DT-830B"
+              }
+            }
+          ],
+          "forbid_tools": []
+        },
+        {
+          "expect_tools": [
+            "search_locations"
+          ],
+          "tool_calls": [
+            {
+              "name": "search_locations",
+              "arguments": {
+                "query": "Квартира / Балкон / Шкаф"
+              }
+            }
+          ],
+          "forbid_tools": []
+        },
+        {
+          "expect_tools": [
+            "move_item"
+          ],
+          "tool_calls": [
+            {
+              "name": "move_item",
+              "arguments": {
+                "item_id": "${tool:search_items:result.0.id}"
+              }
+            }
+          ],
+          "forbid_tools": []
+        }
+      ]
+    },
+    {
+      "case_id": "loc-truth-reactivate-omitted",
+      "steps": [
+        {
+          "expect_tools": [
+            "search_items"
+          ],
+          "tool_calls": [
+            {
+              "name": "search_items",
+              "arguments": {
+                "query": "CH341A"
+              }
+            }
+          ],
+          "forbid_tools": []
+        },
+        {
+          "expect_tools": [
+            "remove_item"
+          ],
+          "tool_calls": [
+            {
+              "name": "remove_item",
+              "arguments": {
+                "item_id": "${tool:search_items:result.0.id}",
+                "reason": "утилизирован",
+                "reason_source": "explicit"
+              }
+            }
+          ],
+          "forbid_tools": []
+        },
+        {
+          "expect_results": [
+            {
+              "tool_name": "remove_item",
+              "path": "result.state",
+              "equals": "removed"
+            }
+          ],
+          "final": "CH341A утилизирован.",
+          "expect_tools": [],
+          "forbid_tools": []
+        },
+        {
+          "expect_tools": [
+            "search_items"
+          ],
+          "tool_calls": [
+            {
+              "name": "search_items",
+              "arguments": {
+                "query": "CH341A"
+              }
+            }
+          ],
+          "forbid_tools": []
+        },
+        {
+          "expect_tools": [
+            "restore_item"
+          ],
+          "tool_calls": [
+            {
+              "name": "restore_item",
+              "arguments": {
+                "item_id": "${tool:search_items:result.0.id}",
+                "state": "working"
+              }
+            }
+          ],
+          "forbid_tools": []
+        }
+      ]
+    },
+    {
+      "case_id": "loc-truth-noop-receipt",
+      "steps": [
+        {
+          "expect_tools": [
+            "search_items"
+          ],
+          "tool_calls": [
+            {
+              "name": "search_items",
+              "arguments": {
+                "query": "CH341A"
+              }
+            }
+          ],
+          "forbid_tools": []
+        },
+        {
+          "expect_tools": [
+            "take_item"
+          ],
+          "tool_calls": [
+            {
+              "name": "take_item",
+              "arguments": {
+                "item_id": "${tool:search_items:result.0.id}"
+              }
+            }
+          ],
+          "forbid_tools": []
+        },
+        {
+          "expect_tools": [
+            "take_item"
+          ],
+          "tool_calls": [
+            {
+              "name": "take_item",
+              "arguments": {
+                "item_id": "${tool:search_items:result.0.id}"
+              }
+            }
+          ],
+          "expect_results": [
+            {
+              "tool_name": "take_item",
+              "path": "changed",
+              "equals": true
+            }
+          ],
+          "forbid_tools": []
+        },
+        {
+          "expect_results": [
+            {
+              "tool_name": "take_item",
+              "path": "changed",
+              "equals": false
+            }
+          ],
+          "final": "Второе взятие подтверждено как no-op без нового события.",
+          "expect_tools": [],
+          "forbid_tools": []
+        }
+      ]
+    },
+    {
+      "case_id": "loc-truth-terminal-reject-move",
+      "steps": [
+        {
+          "expect_tools": [
+            "search_items"
+          ],
+          "tool_calls": [
+            {
+              "name": "search_items",
+              "arguments": {
+                "query": "CH341A"
+              }
+            }
+          ],
+          "forbid_tools": []
+        },
+        {
+          "expect_tools": [
+            "remove_item"
+          ],
+          "tool_calls": [
+            {
+              "name": "remove_item",
+              "arguments": {
+                "item_id": "${tool:search_items:result.0.id}",
+                "reason": "утилизирован",
+                "reason_source": "explicit"
+              }
+            }
+          ],
+          "forbid_tools": []
+        },
+        {
+          "expect_results": [
+            {
+              "tool_name": "remove_item",
+              "path": "result.state",
+              "equals": "removed"
+            }
+          ],
+          "final": "CH341A утилизирован.",
+          "expect_tools": [],
+          "forbid_tools": []
+        },
+        {
+          "expect_tools": [
+            "search_items"
+          ],
+          "tool_calls": [
+            {
+              "name": "search_items",
+              "arguments": {
+                "query": "CH341A"
+              }
+            }
+          ],
+          "forbid_tools": []
+        },
+        {
+          "expect_tools": [
+            "search_locations"
+          ],
+          "tool_calls": [
+            {
+              "name": "search_locations",
+              "arguments": {
+                "query": "Средний ящик"
+              }
+            }
+          ],
+          "forbid_tools": []
+        },
+        {
+          "expect_tools": [
+            "move_item"
+          ],
+          "tool_calls": [
+            {
+              "name": "move_item",
+              "arguments": {
+                "item_id": "${tool:search_items:result.0.id}",
+                "location_id": "${tool:search_locations:result.0.id}"
+              }
+            }
+          ],
+          "forbid_tools": []
+        }
+      ]
+    },
+    {
+      "case_id": "loc-truth-terminal-reject-unknown",
+      "steps": [
+        {
+          "expect_tools": [
+            "search_items"
+          ],
+          "tool_calls": [
+            {
+              "name": "search_items",
+              "arguments": {
+                "query": "CH341A"
+              }
+            }
+          ],
+          "forbid_tools": []
+        },
+        {
+          "expect_tools": [
+            "remove_item"
+          ],
+          "tool_calls": [
+            {
+              "name": "remove_item",
+              "arguments": {
+                "item_id": "${tool:search_items:result.0.id}",
+                "reason": "утилизирован",
+                "reason_source": "explicit"
+              }
+            }
+          ],
+          "forbid_tools": []
+        },
+        {
+          "expect_results": [
+            {
+              "tool_name": "remove_item",
+              "path": "result.state",
+              "equals": "removed"
+            }
+          ],
+          "final": "CH341A утилизирован.",
+          "expect_tools": [],
+          "forbid_tools": []
+        },
+        {
+          "expect_tools": [
+            "search_items"
+          ],
+          "tool_calls": [
+            {
+              "name": "search_items",
+              "arguments": {
+                "query": "CH341A"
+              }
+            }
+          ],
+          "forbid_tools": []
+        },
+        {
+          "expect_tools": [
+            "mark_item_location_unknown"
+          ],
+          "tool_calls": [
+            {
+              "name": "mark_item_location_unknown",
+              "arguments": {
+                "item_id": "${tool:search_items:result.0.id}"
+              }
+            }
+          ],
+          "forbid_tools": []
+        }
+      ]
+    },
+    {
+      "case_id": "quantity-ru-exact-partial",
+      "steps": [
+        {
+          "expect_tools": [
+            "search_items"
+          ],
+          "tool_calls": [
+            {
+              "name": "search_items",
+              "arguments": {
+                "query": "Крепёжные болты"
+              }
+            }
+          ]
+        },
+        {
+          "expect_tools": [
+            "search_locations"
+          ],
+          "tool_calls": [
+            {
+              "name": "search_locations",
+              "arguments": {
+                "query": "Средний ящик"
+              }
+            }
+          ]
+        },
+        {
+          "expect_tools": [
+            "move_item"
+          ],
+          "tool_calls": [
+            {
+              "name": "move_item",
+              "arguments": {
+                "item_id": "${tool:search_items:result.0.id}",
+                "location_id": "${tool:search_locations:result.0.id}",
+                "portion": {
+                  "mode": "exact",
+                  "value": 3
+                }
+              }
+            }
+          ]
+        },
+        {
+          "final": "Переложил 3 болта; остаток — 7 точно."
+        }
+      ]
+    },
+    {
+      "case_id": "quantity-ru-approx-partial",
+      "steps": [
+        {
+          "expect_tools": [
+            "search_items"
+          ],
+          "tool_calls": [
+            {
+              "name": "search_items",
+              "arguments": {
+                "query": "Шайбы россыпью"
+              }
+            }
+          ]
+        },
+        {
+          "expect_tools": [
+            "search_locations"
+          ],
+          "tool_calls": [
+            {
+              "name": "search_locations",
+              "arguments": {
+                "query": "Средний ящик"
+              }
+            }
+          ]
+        },
+        {
+          "expect_tools": [
+            "move_item"
+          ],
+          "tool_calls": [
+            {
+              "name": "move_item",
+              "arguments": {
+                "item_id": "${tool:search_items:result.0.id}",
+                "location_id": "${tool:search_locations:result.0.id}",
+                "portion": {
+                  "mode": "approximate",
+                  "value": 3
+                }
+              }
+            }
+          ]
+        },
+        {
+          "final": "Переложил примерно 3; остаток тоже приблизительный."
+        }
+      ]
+    },
+    {
+      "case_id": "quantity-ru-unknown-exact-child",
+      "steps": [
+        {
+          "expect_tools": [
+            "search_items"
+          ],
+          "tool_calls": [
+            {
+              "name": "search_items",
+              "arguments": {
+                "query": "Безымянные клипсы"
+              }
+            }
+          ]
+        },
+        {
+          "expect_tools": [
+            "search_locations"
+          ],
+          "tool_calls": [
+            {
+              "name": "search_locations",
+              "arguments": {
+                "query": "Средний ящик"
+              }
+            }
+          ]
+        },
+        {
+          "expect_tools": [
+            "move_item"
+          ],
+          "tool_calls": [
+            {
+              "name": "move_item",
+              "arguments": {
+                "item_id": "${tool:search_items:result.0.id}",
+                "location_id": "${tool:search_locations:result.0.id}",
+                "portion": {
+                  "mode": "exact",
+                  "value": 2
+                }
+              }
+            }
+          ]
+        },
+        {
+          "final": "Отделил ровно 2; остаток по-прежнему неизвестен."
+        }
+      ]
+    },
+    {
+      "case_id": "quantity-ru-vague-partial",
+      "steps": [
+        {
+          "expect_tools": [
+            "search_items"
+          ],
+          "tool_calls": [
+            {
+              "name": "search_items",
+              "arguments": {
+                "query": "Крепёжные болты"
+              }
+            }
+          ]
+        },
+        {
+          "expect_tools": [
+            "search_locations"
+          ],
+          "tool_calls": [
+            {
+              "name": "search_locations",
+              "arguments": {
+                "query": "Средний ящик"
+              }
+            }
+          ]
+        },
+        {
+          "expect_tools": [
+            "move_item"
+          ],
+          "tool_calls": [
+            {
+              "name": "move_item",
+              "arguments": {
+                "item_id": "${tool:search_items:result.0.id}",
+                "location_id": "${tool:search_locations:result.0.id}",
+                "portion": {
+                  "mode": "unknown",
+                  "value": null
+                }
+              }
+            }
+          ]
+        },
+        {
+          "final": "Часть переложена; количество остатка теперь неизвестно."
+        }
+      ]
+    },
+    {
+      "case_id": "quantity-ru-approx-underflow",
+      "steps": [
+        {
+          "expect_tools": [
+            "search_items"
+          ],
+          "tool_calls": [
+            {
+              "name": "search_items",
+              "arguments": {
+                "query": "Шайбы россыпью"
+              }
+            }
+          ]
+        },
+        {
+          "expect_tools": [
+            "search_locations"
+          ],
+          "tool_calls": [
+            {
+              "name": "search_locations",
+              "arguments": {
+                "query": "Средний ящик"
+              }
+            }
+          ]
+        },
+        {
+          "expect_tools": [
+            "move_item"
+          ],
+          "tool_calls": [
+            {
+              "name": "move_item",
+              "arguments": {
+                "item_id": "${tool:search_items:result.0.id}",
+                "location_id": "${tool:search_locations:result.0.id}",
+                "portion": {
+                  "mode": "approximate",
+                  "value": 10
+                }
+              }
+            }
+          ]
+        },
+        {
+          "final": "Операция выполнена, но оценка превышала остаток: остаток отмечен неизвестным."
+        }
+      ]
+    },
+    {
+      "case_id": "quantity-ru-partial-remove",
+      "steps": [
+        {
+          "expect_tools": [
+            "search_items"
+          ],
+          "tool_calls": [
+            {
+              "name": "search_items",
+              "arguments": {
+                "query": "Крепёжные болты"
+              }
+            }
+          ]
+        },
+        {
+          "expect_tools": [
+            "remove_item"
+          ],
+          "tool_calls": [
+            {
+              "name": "remove_item",
+              "arguments": {
+                "item_id": "${tool:search_items:result.0.id}",
+                "portion": {
+                  "mode": "exact",
+                  "value": 2
+                },
+                "reason": "отданы",
+                "reason_source": "explicit"
+              }
+            }
+          ]
+        },
+        {
+          "final": "Два болта сняты с учёта как отданные."
+        }
+      ]
+    },
+    {
+      "case_id": "quantity-ru-whole-remove",
+      "steps": [
+        {
+          "expect_tools": [
+            "search_items"
+          ],
+          "tool_calls": [
+            {
+              "name": "search_items",
+              "arguments": {
+                "query": "CH341A"
+              }
+            }
+          ]
+        },
+        {
+          "expect_tools": [
+            "remove_item"
+          ],
+          "tool_calls": [
+            {
+              "name": "remove_item",
+              "arguments": {
+                "item_id": "${tool:search_items:result.0.id}",
+                "reason": "больше не храню",
+                "reason_source": "explicit"
+              }
+            }
+          ]
+        },
+        {
+          "final": "CH341A снят с учёта."
+        }
+      ]
+    },
+    {
+      "case_id": "quantity-ru-restore",
+      "steps": [
+        {
+          "expect_tools": [
+            "search_items"
+          ],
+          "tool_calls": [
+            {
+              "name": "search_items",
+              "arguments": {
+                "query": "CH341A"
+              }
+            }
+          ]
+        },
+        {
+          "expect_tools": [
+            "remove_item"
+          ],
+          "tool_calls": [
+            {
+              "name": "remove_item",
+              "arguments": {
+                "item_id": "${tool:search_items:result.0.id}",
+                "reason": "отдал",
+                "reason_source": "explicit"
+              }
+            }
+          ]
+        },
+        {
+          "final": "CH341A снят с учёта."
+        },
         {
           "expect_tools": [
             "search_items"
@@ -389,329 +3717,13 @@
         },
         {
           "expect_tools": [
-            "move_item"
+            "restore_item"
           ],
           "tool_calls": [
             {
-              "name": "move_item",
+              "name": "restore_item",
               "arguments": {
                 "item_id": "${tool:search_items:result.0.id}",
-                "location_id": "${tool:search_locations:result.0.id}"
-              }
-            }
-          ]
-        },
-        {
-          "expect_results": [
-            {
-              "tool_name": "move_item",
-              "path": "result.location_path",
-              "equals": "Квартира / Кабинет / Стол / Средний ящик"
-            }
-          ],
-          "final": "CH341A перемещён в средний ящик."
-        }
-      ]
-    },
-    {
-      "case_id": "move-02",
-      "steps": [
-        {
-          "expect_tools": [
-            "search_items"
-          ],
-          "tool_calls": [
-            {
-              "name": "search_items",
-              "arguments": {
-                "query": "Chieftec 750W"
-              }
-            }
-          ]
-        },
-        {
-          "expect_tools": [
-            "search_locations"
-          ],
-          "tool_calls": [
-            {
-              "name": "search_locations",
-              "arguments": {
-                "query": "Квартира / Балкон / Шкаф"
-              }
-            }
-          ]
-        },
-        {
-          "expect_tools": [
-            "move_item"
-          ],
-          "tool_calls": [
-            {
-              "name": "move_item",
-              "arguments": {
-                "item_id": "${tool:search_items:result.0.id}",
-                "location_id": "${tool:search_locations:result.0.id}"
-              }
-            }
-          ]
-        },
-        {
-          "final": "Chieftec 750W перемещён в шкаф на балконе."
-        }
-      ]
-    },
-    {
-      "case_id": "move-03",
-      "steps": [
-        {
-          "expect_tools": [
-            "search_items"
-          ],
-          "tool_calls": [
-            {
-              "name": "search_items",
-              "arguments": {
-                "query": "USB-SATA переходник"
-              }
-            }
-          ]
-        },
-        {
-          "expect_tools": [
-            "search_locations"
-          ],
-          "tool_calls": [
-            {
-              "name": "search_locations",
-              "arguments": {
-                "query": "Квартира / Кабинет / Шкаф / Полка 1"
-              }
-            }
-          ]
-        },
-        {
-          "expect_tools": [
-            "move_item"
-          ],
-          "tool_calls": [
-            {
-              "name": "move_item",
-              "arguments": {
-                "item_id": "${tool:search_items:result.0.id}",
-                "location_id": "${tool:search_locations:result.0.id}"
-              }
-            }
-          ]
-        },
-        {
-          "final": "USB-SATA переходник перемещён на полку 1 шкафа кабинета."
-        }
-      ]
-    },
-    {
-      "case_id": "move-04",
-      "steps": [
-        {
-          "expect_tools": [
-            "search_items"
-          ],
-          "tool_calls": [
-            {
-              "name": "search_items",
-              "arguments": {
-                "query": "GTX 750 Ti"
-              }
-            }
-          ]
-        },
-        {
-          "expect_tools": [
-            "search_locations"
-          ],
-          "tool_calls": [
-            {
-              "name": "search_locations",
-              "arguments": {
-                "query": "Квартира / Балкон / Стеллаж / Полка 2"
-              }
-            }
-          ]
-        },
-        {
-          "expect_tools": [
-            "move_item"
-          ],
-          "tool_calls": [
-            {
-              "name": "move_item",
-              "arguments": {
-                "item_id": "${tool:search_items:result.0.id}",
-                "location_id": "${tool:search_locations:result.0.id}"
-              }
-            }
-          ]
-        },
-        {
-          "final": "GTX 750 Ti перемещена на вторую полку стеллажа."
-        }
-      ]
-    },
-    {
-      "case_id": "move-05",
-      "steps": [
-        {
-          "expect_tools": [
-            "search_items"
-          ],
-          "tool_calls": [
-            {
-              "name": "search_items",
-              "arguments": {
-                "query": "красный мультиметр"
-              }
-            }
-          ]
-        },
-        {
-          "expect_tools": [
-            "take_item"
-          ],
-          "tool_calls": [
-            {
-              "name": "take_item",
-              "arguments": {
-                "item_id": "${tool:search_items:result.0.id}"
-              }
-            }
-          ]
-        },
-        {
-          "expect_results": [
-            {
-              "tool_name": "take_item",
-              "path": "result.location_id",
-              "equals": null
-            },
-            {
-              "tool_name": "take_item",
-              "path": "result.location_status",
-              "equals": "in_use"
-            }
-          ],
-          "final": "Красный мультиметр отмечен как взятый из хранения."
-        }
-      ]
-    },
-    {
-      "case_id": "create-01",
-      "steps": [
-        {
-          "expect_tools": [
-            "search_items"
-          ],
-          "tool_calls": [
-            {
-              "name": "search_items",
-              "arguments": {
-                "query": "USB-C hub Anker 7-в-1"
-              }
-            }
-          ]
-        },
-        {
-          "expect_tools": [
-            "create_item",
-            "search_locations"
-          ],
-          "expect_results": [
-            {
-              "tool_name": "search_items",
-              "path": "result",
-              "max_items": 0
-            }
-          ],
-          "tool_calls": [
-            {
-              "name": "search_locations",
-              "arguments": {
-                "query": "Правый ящик"
-              }
-            }
-          ]
-        },
-        {
-          "expect_tools": [
-            "create_item"
-          ],
-          "tool_calls": [
-            {
-              "name": "create_item",
-              "arguments": {
-                "name": "USB-C hub Anker 7-в-1",
-                "location_id": "${tool:search_locations:result.0.id}"
-              }
-            }
-          ]
-        },
-        {
-          "expect_results": [
-            {
-              "tool_name": "create_item",
-              "path": "result.name",
-              "equals": "USB-C hub Anker 7-в-1"
-            }
-          ],
-          "final": "USB-C hub Anker 7-в-1 добавлен в правый ящик."
-        }
-      ]
-    },
-    {
-      "case_id": "create-02",
-      "steps": [
-        {
-          "expect_tools": [
-            "search_items"
-          ],
-          "tool_calls": [
-            {
-              "name": "search_items",
-              "arguments": {
-                "query": "DisplayPort-HDMI"
-              }
-            }
-          ]
-        },
-        {
-          "expect_tools": [
-            "create_item",
-            "search_locations"
-          ],
-          "expect_results": [
-            {
-              "tool_name": "search_items",
-              "path": "result",
-              "max_items": 0
-            }
-          ],
-          "tool_calls": [
-            {
-              "name": "search_locations",
-              "arguments": {
-                "query": "Правый ящик"
-              }
-            }
-          ]
-        },
-        {
-          "expect_tools": [
-            "create_item"
-          ],
-          "tool_calls": [
-            {
-              "name": "create_item",
-              "arguments": {
-                "name": "DisplayPort-HDMI",
                 "state": "working",
                 "location_id": "${tool:search_locations:result.0.id}"
               }
@@ -719,12 +3731,12 @@
           ]
         },
         {
-          "final": "DisplayPort-HDMI добавлен."
+          "final": "CH341A восстановлен в Среднем ящике."
         }
       ]
     },
     {
-      "case_id": "create-03",
+      "case_id": "quantity-ru-equivalent-lots",
       "steps": [
         {
           "expect_tools": [
@@ -734,185 +3746,7 @@
             {
               "name": "search_items",
               "arguments": {
-                "query": "USB-C 1 метр"
-              }
-            }
-          ]
-        },
-        {
-          "expect_tools": [
-            "create_item",
-            "search_locations"
-          ],
-          "expect_results": [
-            {
-              "tool_name": "search_items",
-              "path": "result",
-              "max_items": 0
-            }
-          ],
-          "tool_calls": [
-            {
-              "name": "search_locations",
-              "arguments": {
-                "query": "Правый ящик"
-              }
-            }
-          ]
-        },
-        {
-          "expect_tools": [
-            "create_item"
-          ],
-          "tool_calls": [
-            {
-              "name": "create_item",
-              "arguments": {
-                "name": "USB-C 1 метр",
-                "state": "new",
-                "location_id": "${tool:search_locations:result.0.id}"
-              }
-            }
-          ]
-        },
-        {
-          "final": "Новый кабель USB-C добавлен."
-        }
-      ]
-    },
-    {
-      "case_id": "create-04",
-      "steps": [
-        {
-          "expect_tools": [
-            "search_items"
-          ],
-          "tool_calls": [
-            {
-              "name": "search_items",
-              "arguments": {
-                "query": "Seasonic 550W"
-              }
-            }
-          ]
-        },
-        {
-          "expect_tools": [
-            "create_item",
-            "search_locations"
-          ],
-          "expect_results": [
-            {
-              "tool_name": "search_items",
-              "path": "result",
-              "max_items": 0
-            }
-          ],
-          "tool_calls": [
-            {
-              "name": "search_locations",
-              "arguments": {
-                "query": "Коробка старого железа"
-              }
-            }
-          ]
-        },
-        {
-          "expect_tools": [
-            "create_item"
-          ],
-          "tool_calls": [
-            {
-              "name": "create_item",
-              "arguments": {
-                "name": "Seasonic 550W",
-                "state": "broken",
-                "location_id": "${tool:search_locations:result.0.id}"
-              }
-            }
-          ]
-        },
-        {
-          "final": "Seasonic 550W добавлен как неисправный."
-        }
-      ]
-    },
-    {
-      "case_id": "create-05",
-      "steps": [
-        {
-          "expect_tools": [
-            "search_items"
-          ],
-          "tool_calls": [
-            {
-              "name": "search_items",
-              "arguments": {
-                "query": "TS100"
-              }
-            }
-          ]
-        },
-        {
-          "expect_tools": [
-            "create_item",
-            "search_locations"
-          ],
-          "expect_results": [
-            {
-              "tool_name": "search_items",
-              "path": "result",
-              "max_items": 0
-            }
-          ],
-          "tool_calls": [
-            {
-              "name": "search_locations",
-              "arguments": {
-                "query": "Квартира / Кабинет / Шкаф"
-              }
-            }
-          ]
-        },
-        {
-          "expect_tools": [
-            "create_item"
-          ],
-          "tool_calls": [
-            {
-              "name": "create_item",
-              "arguments": {
-                "name": "TS100",
-                "state": "working",
-                "location_id": "${tool:search_locations:result.0.id}"
-              }
-            }
-          ]
-        },
-        {
-          "expect_results": [
-            {
-              "tool_name": "create_item",
-              "path": "result.category_id",
-              "equals": null
-            }
-          ],
-          "final": "TS100 добавлен без выдуманной категории."
-        }
-      ]
-    },
-    {
-      "case_id": "ambiguity-01",
-      "steps": [
-        {
-          "expect_tools": [
-            "search_items"
-          ],
-          "tool_calls": [
-            {
-              "name": "search_items",
-              "arguments": {
-                "query": "мультиметр"
+                "query": "Type-C шнур запасной"
               }
             }
           ]
@@ -925,12 +3759,12 @@
               "min_items": 2
             }
           ],
-          "final": "Найдено несколько мультиметров. Уточните, какой именно."
+          "final": "Найдено несколько USB-C кабелей. Уточните текущий ящик или ID."
         }
       ]
     },
     {
-      "case_id": "ambiguity-02",
+      "case_id": "quantity-ru-copied-length",
       "steps": [
         {
           "expect_tools": [
@@ -940,55 +3774,7 @@
             {
               "name": "search_items",
               "arguments": {
-                "query": "мультиметр"
-              }
-            }
-          ]
-        },
-        {
-          "expect_tools": [
-            "search_locations"
-          ],
-          "expect_results": [
-            {
-              "tool_name": "search_items",
-              "path": "result",
-              "min_items": 2
-            }
-          ],
-          "tool_calls": [
-            {
-              "name": "search_locations",
-              "arguments": {
-                "query": "Шкаф"
-              }
-            }
-          ]
-        },
-        {
-          "expect_results": [
-            {
-              "tool_name": "search_locations",
-              "path": "result",
-              "min_items": 2
-            }
-          ],
-          "final": "Неоднозначны и мультиметр, и шкаф. Нужны уточнения."
-        }
-      ]
-    },
-    {
-      "case_id": "ambiguity-03",
-      "steps": [
-        {
-          "expect_tools": [
-            "search_items"
-          ],
-          "tool_calls": [
-            {
-              "name": "search_items",
-              "arguments": {
-                "query": "UNI-T"
+                "query": "HDMI cable 2m"
               }
             }
           ]
@@ -1001,87 +3787,7 @@
             {
               "name": "search_locations",
               "arguments": {
-                "query": "Шкаф"
-              }
-            }
-          ]
-        },
-        {
-          "forbid_tools": [
-            "move_item"
-          ],
-          "expect_results": [
-            {
-              "tool_name": "search_locations",
-              "path": "result",
-              "min_items": 2
-            }
-          ],
-          "final": "Найдено несколько шкафов. Уточните, какой именно."
-        }
-      ]
-    },
-    {
-      "case_id": "ambiguity-04",
-      "steps": [
-        {
-          "expect_tools": [
-            "search_items"
-          ],
-          "tool_calls": [
-            {
-              "name": "search_items",
-              "arguments": {
-                "query": "мультиметр"
-              }
-            }
-          ]
-        },
-        {
-          "expect_tools": [
-            "search_locations"
-          ],
-          "expect_results": [
-            {
-              "tool_name": "search_items",
-              "path": "result",
-              "min_items": 2
-            }
-          ],
-          "tool_calls": [
-            {
-              "name": "search_locations",
-              "arguments": {
-                "query": "Кабинет Шкаф"
-              }
-            }
-          ]
-        },
-        {
-          "final": "Какой мультиметр переместить?"
-        },
-        {
-          "expect_tools": [
-            "search_items"
-          ],
-          "tool_calls": [
-            {
-              "name": "search_items",
-              "arguments": {
-                "query": "UNI-T"
-              }
-            }
-          ]
-        },
-        {
-          "expect_tools": [
-            "search_locations"
-          ],
-          "tool_calls": [
-            {
-              "name": "search_locations",
-              "arguments": {
-                "query": "Квартира / Кабинет / Шкаф"
+                "query": "Средний ящик"
               }
             }
           ]
@@ -1095,299 +3801,22 @@
               "name": "move_item",
               "arguments": {
                 "item_id": "${tool:search_items:result.0.id}",
-                "location_id": "${tool:search_locations:result.0.id}"
+                "location_id": "${tool:search_locations:result.0.id}",
+                "portion": {
+                  "mode": "exact",
+                  "value": 1
+                }
               }
             }
           ]
         },
         {
-          "final": "UNI-T перемещён в шкаф кабинета."
+          "final": "Один кабель переложен. Описание про длину 2 м скопировано в новый lot и требует проверки."
         }
       ]
     },
     {
-      "case_id": "ambiguity-05",
-      "steps": [
-        {
-          "expect_tools": [
-            "search_items"
-          ],
-          "tool_calls": [
-            {
-              "name": "search_items",
-              "arguments": {
-                "query": "видеокарта"
-              }
-            }
-          ]
-        },
-        {
-          "forbid_tools": [
-            "move_item"
-          ],
-          "expect_results": [
-            {
-              "tool_name": "search_items",
-              "path": "result",
-              "min_items": 2
-            }
-          ],
-          "final": "Найдено несколько видеокарт. Уточните, какую именно."
-        }
-      ]
-    },
-    {
-      "case_id": "update-01",
-      "steps": [
-        {
-          "expect_tools": [
-            "search_items"
-          ],
-          "tool_calls": [
-            {
-              "name": "search_items",
-              "arguments": {
-                "query": "GTX 1070"
-              }
-            }
-          ]
-        },
-        {
-          "expect_tools": [
-            "get_item"
-          ],
-          "tool_calls": [
-            {
-              "name": "get_item",
-              "arguments": {
-                "id": "${tool:search_items:result.0.id}"
-              }
-            }
-          ]
-        },
-        {
-          "expect_results": [
-            {
-              "tool_name": "get_item",
-              "path": "result.description",
-              "equals": "Рабочая видеокарта, один вентилятор иногда шумит."
-            }
-          ],
-          "forbid_tools": [],
-          "final": "Эта информация о шумящем вентиляторе уже сохранена."
-        }
-      ]
-    },
-    {
-      "case_id": "update-02",
-      "steps": [
-        {
-          "expect_tools": [
-            "search_items"
-          ],
-          "tool_calls": [
-            {
-              "name": "search_items",
-              "arguments": {
-                "query": "DT-830B"
-              }
-            }
-          ]
-        },
-        {
-          "expect_tools": [
-            "update_item"
-          ],
-          "tool_calls": [
-            {
-              "name": "update_item",
-              "arguments": {
-                "item_id": "${tool:search_items:result.0.id}",
-                "state": "broken",
-                "description": "Красный дешёвый мультиметр, щупы порваны."
-              }
-            }
-          ]
-        },
-        {
-          "expect_results": [
-            {
-              "tool_name": "update_item",
-              "path": "result.state",
-              "equals": "broken"
-            }
-          ],
-          "final": "DT-830B отмечен неисправным."
-        }
-      ]
-    },
-    {
-      "case_id": "update-03",
-      "steps": [
-        {
-          "expect_tools": [
-            "search_items"
-          ],
-          "tool_calls": [
-            {
-              "name": "search_items",
-              "arguments": {
-                "query": "HDMI 2 метра"
-              }
-            }
-          ]
-        },
-        {
-          "expect_tools": [
-            "update_item"
-          ],
-          "tool_calls": [
-            {
-              "name": "update_item",
-              "arguments": {
-                "item_id": "${tool:search_items:result.0.id}",
-                "quantity": 2
-              }
-            }
-          ]
-        },
-        {
-          "expect_results": [
-            {
-              "tool_name": "update_item",
-              "path": "result.quantity",
-              "equals": 2
-            }
-          ],
-          "final": "Количество HDMI-кабелей обновлено до двух."
-        }
-      ]
-    },
-    {
-      "case_id": "update-04",
-      "steps": [
-        {
-          "expect_tools": [
-            "search_items"
-          ],
-          "tool_calls": [
-            {
-              "name": "search_items",
-              "arguments": {
-                "query": "ORICO"
-              }
-            }
-          ]
-        },
-        {
-          "expect_tools": [
-            "get_item"
-          ],
-          "tool_calls": [
-            {
-              "name": "get_item",
-              "arguments": {
-                "id": "${tool:search_items:result.0.id}"
-              }
-            }
-          ]
-        },
-        {
-          "expect_results": [
-            {
-              "tool_name": "get_item",
-              "path": "result.description",
-              "equals": "Переходник для подключения SATA HDD/SSD по USB 3.0."
-            }
-          ],
-          "final": "Совместимость с SSD уже указана."
-        }
-      ]
-    },
-    {
-      "case_id": "history-01",
-      "steps": [
-        {
-          "expect_tools": [
-            "search_items"
-          ],
-          "tool_calls": [
-            {
-              "name": "search_items",
-              "arguments": {
-                "query": "Chieftec 750W"
-              }
-            }
-          ]
-        },
-        {
-          "expect_tools": [
-            "get_item_history"
-          ],
-          "tool_calls": [
-            {
-              "name": "get_item_history",
-              "arguments": {
-                "item_id": "${tool:search_items:result.0.id}"
-              }
-            }
-          ]
-        },
-        {
-          "expect_results": [
-            {
-              "tool_name": "get_item_history",
-              "path": "result.items",
-              "min_items": 1
-            }
-          ],
-          "final": "История Chieftec 750W получена из журнала инвентаря."
-        }
-      ]
-    },
-    {
-      "case_id": "history-02",
-      "steps": [
-        {
-          "expect_tools": [
-            "search_items"
-          ],
-          "tool_calls": [
-            {
-              "name": "search_items",
-              "arguments": {
-                "query": "GTX 1070"
-              }
-            }
-          ]
-        },
-        {
-          "expect_tools": [
-            "get_item_history"
-          ],
-          "tool_calls": [
-            {
-              "name": "get_item_history",
-              "arguments": {
-                "item_id": "${tool:search_items:result.0.id}"
-              }
-            }
-          ]
-        },
-        {
-          "expect_results": [
-            {
-              "tool_name": "get_item_history",
-              "path": "result.items",
-              "min_items": 1
-            }
-          ],
-          "final": "История GTX 1070 получена."
-        }
-      ]
-    },
-    {
-      "case_id": "history-03",
+      "case_id": "quantity-ru-immediate-undo",
       "steps": [
         {
           "expect_tools": [
@@ -1434,6 +3863,25 @@
         },
         {
           "expect_tools": [
+            "undo_last_action"
+          ],
+          "tool_calls": [
+            {
+              "name": "undo_last_action",
+              "arguments": {}
+            }
+          ]
+        },
+        {
+          "final": "Последнее перемещение отменено."
+        }
+      ]
+    },
+    {
+      "case_id": "quantity-ru-undo-after-read",
+      "steps": [
+        {
+          "expect_tools": [
             "search_items"
           ],
           "tool_calls": [
@@ -1447,11 +3895,11 @@
         },
         {
           "expect_tools": [
-            "get_item_history"
+            "take_item"
           ],
           "tool_calls": [
             {
-              "name": "get_item_history",
+              "name": "take_item",
               "arguments": {
                 "item_id": "${tool:search_items:result.0.id}"
               }
@@ -1459,129 +3907,39 @@
           ]
         },
         {
-          "expect_results": [
-            {
-              "tool_name": "get_item_history",
-              "path": "result.items",
-              "min_items": 2
-            }
-          ],
-          "final": "Предыдущее место взято из истории."
-        }
-      ]
-    },
-    {
-      "case_id": "location-01",
-      "steps": [
+          "final": "CH341A взят."
+        },
         {
           "expect_tools": [
-            "search_locations"
+            "search_items"
           ],
           "tool_calls": [
             {
-              "name": "search_locations",
+              "name": "search_items",
               "arguments": {
-                "query": "Правый ящик"
+                "query": "CH341A"
               }
             }
           ]
         },
         {
-          "expect_tools": [
-            "list_location"
-          ],
-          "tool_calls": [
-            {
-              "name": "list_location",
-              "arguments": {
-                "location_id": "${tool:search_locations:result.0.id}"
-              }
-            }
-          ]
-        },
-        {
-          "expect_results": [
-            {
-              "tool_name": "list_location",
-              "path": "result.items",
-              "min_items": 1
-            }
-          ],
-          "final": "Содержимое правого ящика получено."
-        }
-      ]
-    },
-    {
-      "case_id": "location-02",
-      "steps": [
-        {
-          "expect_tools": [
-            "search_locations"
-          ],
-          "tool_calls": [
-            {
-              "name": "search_locations",
-              "arguments": {
-                "query": "Полка 1"
-              }
-            }
-          ]
-        },
-        {
-          "expect_results": [
-            {
-              "tool_name": "search_locations",
-              "path": "result",
-              "min_items": 2
-            }
-          ],
-          "final": "Есть несколько мест с названием Полка 1. Уточните расположение."
-        }
-      ]
-    },
-    {
-      "case_id": "location-03",
-      "steps": [
-        {
-          "expect_tools": [
-            "search_locations"
-          ],
-          "tool_calls": [
-            {
-              "name": "search_locations",
-              "arguments": {
-                "query": "Балкон Стеллаж Полка 1"
-              }
-            }
-          ]
+          "final": "CH341A сейчас используется."
         },
         {
           "expect_tools": [
-            "list_location"
+            "undo_last_action"
           ],
           "tool_calls": [
             {
-              "name": "list_location",
-              "arguments": {
-                "location_id": "${tool:search_locations:result.0.id}"
-              }
-            }
-          ]
-        },
-        {
-          "final": "Содержимое первой полки стеллажа получено.",
-          "expect_results": [
-            {
-              "tool_name": "list_location",
-              "path": "result.items",
-              "min_items": 1
+              "name": "undo_last_action",
+              "arguments": {}
             }
           ]
         }
       ]
     },
     {
-      "case_id": "language-01",
+      "case_id": "quantity-ru-target-ambiguity",
       "steps": [
         {
           "expect_tools": [
@@ -1591,186 +3949,7 @@
             {
               "name": "search_items",
               "arguments": {
-                "query": "USB/SATA"
-              }
-            }
-          ]
-        },
-        {
-          "expect_tools": [
-            "get_item"
-          ],
-          "tool_calls": [
-            {
-              "name": "get_item",
-              "arguments": {
-                "id": "${tool:search_items:result.0.id}"
-              }
-            }
-          ]
-        },
-        {
-          "final": "USB/SATA адаптер найден.",
-          "expect_results": [
-            {
-              "tool_name": "get_item",
-              "path": "result.name",
-              "equals": "ORICO USB 3.0 SATA adapter"
-            }
-          ]
-        }
-      ]
-    },
-    {
-      "case_id": "language-02",
-      "steps": [
-        {
-          "expect_tools": [
-            "search_items"
-          ],
-          "tool_calls": [
-            {
-              "name": "search_items",
-              "arguments": {
-                "query": "ch341a"
-              }
-            }
-          ]
-        },
-        {
-          "expect_tools": [
-            "get_item"
-          ],
-          "tool_calls": [
-            {
-              "name": "get_item",
-              "arguments": {
-                "id": "${tool:search_items:result.0.id}"
-              }
-            }
-          ]
-        },
-        {
-          "final": "CH341A найден.",
-          "expect_results": [
-            {
-              "tool_name": "get_item",
-              "path": "result.name",
-              "equals": "CH341A programmer"
-            }
-          ]
-        }
-      ]
-    },
-    {
-      "case_id": "language-03",
-      "steps": [
-        {
-          "expect_tools": [
-            "search_items"
-          ],
-          "tool_calls": [
-            {
-              "name": "search_items",
-              "arguments": {
-                "query": "гигабайт 1070"
-              }
-            }
-          ]
-        },
-        {
-          "expect_tools": [
-            "get_item"
-          ],
-          "tool_calls": [
-            {
-              "name": "get_item",
-              "arguments": {
-                "id": "${tool:search_items:result.0.id}"
-              }
-            }
-          ]
-        },
-        {
-          "final": "Gigabyte GTX 1070 найдена.",
-          "expect_results": [
-            {
-              "tool_name": "get_item",
-              "path": "result.name",
-              "equals": "Gigabyte GTX 1070"
-            }
-          ]
-        }
-      ]
-    },
-    {
-      "case_id": "language-04",
-      "steps": [
-        {
-          "expect_tools": [
-            "search_items"
-          ],
-          "tool_calls": [
-            {
-              "name": "search_items",
-              "arguments": {
-                "query": "SATA HDD USB"
-              }
-            }
-          ]
-        },
-        {
-          "expect_tools": [
-            "get_item"
-          ],
-          "expect_results": [
-            {
-              "tool_name": "search_items",
-              "path": "result",
-              "min_items": 1
-            }
-          ],
-          "tool_calls": [
-            {
-              "name": "get_item",
-              "arguments": {
-                "id": "${tool:search_items:result.0.id}"
-              }
-            }
-          ]
-        },
-        {
-          "expect_results": [
-            {
-              "tool_name": "get_item",
-              "path": "result.name",
-              "equals": "ORICO USB 3.0 SATA adapter"
-            }
-          ],
-          "final": "Переходник найден по описательному запросу."
-        }
-      ]
-    },
-    {
-      "case_id": "safety-01",
-      "steps": [
-        {
-          "final": "Не могу использовать присланные числовые ID без поиска и подтверждения сущностей."
-        }
-      ]
-    },
-    {
-      "case_id": "safety-02",
-      "steps": [
-        {
-          "expect_tools": [
-            "search_items"
-          ],
-          "tool_calls": [
-            {
-              "name": "search_items",
-              "arguments": {
-                "query": "Gigabyte GTX 1070"
+                "query": "Type-C шнур запасной"
               }
             }
           ]
@@ -1780,1253 +3959,11 @@
             {
               "tool_name": "search_items",
               "path": "result",
-              "min_items": 1
+              "min_items": 2
             }
           ],
-          "final": "Такой объект уже существует; дубликат без явного подтверждения не создаю."
-        }
-      ]
-    },
-    {
-      "case_id": "safety-03",
-      "steps": [
-        {
-          "expect_tools": [
-            "search_items"
-          ],
-          "tool_calls": [
-            {
-              "name": "search_items",
-              "arguments": {
-                "query": "CH341A"
-              }
-            }
-          ]
-        },
-        {
-          "expect_tools": [
-            "search_locations"
-          ],
-          "tool_calls": [
-            {
-              "name": "search_locations",
-              "arguments": {
-                "query": "Средний ящик"
-              }
-            }
-          ]
-        },
-        {
-          "expect_tools": [
-            "move_item"
-          ],
-          "tool_calls": [
-            {
-              "name": "move_item",
-              "arguments": {
-                "item_id": "${tool:search_items:result.0.id}",
-                "location_id": "${tool:search_locations:result.0.id}"
-              }
-            }
-          ]
-        },
-        {
-          "final": "CH341A перемещён после обязательного разрешения сущностей."
-        }
-      ]
-    },
-    {
-      "case_id": "suggest-01",
-      "steps": [
-        {
-          "expect_tools": [
-            "search_items"
-          ],
-          "forbid_tools": [
-            "suggest_item_locations"
-          ],
-          "tool_calls": [
-            {
-              "name": "search_items",
-              "arguments": {
-                "query": "CH341A"
-              }
-            }
-          ]
-        },
-        {
-          "expect_tools": [
-            "take_item"
-          ],
-          "tool_calls": [
-            {
-              "name": "take_item",
-              "arguments": {
-                "item_id": "${tool:search_items:result.0.id}"
-              }
-            }
-          ]
-        },
-        {
-          "final": "Предмет отмечен как взятый из хранения и сейчас используется."
-        },
-        {
-          "expect_tools": [
-            "search_items"
-          ],
-          "forbid_tools": [
-            "suggest_item_locations"
-          ],
-          "tool_calls": [
-            {
-              "name": "search_items",
-              "arguments": {
-                "query": "CH341A"
-              }
-            }
-          ]
-        },
-        {
-          "expect_tools": [
-            "suggest_item_locations"
-          ],
-          "tool_calls": [
-            {
-              "name": "suggest_item_locations",
-              "arguments": {
-                "item_id": "${tool:search_items:result.0.id}",
-                "limit": 5
-              }
-            }
-          ]
-        },
-        {
-          "expect_results": [
-            {
-              "tool_name": "suggest_item_locations",
-              "path": "result.suggestions",
-              "equals": []
-            }
-          ],
-          "final": "Предположения о месте хранения не показываю, пока предмет отмечен как используемый."
-        }
-      ]
-    },
-    {
-      "case_id": "suggest-02",
-      "steps": [
-        {
-          "expect_tools": [
-            "search_items"
-          ],
-          "forbid_tools": [
-            "suggest_item_locations"
-          ],
-          "tool_calls": [
-            {
-              "name": "search_items",
-              "arguments": {
-                "query": "DT-830B"
-              }
-            }
-          ]
-        },
-        {
-          "expect_tools": [
-            "take_item"
-          ],
-          "tool_calls": [
-            {
-              "name": "take_item",
-              "arguments": {
-                "item_id": "${tool:search_items:result.0.id}"
-              }
-            }
-          ]
-        },
-        {
-          "final": "Предмет отмечен как взятый из хранения и сейчас используется."
-        },
-        {
-          "expect_tools": [
-            "search_items"
-          ],
-          "forbid_tools": [
-            "suggest_item_locations"
-          ],
-          "tool_calls": [
-            {
-              "name": "search_items",
-              "arguments": {
-                "query": "DT-830B"
-              }
-            }
-          ]
-        },
-        {
-          "expect_tools": [
-            "suggest_item_locations"
-          ],
-          "tool_calls": [
-            {
-              "name": "suggest_item_locations",
-              "arguments": {
-                "item_id": "${tool:search_items:result.0.id}",
-                "limit": 5
-              }
-            }
-          ]
-        },
-        {
-          "expect_results": [
-            {
-              "tool_name": "suggest_item_locations",
-              "path": "result.suggestions",
-              "equals": []
-            }
-          ],
-          "final": "Предположения о месте хранения не показываю, пока предмет отмечен как используемый."
-        }
-      ]
-    },
-    {
-      "case_id": "loc-truth-in-use-known",
-      "steps": [
-        {
-          "expect_tools": [
-            "search_items"
-          ],
-          "tool_calls": [
-            {
-              "name": "search_items",
-              "arguments": {
-                "query": "CH341A"
-              }
-            }
-          ]
-        },
-        {
-          "expect_tools": [
-            "take_item"
-          ],
-          "tool_calls": [
-            {
-              "name": "take_item",
-              "arguments": {
-                "item_id": "${tool:search_items:result.0.id}"
-              }
-            }
-          ]
-        },
-        {
-          "expect_tools": [
-            "search_locations"
-          ],
-          "tool_calls": [
-            {
-              "name": "search_locations",
-              "arguments": {
-                "query": "Средний ящик"
-              }
-            }
-          ],
-          "expect_results": [
-            {
-              "tool_name": "take_item",
-              "path": "result.location_status",
-              "equals": "in_use"
-            }
-          ]
-        },
-        {
-          "expect_tools": [
-            "move_item"
-          ],
-          "tool_calls": [
-            {
-              "name": "move_item",
-              "arguments": {
-                "item_id": "${tool:search_items:result.0.id}",
-                "location_id": "${tool:search_locations:result.0.id}"
-              }
-            }
-          ]
-        },
-        {
-          "expect_results": [
-            {
-              "tool_name": "move_item",
-              "path": "result.location_status",
-              "equals": "known"
-            }
-          ],
-          "final": "CH341A отмечен как находящийся в среднем ящике."
-        }
-      ]
-    },
-    {
-      "case_id": "loc-truth-unknown-known",
-      "steps": [
-        {
-          "expect_tools": [
-            "search_items"
-          ],
-          "tool_calls": [
-            {
-              "name": "search_items",
-              "arguments": {
-                "query": "DT-830B"
-              }
-            }
-          ]
-        },
-        {
-          "expect_tools": [
-            "mark_item_location_unknown"
-          ],
-          "tool_calls": [
-            {
-              "name": "mark_item_location_unknown",
-              "arguments": {
-                "item_id": "${tool:search_items:result.0.id}"
-              }
-            }
-          ]
-        },
-        {
-          "expect_tools": [
-            "search_locations"
-          ],
-          "tool_calls": [
-            {
-              "name": "search_locations",
-              "arguments": {
-                "query": "Правый ящик"
-              }
-            }
-          ],
-          "expect_results": [
-            {
-              "tool_name": "mark_item_location_unknown",
-              "path": "result.location_status",
-              "equals": "unknown"
-            }
-          ]
-        },
-        {
-          "expect_tools": [
-            "move_item"
-          ],
-          "tool_calls": [
-            {
-              "name": "move_item",
-              "arguments": {
-                "item_id": "${tool:search_items:result.0.id}",
-                "location_id": "${tool:search_locations:result.0.id}"
-              }
-            }
-          ]
-        },
-        {
-          "expect_results": [
-            {
-              "tool_name": "move_item",
-              "path": "result.location_status",
-              "equals": "known"
-            }
-          ],
-          "final": "DT-830B отмечен в правом ящике."
-        }
-      ]
-    },
-    {
-      "case_id": "loc-truth-suggest-move",
-      "steps": [
-        {
-          "expect_tools": [
-            "search_items"
-          ],
-          "tool_calls": [
-            {
-              "name": "search_items",
-              "arguments": {
-                "query": "CH341A"
-              }
-            }
-          ]
-        },
-        {
-          "expect_tools": [
-            "mark_item_location_unknown"
-          ],
-          "tool_calls": [
-            {
-              "name": "mark_item_location_unknown",
-              "arguments": {
-                "item_id": "${tool:search_items:result.0.id}"
-              }
-            }
-          ]
-        },
-        {
-          "expect_tools": [
-            "suggest_item_locations"
-          ],
-          "tool_calls": [
-            {
-              "name": "suggest_item_locations",
-              "arguments": {
-                "item_id": "${tool:search_items:result.0.id}",
-                "limit": 5
-              }
-            }
-          ],
-          "expect_results": [
-            {
-              "tool_name": "mark_item_location_unknown",
-              "path": "result.location_status",
-              "equals": "unknown"
-            }
-          ],
-          "forbid_tools": [
-            "move_item"
-          ]
-        },
-        {
-          "expect_tools": [
-            "search_locations"
-          ],
-          "tool_calls": [
-            {
-              "name": "search_locations",
-              "arguments": {
-                "query": "Правый ящик"
-              }
-            }
-          ],
-          "expect_results": [
-            {
-              "tool_name": "suggest_item_locations",
-              "path": "result.suggestions",
-              "min_items": 1
-            }
-          ],
-          "forbid_tools": [
-            "move_item"
-          ]
-        },
-        {
-          "expect_tools": [
-            "move_item"
-          ],
-          "tool_calls": [
-            {
-              "name": "move_item",
-              "arguments": {
-                "item_id": "${tool:search_items:result.0.id}",
-                "location_id": "${tool:search_locations:result.0.id}"
-              }
-            }
-          ]
-        },
-        {
-          "expect_results": [
-            {
-              "tool_name": "move_item",
-              "path": "result.location_status",
-              "equals": "known"
-            }
-          ],
-          "final": "CH341A перемещён в разрешённое место."
-        }
-      ]
-    },
-    {
-      "case_id": "loc-truth-discard",
-      "steps": [
-        {
-          "expect_tools": [
-            "search_items"
-          ],
-          "tool_calls": [
-            {
-              "name": "search_items",
-              "arguments": {
-                "query": "CH341A"
-              }
-            }
-          ]
-        },
-        {
-          "expect_tools": [
-            "discard_item"
-          ],
-          "tool_calls": [
-            {
-              "name": "discard_item",
-              "arguments": {
-                "item_id": "${tool:search_items:result.0.id}"
-              }
-            }
-          ]
-        },
-        {
-          "expect_results": [
-            {
-              "tool_name": "discard_item",
-              "path": "result.state",
-              "equals": "discarded"
-            },
-            {
-              "tool_name": "discard_item",
-              "path": "result.location_status",
-              "equals": "not_applicable"
-            }
-          ],
-          "final": "CH341A утилизирован."
-        }
-      ]
-    },
-    {
-      "case_id": "loc-truth-sold",
-      "steps": [
-        {
-          "expect_tools": [
-            "search_items"
-          ],
-          "tool_calls": [
-            {
-              "name": "search_items",
-              "arguments": {
-                "query": "CH341A"
-              }
-            }
-          ]
-        },
-        {
-          "expect_tools": [
-            "mark_item_sold"
-          ],
-          "tool_calls": [
-            {
-              "name": "mark_item_sold",
-              "arguments": {
-                "item_id": "${tool:search_items:result.0.id}"
-              }
-            }
-          ]
-        },
-        {
-          "expect_results": [
-            {
-              "tool_name": "mark_item_sold",
-              "path": "result.state",
-              "equals": "sold"
-            },
-            {
-              "tool_name": "mark_item_sold",
-              "path": "result.location_status",
-              "equals": "not_applicable"
-            }
-          ],
-          "final": "CH341A продан."
-        }
-      ]
-    },
-    {
-      "case_id": "loc-truth-discard-unknown",
-      "steps": [
-        {
-          "expect_tools": [
-            "search_items"
-          ],
-          "tool_calls": [
-            {
-              "name": "search_items",
-              "arguments": {
-                "query": "CH341A"
-              }
-            }
-          ]
-        },
-        {
-          "expect_tools": [
-            "discard_item"
-          ],
-          "tool_calls": [
-            {
-              "name": "discard_item",
-              "arguments": {
-                "item_id": "${tool:search_items:result.0.id}"
-              }
-            }
-          ]
-        },
-        {
-          "expect_tools": [
-            "reactivate_item"
-          ],
-          "tool_calls": [
-            {
-              "name": "reactivate_item",
-              "arguments": {
-                "item_id": "${tool:search_items:result.0.id}",
-                "state": "working",
-                "location_id": null
-              }
-            }
-          ]
-        },
-        {
-          "expect_results": [
-            {
-              "tool_name": "reactivate_item",
-              "path": "result.location_status",
-              "equals": "unknown"
-            }
-          ],
-          "final": "CH341A активирован с неизвестным местом."
-        }
-      ]
-    },
-    {
-      "case_id": "loc-truth-sold-unknown",
-      "steps": [
-        {
-          "expect_tools": [
-            "search_items"
-          ],
-          "tool_calls": [
-            {
-              "name": "search_items",
-              "arguments": {
-                "query": "CH341A"
-              }
-            }
-          ]
-        },
-        {
-          "expect_tools": [
-            "mark_item_sold"
-          ],
-          "tool_calls": [
-            {
-              "name": "mark_item_sold",
-              "arguments": {
-                "item_id": "${tool:search_items:result.0.id}"
-              }
-            }
-          ]
-        },
-        {
-          "expect_tools": [
-            "reactivate_item"
-          ],
-          "tool_calls": [
-            {
-              "name": "reactivate_item",
-              "arguments": {
-                "item_id": "${tool:search_items:result.0.id}",
-                "state": "needs_test",
-                "location_id": null
-              }
-            }
-          ]
-        },
-        {
-          "expect_results": [
-            {
-              "tool_name": "reactivate_item",
-              "path": "result.location_status",
-              "equals": "unknown"
-            }
-          ],
-          "final": "CH341A активирован с неизвестным местом."
-        }
-      ]
-    },
-    {
-      "case_id": "loc-truth-discard-known",
-      "steps": [
-        {
-          "expect_tools": [
-            "search_items"
-          ],
-          "tool_calls": [
-            {
-              "name": "search_items",
-              "arguments": {
-                "query": "CH341A"
-              }
-            }
-          ]
-        },
-        {
-          "expect_tools": [
-            "discard_item"
-          ],
-          "tool_calls": [
-            {
-              "name": "discard_item",
-              "arguments": {
-                "item_id": "${tool:search_items:result.0.id}"
-              }
-            }
-          ]
-        },
-        {
-          "expect_tools": [
-            "search_locations"
-          ],
-          "tool_calls": [
-            {
-              "name": "search_locations",
-              "arguments": {
-                "query": "Средний ящик"
-              }
-            }
-          ],
-          "expect_results": [
-            {
-              "tool_name": "discard_item",
-              "path": "result.location_status",
-              "equals": "not_applicable"
-            }
-          ]
-        },
-        {
-          "expect_tools": [
-            "reactivate_item"
-          ],
-          "tool_calls": [
-            {
-              "name": "reactivate_item",
-              "arguments": {
-                "item_id": "${tool:search_items:result.0.id}",
-                "state": "working",
-                "location_id": "${tool:search_locations:result.0.id}"
-              }
-            }
-          ]
-        },
-        {
-          "expect_results": [
-            {
-              "tool_name": "reactivate_item",
-              "path": "result.location_status",
-              "equals": "known"
-            }
-          ],
-          "final": "CH341A активирован в разрешённом месте."
-        }
-      ]
-    },
-    {
-      "case_id": "loc-truth-sold-known",
-      "steps": [
-        {
-          "expect_tools": [
-            "search_items"
-          ],
-          "tool_calls": [
-            {
-              "name": "search_items",
-              "arguments": {
-                "query": "CH341A"
-              }
-            }
-          ]
-        },
-        {
-          "expect_tools": [
-            "mark_item_sold"
-          ],
-          "tool_calls": [
-            {
-              "name": "mark_item_sold",
-              "arguments": {
-                "item_id": "${tool:search_items:result.0.id}"
-              }
-            }
-          ]
-        },
-        {
-          "expect_tools": [
-            "search_locations"
-          ],
-          "tool_calls": [
-            {
-              "name": "search_locations",
-              "arguments": {
-                "query": "Правый ящик"
-              }
-            }
-          ],
-          "expect_results": [
-            {
-              "tool_name": "mark_item_sold",
-              "path": "result.location_status",
-              "equals": "not_applicable"
-            }
-          ]
-        },
-        {
-          "expect_tools": [
-            "reactivate_item"
-          ],
-          "tool_calls": [
-            {
-              "name": "reactivate_item",
-              "arguments": {
-                "item_id": "${tool:search_items:result.0.id}",
-                "state": "used",
-                "location_id": "${tool:search_locations:result.0.id}"
-              }
-            }
-          ]
-        },
-        {
-          "expect_results": [
-            {
-              "tool_name": "reactivate_item",
-              "path": "result.location_status",
-              "equals": "known"
-            }
-          ],
-          "final": "CH341A активирован в разрешённом месте."
-        }
-      ]
-    },
-    {
-      "case_id": "loc-truth-terminal-rejects",
-      "steps": [
-        {
-          "expect_tools": [
-            "search_items"
-          ],
-          "tool_calls": [
-            {
-              "name": "search_items",
-              "arguments": {
-                "query": "CH341A"
-              }
-            }
-          ]
-        },
-        {
-          "expect_tools": [
-            "discard_item"
-          ],
-          "tool_calls": [
-            {
-              "name": "discard_item",
-              "arguments": {
-                "item_id": "${tool:search_items:result.0.id}"
-              }
-            }
-          ]
-        },
-        {
-          "expect_results": [
-            {
-              "tool_name": "discard_item",
-              "path": "result.state",
-              "equals": "discarded"
-            }
-          ],
-          "final": "CH341A утилизирован."
-        },
-        {
-          "expect_tools": [
-            "search_items"
-          ],
-          "tool_calls": [
-            {
-              "name": "search_items",
-              "arguments": {
-                "query": "CH341A"
-              }
-            }
-          ]
-        },
-        {
-          "expect_tools": [
-            "take_item"
-          ],
-          "tool_calls": [
-            {
-              "name": "take_item",
-              "arguments": {
-                "item_id": "${tool:search_items:result.0.id}"
-              }
-            }
-          ]
-        }
-      ]
-    },
-    {
-      "case_id": "loc-truth-move-null",
-      "steps": [
-        {
-          "expect_tools": [
-            "search_items"
-          ],
-          "tool_calls": [
-            {
-              "name": "search_items",
-              "arguments": {
-                "query": "CH341A"
-              }
-            }
-          ]
-        },
-        {
-          "expect_tools": [
-            "search_locations"
-          ],
-          "tool_calls": [
-            {
-              "name": "search_locations",
-              "arguments": {
-                "query": "Правый ящик"
-              }
-            }
-          ]
-        },
-        {
-          "expect_tools": [
-            "move_item"
-          ],
-          "tool_calls": [
-            {
-              "name": "move_item",
-              "arguments": {
-                "item_id": "${tool:search_items:result.0.id}",
-                "location_id": null
-              }
-            }
-          ]
-        }
-      ]
-    },
-    {
-      "case_id": "loc-truth-move-omitted",
-      "steps": [
-        {
-          "expect_tools": [
-            "search_items"
-          ],
-          "tool_calls": [
-            {
-              "name": "search_items",
-              "arguments": {
-                "query": "DT-830B"
-              }
-            }
-          ]
-        },
-        {
-          "expect_tools": [
-            "search_locations"
-          ],
-          "tool_calls": [
-            {
-              "name": "search_locations",
-              "arguments": {
-                "query": "Квартира / Балкон / Шкаф"
-              }
-            }
-          ]
-        },
-        {
-          "expect_tools": [
-            "move_item"
-          ],
-          "tool_calls": [
-            {
-              "name": "move_item",
-              "arguments": {
-                "item_id": "${tool:search_items:result.0.id}"
-              }
-            }
-          ]
-        }
-      ]
-    },
-    {
-      "case_id": "loc-truth-reactivate-omitted",
-      "steps": [
-        {
-          "expect_tools": [
-            "search_items"
-          ],
-          "tool_calls": [
-            {
-              "name": "search_items",
-              "arguments": {
-                "query": "CH341A"
-              }
-            }
-          ]
-        },
-        {
-          "expect_tools": [
-            "discard_item"
-          ],
-          "tool_calls": [
-            {
-              "name": "discard_item",
-              "arguments": {
-                "item_id": "${tool:search_items:result.0.id}"
-              }
-            }
-          ]
-        },
-        {
-          "expect_results": [
-            {
-              "tool_name": "discard_item",
-              "path": "result.state",
-              "equals": "discarded"
-            }
-          ],
-          "final": "CH341A утилизирован."
-        },
-        {
-          "expect_tools": [
-            "search_items"
-          ],
-          "tool_calls": [
-            {
-              "name": "search_items",
-              "arguments": {
-                "query": "CH341A"
-              }
-            }
-          ]
-        },
-        {
-          "expect_tools": [
-            "reactivate_item"
-          ],
-          "tool_calls": [
-            {
-              "name": "reactivate_item",
-              "arguments": {
-                "item_id": "${tool:search_items:result.0.id}",
-                "state": "working"
-              }
-            }
-          ]
-        }
-      ]
-    },
-    {
-      "case_id": "loc-truth-noop-receipt",
-      "steps": [
-        {
-          "expect_tools": [
-            "search_items"
-          ],
-          "tool_calls": [
-            {
-              "name": "search_items",
-              "arguments": {
-                "query": "CH341A"
-              }
-            }
-          ]
-        },
-        {
-          "expect_tools": [
-            "take_item"
-          ],
-          "tool_calls": [
-            {
-              "name": "take_item",
-              "arguments": {
-                "item_id": "${tool:search_items:result.0.id}"
-              }
-            }
-          ]
-        },
-        {
-          "expect_tools": [
-            "take_item"
-          ],
-          "tool_calls": [
-            {
-              "name": "take_item",
-              "arguments": {
-                "item_id": "${tool:search_items:result.0.id}"
-              }
-            }
-          ],
-          "expect_results": [
-            {
-              "tool_name": "take_item",
-              "path": "changed",
-              "equals": true
-            }
-          ]
-        },
-        {
-          "expect_results": [
-            {
-              "tool_name": "take_item",
-              "path": "changed",
-              "equals": false
-            }
-          ],
-          "final": "Второе взятие подтверждено как no-op без нового события."
-        }
-      ]
-    },
-    {
-      "case_id": "loc-truth-terminal-reject-move",
-      "steps": [
-        {
-          "expect_tools": [
-            "search_items"
-          ],
-          "tool_calls": [
-            {
-              "name": "search_items",
-              "arguments": {
-                "query": "CH341A"
-              }
-            }
-          ]
-        },
-        {
-          "expect_tools": [
-            "discard_item"
-          ],
-          "tool_calls": [
-            {
-              "name": "discard_item",
-              "arguments": {
-                "item_id": "${tool:search_items:result.0.id}"
-              }
-            }
-          ]
-        },
-        {
-          "expect_results": [
-            {
-              "tool_name": "discard_item",
-              "path": "result.state",
-              "equals": "discarded"
-            }
-          ],
-          "final": "CH341A утилизирован."
-        },
-        {
-          "expect_tools": [
-            "search_items"
-          ],
-          "tool_calls": [
-            {
-              "name": "search_items",
-              "arguments": {
-                "query": "CH341A"
-              }
-            }
-          ]
-        },
-        {
-          "expect_tools": [
-            "search_locations"
-          ],
-          "tool_calls": [
-            {
-              "name": "search_locations",
-              "arguments": {
-                "query": "Средний ящик"
-              }
-            }
-          ]
-        },
-        {
-          "expect_tools": [
-            "move_item"
-          ],
-          "tool_calls": [
-            {
-              "name": "move_item",
-              "arguments": {
-                "item_id": "${tool:search_items:result.0.id}",
-                "location_id": "${tool:search_locations:result.0.id}"
-              }
-            }
-          ]
-        }
-      ]
-    },
-    {
-      "case_id": "loc-truth-terminal-reject-unknown",
-      "steps": [
-        {
-          "expect_tools": [
-            "search_items"
-          ],
-          "tool_calls": [
-            {
-              "name": "search_items",
-              "arguments": {
-                "query": "CH341A"
-              }
-            }
-          ]
-        },
-        {
-          "expect_tools": [
-            "discard_item"
-          ],
-          "tool_calls": [
-            {
-              "name": "discard_item",
-              "arguments": {
-                "item_id": "${tool:search_items:result.0.id}"
-              }
-            }
-          ]
-        },
-        {
-          "expect_results": [
-            {
-              "tool_name": "discard_item",
-              "path": "result.state",
-              "equals": "discarded"
-            }
-          ],
-          "final": "CH341A утилизирован."
-        },
-        {
-          "expect_tools": [
-            "search_items"
-          ],
-          "tool_calls": [
-            {
-              "name": "search_items",
-              "arguments": {
-                "query": "CH341A"
-              }
-            }
-          ]
-        },
-        {
-          "expect_tools": [
-            "mark_item_location_unknown"
-          ],
-          "tool_calls": [
-            {
-              "name": "mark_item_location_unknown",
-              "arguments": {
-                "item_id": "${tool:search_items:result.0.id}"
-              }
-            }
-          ]
+          "forbid_tools": [],
+          "final": "Какой именно USB-C кабель взять? Уточните место или ID."
         }
       ]
     }

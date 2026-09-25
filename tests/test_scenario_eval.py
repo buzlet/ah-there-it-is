@@ -139,7 +139,7 @@ def test_scenario_mock_rejects_unavailable_planned_tool() -> None:
         client.complete([], [])
 
 
-def test_scenario_suite_matches_corpus_and_core_cases_pass() -> None:
+def test_russian_quantity_scenario_suite_matches_corpus_and_core_cases_pass() -> None:
     suite = load_scenario_suite(SCENARIOS)
     assert suite.version == "inventory-scenarios-v1"
 
@@ -151,7 +151,7 @@ def test_scenario_suite_matches_corpus_and_core_cases_pass() -> None:
     assert report["pipeline"] == "application-scenario-mock"
     corpus = load_corpus(CORPUS)
     assert {case.case_id for case in suite.cases} == {case.id for case in corpus.cases}
-    assert len(suite.cases) == 58
+    assert len(suite.cases) == 71
     assert {
         "loc-truth-in-use-known",
         "loc-truth-unknown-known",
@@ -169,6 +169,21 @@ def test_scenario_suite_matches_corpus_and_core_cases_pass() -> None:
         "loc-truth-move-omitted",
         "loc-truth-reactivate-omitted",
         "loc-truth-noop-receipt",
+    }.issubset({case.case_id for case in suite.cases})
+    assert {
+        "quantity-ru-exact-partial",
+        "quantity-ru-approx-partial",
+        "quantity-ru-unknown-exact-child",
+        "quantity-ru-vague-partial",
+        "quantity-ru-approx-underflow",
+        "quantity-ru-partial-remove",
+        "quantity-ru-whole-remove",
+        "quantity-ru-restore",
+        "quantity-ru-equivalent-lots",
+        "quantity-ru-copied-length",
+        "quantity-ru-immediate-undo",
+        "quantity-ru-undo-after-read",
+        "quantity-ru-target-ambiguity",
     }.issubset({case.case_id for case in suite.cases})
     assert report["summary"]["count"] == len(suite.cases)
     assert report["summary"]["completed"] == len(suite.cases)
