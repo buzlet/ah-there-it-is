@@ -236,7 +236,7 @@ def test_timeout_kills_the_whole_make_process_group(
 ) -> None:
     monkeypatch.setenv("FAKE_MAKE_HANG_RECIPE", "check")
 
-    _start(verifier_workspace, timeout_seconds=0.2)
+    _start(verifier_workspace, timeout_seconds=1.0)
     result = _wait_for_terminal(_state(verifier_workspace), timeout=10)
 
     assert result["status"] == "timed_out"
