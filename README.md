@@ -32,7 +32,7 @@ python -m ah_there_it_is.storage_cli upgrade
 ah-there-it-is serve
 ```
 
-`Justfile` is the repeated-command surface.
+`Makefile` is the canonical repeated-command surface.
 
 Normal implementation uses focused task checkpoints and one final CI regression; it does not run the entire suite after every batch task.
 

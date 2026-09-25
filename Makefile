@@ -19,7 +19,6 @@ CORPUS ?= eval/corpus-v1.json
 SCENARIOS ?= eval/scenarios-v1.json
 RETRIEVAL_CORPUS ?= eval/retrieval-robustness-v1.json
 SUITE ?= eval/model-probes-v1.json
-OUTPUT ?= live-eval.json
 MESSAGE ?=
 BASELINE ?=
 VARIANT ?=
@@ -93,9 +92,11 @@ serve:
 corpus-check:
 	$(PYTHON) -m ah_there_it_is.corpus_check "$(CORPUS)"
 
+live-eval: OUTPUT ?= live-eval.json
 live-eval:
 	$(PYTHON) -m ah_there_it_is.live_eval --corpus "$(CORPUS)" --limit "$(LIMIT)" --output "$(OUTPUT)"
 
+live-compare: OUTPUT ?= live-compare.json
 live-compare:
 	@test -n "$(BASELINE)" && test -n "$(VARIANT)"
 	$(PYTHON) -m ah_there_it_is.live_compare "$(BASELINE)" "$(VARIANT)" --output "$(OUTPUT)"
@@ -109,6 +110,7 @@ scenario-eval:
 retrieval-eval:
 	$(PYTHON) -m ah_there_it_is.retrieval_eval --corpus "$(RETRIEVAL_CORPUS)"
 
+model-probe: OUTPUT ?= model-probe.json
 model-probe:
 	$(PYTHON) -m ah_there_it_is.model_probe --suite "$(SUITE)" --output "$(OUTPUT)"
 

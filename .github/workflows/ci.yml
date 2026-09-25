@@ -50,9 +50,12 @@ jobs:
 
   sandbox-bundle:
     runs-on: ubuntu-24.04
+    env:
+      SOURCE_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
     steps:
       - uses: actions/checkout@v4
         with:
+          ref: ${{ env.SOURCE_SHA }}
           fetch-depth: 1
 
       - uses: actions/setup-python@v5
@@ -95,7 +98,7 @@ jobs:
 
           cat > sandbox-bundle/.sandbox/MANIFEST.txt <<EOF
           repository=buzlet/ah-there-it-is
-          source_commit=$GITHUB_SHA
+          source_commit=$SOURCE_SHA
           run_id=$GITHUB_RUN_ID
           run_number=$GITHUB_RUN_NUMBER
           ref=$GITHUB_REF
@@ -113,7 +116,7 @@ jobs:
             git config user.email sandbox-bundle@invalid
             printf '.sandbox/\n.venv/\n' >> .git/info/exclude
             git add -A
-            git commit -q -m "sandbox baseline for $GITHUB_SHA"
+            git commit -q -m "sandbox baseline for $SOURCE_SHA"
             git tag sandbox-base
             test -z "$(git status --porcelain)"
             make help >/dev/null
@@ -128,7 +131,7 @@ jobs:
 
       - uses: actions/upload-artifact@v4
         with:
-          name: sandbox-bundle-${{ github.sha }}
+          name: sandbox-bundle-${{ env.SOURCE_SHA }}
           path: sandbox-bundle/
           if-no-files-found: error
           retention-days: 5
