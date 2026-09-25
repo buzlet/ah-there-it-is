@@ -4,59 +4,66 @@
 
 Repository: `buzlet/ah-there-it-is`.
 
-Product stages through Stage 26 and assignments through 0083 are complete on main.
+Product stages through Stage 26 and implementation/review work through 0090 are complete on main.
 
 Media/Telegram 0071–0080 and model-evaluation 0081–0083 are merged. Their independent review corrections are also merged: PR #84 for media/Telegram and PR #83 for model-evaluation hardening.
 
+Final code-level MVP hardening 0084–0090 was implemented by PR #87. Independent review corrections were integrated by PR #88 and then carried into PR #87 before its merge. Final post-merge application CI on main was green.
+
 Batch 0061–0070 merged as PR #77 at `33710743ba1d3c7a380cf4a2a37457fb94e89eaa`; its exact PR head was `35ee225e9a9159457a395d0f03bed37c5c6777af`. Authoritative CI was green.
 
-Active implementation protocol:
+Active implementation protocol for newly issued work:
 
-`agent-tasks/common/v8.md`
+`agent-tasks/common/v9.md`
+
+Execution environment is selected separately through one profile under
+`agent-tasks/executors/`; task files do not embed the executor selection.
+
+v8 remains historical authority for work issued under it. No active batch remains
+in the v8 lifecycle at v9 adoption.
 
 Historical process material is archived and is not normal implementation context.
 
 ## Execution
 
-Direct U24 execution runs as OS user `rdu01`.
+v9 separates task definition from execution environment.
 
-Each issued patch/batch receives its own exact checkout path under:
+For implementation, the orchestrator hands the agent two separate paths: the task
+and one executor profile, both read at the issuance SHA. Independent reviewer
+handoff additionally freezes and supplies the exact implementation head `I`.
 
-`/home/rdu01/projects/<patch-name>`
+Executor profiles:
 
-The agent must stay inside that checkout for Git, edits, Python, Make and tests. Do not switch to `gpt`, do not use sudo, and do not reuse another patch checkout.
+- `agent-tasks/executors/chatgpt-sandbox.md`
+- `agent-tasks/executors/u24-direct-shell.md`
+- `agent-tasks/executors/u24-remote-commander.md`
+- `agent-tasks/executors/windows-git-bash.md`
 
-The direct-shell environment is already connected to U24.
-
-Remote Commander on U24 remains available when explicitly selected.
-
-A third execution channel is the ChatGPT sandbox. It uses the exact
-`sandbox-bundle-<start-main-sha>` CI artifact, works only under an issued
-`/mnt/data/<patch-name>` directory, runs `make sandbox-bootstrap`, and does not
-use shell network access. See `agent-tasks/common/sandbox-execution.md`.
-
-Python 3.12 remains the authoritative CI/test compatibility target. Sandbox
-execution currently uses its preinstalled Python 3.13 environment as an additional
-implementation environment, not as a new required CI matrix lane.
+The executor file owns workdir/user/bootstrap/network/publication rules. The task
+file contains none of them. Python 3.12 application CI remains authoritative.
 
 ## Verification model
 
-One coherent issued batch:
+For new v9 work:
 
-- one implementation branch;
-- focused checkpoint per task;
-- no full repository suite between tasks;
-- one final PR;
-- one authoritative full CI;
-- full local regression only when manifest sets `full_local_required: true`.
+- one batch file in `main`;
+- its commit is the issuance SHA;
+- one pre-created implementation branch from that SHA;
+- ordinary task commits as recovery checkpoints;
+- one PR and authoritative exact-head CI;
+- independent reviewer receives the exact implementation head but does not read the implementer's self-review, handoff, conclusions or remaining-risk list;
+- reviewer may append correction commits to the same branch only from independently established findings;
+- implementer/reviewer never merge;
+- orchestrator owns current-main compatibility, merge and post-merge verification.
 
-The integrated-batch lifecycle tooling now treats an absolute manifest workdir as execution-host metadata; actual checkout identity is verified through the explicit runtime checkout parameter rather than requiring CI to use the U24 absolute path.
+No control branch, seed, assignment copies, lifecycle journal, committed self-review
+record or separate correction PR is part of the normal v9 path.
 
 ## Useful process tools
 
-- `tools/agent/lifecycle_checkpoints.py`;
-- `tools/agent/canonical_verifier.py` for manifest-declared full-local runs;
-- `tools/agent/ci_waiter.py`.
+- `tools/agent/canonical_verifier.py` when a batch explicitly requires full-local verification;
+- `tools/agent/ci_waiter.py` where supported;
+- lifecycle checkpoint tooling remains legacy for v8/historical batches.
 
 ## Product summary
 
@@ -126,10 +133,10 @@ Accepted and closed in:
 
 ## Remaining work before MVP acceptance
 
-1. Run one sandbox-only final correctness/hardening batch 0084–0090 across the integrated core. Fix only reproducible code-level findings; do not add product scope.
-2. Subject that batch to an independent reviewer. Implementer and reviewer stop at green PR CI and do not self-merge.
-3. After code correctness is accepted, run a separate Direct-shell deployment-readiness batch on the actual target server.
+Code-level MVP acceptance/hardening through 0090 is complete.
 
-The Direct batch, not the sandbox batch, owns host preparation: service manager, environment/secrets placement, filesystem layout, deployment/restart rehearsal, operational paths and other server-specific setup.
+Next is a Direct-shell deployment-readiness batch 0091+ on the actual target server. It owns host preparation: service manager, environment/secrets placement, filesystem layout, deployment/restart rehearsal, operational paths and other server-specific setup.
 
-Only after both code acceptance and Direct deployment readiness are green should the project be declared MVP-ready.
+The known Direct follow-up is to guarantee exactly one Telegram long-polling process for the production bot/database, including restart/upgrade overlap and crash timing around committed mutation versus reply/checkpoint.
+
+Only after Direct deployment readiness is green should the project be declared MVP-ready.

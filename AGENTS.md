@@ -72,36 +72,43 @@ Backup scheduling, retention and off-machine copying are external infrastructure
 
 ## Active implementation protocol
 
-Use only:
+For batches issued after the v9 process change, use:
 
-`agent-tasks/common/v8.md`
+`agent-tasks/common/v9.md`
 
-One issued batch has one implementation branch, focused checkpoint per task, one final PR and one authoritative full CI.
+Each issued task is one file committed to `main`. The commit containing the
+finalized task file is its immutable issuance SHA.
 
-Do not run repository-wide regression after each task.
+Task and executor are separate issuance inputs. The task never embeds environment
+details or selects its executor.
 
-Full local regression is run only when the immutable manifest says `full_local_required: true`.
+There is no control branch, seed, assignment copy, committed self-review file or
+separate reviewer-correction PR in v9.
 
-The agent must not expand verification scope on its own.
+Do not migrate an already-running v8 batch to v9 mid-execution.
+
+Independent review is a separate role. The reviewer inspects the exact
+implementation result but does not consume the implementer's self-review, handoff,
+conclusions or remaining-risk list as review input.
+
+Do not run repository-wide regression after each task. Verification breadth and
+`full_local_required` come from the issued batch file.
 
 ## Execution
 
-Supported implementation execution channels are direct U24 shell, explicitly selected Remote Commander, and the ChatGPT sandbox.
+Execution-environment details are not duplicated in batch specifications.
 
-Direct U24 execution is already connected to the machine and runs as OS user `rdu01`.
+At issuance the orchestrator supplies a separate executor path, for example:
 
-The launcher supplies a unique patch checkout under:
+`Executor: agent-tasks/executors/chatgpt-sandbox.md`
 
-`/home/rdu01/projects/<patch-name>`
+Available executor profiles live under `agent-tasks/executors/`.
 
-All Git, edits, Python, Make and tests must run only inside that exact checkout. Do not switch users, use sudo, or operate in another repository checkout.
+The selected executor profile owns user/workdir/bootstrap/network/publication and
+host-specific stop rules. The task file contains none of those details.
 
-Remote Commander on U24 remains supported when explicitly selected.
-
-Sandbox execution uses the exact CI artifact `sandbox-bundle-<start-main-sha>`,
-an issued workdir under `/mnt/data/`, the preinstalled `/opt/pyvenv` dependency environment via `make sandbox-bootstrap`, and no shell network access. See `agent-tasks/common/sandbox-execution.md`.
-
-Windows Git Bash through Remote Commander is prepared but pending native validation.
+Windows Git Bash remains pending native validation and may be selected only when
+its executor profile explicitly permits the issued work.
 
 ### Python verification policy
 
@@ -112,17 +119,18 @@ Python 3.12 is the project CI/test compatibility target. Do not add Python 3.13 
 Read only:
 
 1. this file;
-2. exact issued manifest/task specs;
-3. `agent-tasks/common/v8.md`;
-4. relevant source/tests.
+2. the issued task file at the issuance SHA;
+3. the separately supplied executor profile at the same issuance SHA;
+4. `agent-tasks/common/v9.md`;
+5. relevant source/tests.
 
 Do not recursively read `agent-tasks/archive/`.
 
 ## Process helpers
 
-- `tools/agent/lifecycle_checkpoints.py` — read-only control/seed/checkpoint inspection;
-- `tools/agent/canonical_verifier.py` — optional durable full-local verifier for manifest-declared high-risk batches;
-- `tools/agent/ci_waiter.py` — bounded exact-head CI observer.
+- `tools/agent/canonical_verifier.py` — optional when the issued batch explicitly requires durable full-local verification;
+- `tools/agent/ci_waiter.py` — optional bounded exact-head CI observer where its environment supports it;
+- v8 lifecycle/seed helpers are legacy and are not used by new v9 batches.
 
 ## Product/deployment scope
 
@@ -144,9 +152,11 @@ Key rules:
 
 ## Current status
 
-Product work through Stage 26 and assignments through 0083 is complete.
+Product work through Stage 26 and implementation/review work through 0090 is complete.
 
-Batches 0071–0080 and 0081–0083 implemented Item media references, the single-user/private-text Telegram adapter, and provider/model benchmark-promotion tooling. Independent post-merge reviews produced corrective PRs #84 and #83; both corrections are merged into current main.
+Batches 0071–0080 and 0081–0083 implemented Item media references, the single-user/private-text Telegram adapter, and provider/model benchmark-promotion tooling. Independent post-merge reviews produced corrective PRs #84 and #83.
+
+Final code-level MVP hardening 0084–0090 was implemented in PR #87 and independently reviewed with corrections in PR #88. Both are merged into current main, and the final post-merge application CI is green.
 
 ### Correction / Undo
 
@@ -168,9 +178,11 @@ Key rules:
 
 All required product-semantic gates for the implemented core are closed.
 
-Next is one sandbox-only final MVP correctness/hardening batch (0084–0090). It may add regression tests and narrow code corrections only; it must not add new product scope or prepare the deployment host.
+Code-level MVP correctness/hardening 0084–0090 and its independent corrections are complete.
 
-After independent review/corrections of that batch, deployment/environment readiness is a separate Direct-shell batch on the actual target server. That Direct work owns service-manager setup, filesystem/env/secrets layout, deployment rehearsal, operational paths and other host-specific readiness.
+Next is a separate Direct-shell deployment/environment-readiness batch (0091+) on the actual target server. That Direct work owns service-manager setup, filesystem/env/secrets layout, deployment rehearsal, operational paths and other host-specific readiness.
+
+The known deployment follow-up is to enforce and verify exactly one Telegram long-polling process for the production bot/database, including restart/upgrade overlap and crash timing around committed mutation versus reply/checkpoint.
 
 Do not reopen merge, Product/SKU, continuous-measurement, multi-user, multilingual,
 QR/barcode, built-in voice, backup-policy, trace-purge or generic hard-delete
