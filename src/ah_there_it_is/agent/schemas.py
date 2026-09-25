@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from typing import Any, Literal
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 from ah_there_it_is.domain.states import ItemState
 
@@ -69,10 +69,16 @@ class CreateItemInput(_ToolInput):
     state: ItemState = ItemState.UNKNOWN
     category_id: int | None = Field(default=None, gt=0)
     location_id: int | None = Field(default=None, gt=0)
-    quantity: int = Field(default=1, ge=1)
+    quantity_mode: Literal["exact", "approx", "unknown"] = "exact"
+    quantity: int | None = Field(default=1, ge=1)
     attributes: dict[str, Any] = Field(default_factory=dict)
     aliases: list[str] = Field(default_factory=list)
     tags: list[str] = Field(default_factory=list)
+
+    @model_validator(mode="after")
+    def validate_quantity(self) -> "CreateItemInput":
+        _validate_quantity(self.quantity_mode, self.quantity)
+        return self
 
 
 class UpdateItemInput(_ToolInput):
@@ -81,7 +87,6 @@ class UpdateItemInput(_ToolInput):
     description: str | None = None
     state: NonTerminalItemState | None = None
     category_id: int | None = Field(default=None, gt=0)
-    quantity: int | None = Field(default=None, ge=1)
     attributes: dict[str, Any] | None = None
     aliases: list[str] | None = None
     tags: list[str] | None = None
@@ -91,12 +96,53 @@ class ItemMutationInput(_ToolInput):
     item_id: int = Field(gt=0)
 
 
+class PortionInput(_ToolInput):
+    mode: Literal["exact", "approx", "unknown"]
+    value: int | None = Field(default=None, ge=1)
+
+    @model_validator(mode="after")
+    def validate_quantity(self) -> "PortionInput":
+        _validate_quantity(self.mode, self.value)
+        return self
+
+
 class MoveItemInput(_ToolInput):
     item_id: int = Field(gt=0)
     location_id: int = Field(gt=0)
+    portion: PortionInput | None = None
 
 
-class ReactivateItemInput(_ToolInput):
+class PortionedItemInput(_ToolInput):
+    item_id: int = Field(gt=0)
+    portion: PortionInput | None = None
+
+
+class ChangeItemQuantityInput(_ToolInput):
+    item_id: int = Field(gt=0)
+    quantity_mode: Literal["exact", "approx", "unknown"]
+    quantity: int | None = Field(default=None, ge=1)
+    reason: str = Field(min_length=1, max_length=500)
+    reason_source: Literal["explicit", "context"]
+
+    @model_validator(mode="after")
+    def validate_quantity(self) -> "ChangeItemQuantityInput":
+        _validate_quantity(self.quantity_mode, self.quantity)
+        return self
+
+
+class RemoveItemInput(PortionedItemInput):
+    reason: str = Field(min_length=1, max_length=500)
+    reason_source: Literal["explicit", "context"]
+
+
+class RestoreItemInput(_ToolInput):
     item_id: int = Field(gt=0)
     state: NonTerminalItemState
     location_id: int | None = Field(gt=0)
+
+
+def _validate_quantity(mode: str, value: int | None) -> None:
+    if mode == "unknown" and value is not None:
+        raise ValueError("unknown quantity requires a null value")
+    if mode != "unknown" and value is None:
+        raise ValueError(f"{mode} quantity requires a value")

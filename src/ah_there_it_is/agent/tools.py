@@ -18,13 +18,16 @@ from ah_there_it_is.agent.write_resolution import WriteResolver
 from ah_there_it_is.agent.schemas import (
     CreateCategoryInput,
     CreateItemInput,
+    ChangeItemQuantityInput,
     CreateLocationInput,
     IdInput,
     ItemIdInput,
     ItemMutationInput,
     LocationIdInput,
     MoveItemInput,
-    ReactivateItemInput,
+    PortionedItemInput,
+    RemoveItemInput,
+    RestoreItemInput,
     SearchInput,
     SuggestItemLocationsInput,
     UpdateItemInput,
@@ -93,11 +96,10 @@ class ToolDispatcher:
 
     ITEM_MUTATION_TOOLS = frozenset({
         "create_item", "update_item", "move_item", "take_item",
-        "mark_item_location_unknown", "discard_item", "mark_item_sold", "reactivate_item",
+        "mark_item_location_unknown", "change_item_quantity", "remove_item", "restore_item",
     })
     LOCATION_MUTATION_TOOLS = frozenset({
-        "move_item", "take_item", "mark_item_location_unknown", "discard_item",
-        "mark_item_sold", "reactivate_item",
+        "move_item", "take_item", "mark_item_location_unknown", "remove_item", "restore_item",
     })
     MUTATION_TOOLS = ITEM_MUTATION_TOOLS | frozenset({"create_location", "create_category"})
 
@@ -186,11 +188,11 @@ class ToolDispatcher:
             names.update({
                 "suggest_item_locations",
                 "update_item",
+                "change_item_quantity",
                 "take_item",
                 "mark_item_location_unknown",
-                "discard_item",
-                "mark_item_sold",
-                "reactivate_item",
+                "remove_item",
+                "restore_item",
             })
             if self.state.resolved["location"]:
                 names.add("move_item")
@@ -233,17 +235,18 @@ class ToolDispatcher:
             return self._error(type(exc).__name__, str(exc))
 
     def _mutation_before(self, name: str, parsed: BaseModel) -> dict[str, Any]:
-        if name not in self.ITEM_MUTATION_TOOLS or name == "create_item":
+        if name not in self.ITEM_MUTATION_TOOLS:
             return {}
+        last_event_id = self.inventory.session.scalar(select(func.max(Event.id))) or 0
+        if name == "create_item":
+            return {"last_event_id": last_event_id}
         item_id = parsed.item_id  # type: ignore[attr-defined]
         item = self.inventory.session.get(Item, item_id)
-        last_event_id = self.inventory.session.scalar(
-            select(func.max(Event.id)).where(Event.item_id == item_id)
-        ) or 0
         return {
             "last_event_id": last_event_id,
             "location_id": item.current_location_id if item else None,
             "category_id": item.category_id if item else None,
+            "item": self._receipt_item(item) if item else None,
         }
 
     def _mutation_receipt(
@@ -257,12 +260,10 @@ class ToolDispatcher:
         before_ids: dict[str, int | None] = {}
         after_ids: dict[str, int | None] = {}
         if entity_type == "item":
-            event_ids = tuple(self.inventory.session.scalars(
-                select(Event.id).where(
-                    Event.item_id == entity_id,
-                    Event.id > before.get("last_event_id", 0),
-                ).order_by(Event.id)
+            new_events = list(self.inventory.session.scalars(
+                select(Event).where(Event.id > before.get("last_event_id", 0)).order_by(Event.id)
             ))
+            event_ids = tuple(event.id for event in new_events)
             if name in self.LOCATION_MUTATION_TOOLS:
                 before_ids = {"location_id": before["location_id"]}
                 after_ids = {"location_id": result["location_id"]}
@@ -277,6 +278,35 @@ class ToolDispatcher:
         elif name in {"create_location", "create_category"}:
             after_ids = {"parent_id": result["parent_id"]}
         changed = bool(event_ids) if name in self.ITEM_MUTATION_TOOLS - {"create_item"} else True
+        affected_item_ids: tuple[int, ...] = ()
+        receipt_before: dict[str, Any] = {}
+        receipt_after: dict[str, Any] = {}
+        split: dict[str, Any] | None = None
+        compensation: dict[str, Any] = {}
+        if entity_type == "item":
+            source_id = getattr(parsed, "item_id", entity_id)
+            affected_item_ids = tuple(sorted({source_id, entity_id}))
+            if before.get("item") is not None:
+                receipt_before[str(source_id)] = before["item"]
+            for affected_id in affected_item_ids:
+                affected = self.inventory.session.get(Item, affected_id)
+                if affected is not None:
+                    receipt_after[str(affected_id)] = self._receipt_item(affected)
+            if entity_id != source_id:
+                split_events = [event for event in new_events if event.event_type == "item_split"]
+                split_payload = split_events[0].payload if split_events else {}
+                split = {
+                    "source_item_id": source_id,
+                    "child_item_id": entity_id,
+                    "copied_description": split_payload.get("copied_description"),
+                    "event_ids": [event.id for event in split_events],
+                }
+            compensation = {
+                "operation": name,
+                "source_item_id": source_id,
+                "created_item_ids": [entity_id] if entity_id != source_id else [],
+                "expected_post_state": receipt_after,
+            }
         return MutationReceipt(
             operation=name,
             entity_type=entity_type,
@@ -285,7 +315,30 @@ class ToolDispatcher:
             before_ids=before_ids,
             after_ids=after_ids,
             event_ids=event_ids,
+            affected_item_ids=affected_item_ids,
+            before=receipt_before,
+            after=receipt_after,
+            split=split,
+            compensation=compensation,
         )
+
+    @staticmethod
+    def _receipt_item(item: Item) -> dict[str, Any]:
+        return {
+            "id": item.id,
+            "name": item.name,
+            "description": item.description,
+            "state": item.state,
+            "quantity_mode": item.quantity_mode,
+            "quantity": item.quantity,
+            "removal_reason": item.removal_reason,
+            "category_id": item.category_id,
+            "location_id": item.current_location_id,
+            "location_status": item.location_status,
+            "attributes": dict(item.attributes),
+            "aliases": [alias.name for alias in item.aliases],
+            "tags": [link.tag.name for link in item.tag_links],
+        }
 
     @staticmethod
     def as_tool_message_content(result: dict[str, Any]) -> str:
@@ -361,6 +414,11 @@ class ToolDispatcher:
                 UpdateItemInput,
                 self._update_item,
             ),
+            "change_item_quantity": _ToolSpec(
+                "Change quantity semantically with explicit evidence and reason.",
+                ChangeItemQuantityInput,
+                self._change_item_quantity,
+            ),
             "move_item": _ToolSpec(
                 "Move an already-resolved item to a separately resolved Location.",
                 MoveItemInput,
@@ -368,7 +426,7 @@ class ToolDispatcher:
             ),
             "take_item": _ToolSpec(
                 "Mark an already-resolved non-terminal item as in use; its stored location becomes unknown to storage search.",
-                ItemMutationInput,
+                PortionedItemInput,
                 self._take_item,
             ),
             "mark_item_location_unknown": _ToolSpec(
@@ -376,20 +434,15 @@ class ToolDispatcher:
                 ItemMutationInput,
                 self._mark_item_location_unknown,
             ),
-            "discard_item": _ToolSpec(
-                "Mark an already-resolved item as discarded; terminal items must be reactivated before other state changes.",
-                ItemMutationInput,
-                self._discard_item,
+            "remove_item": _ToolSpec(
+                "Remove all or an explicit portion of an item, retaining reason evidence.",
+                RemoveItemInput,
+                self._remove_item,
             ),
-            "mark_item_sold": _ToolSpec(
-                "Mark an already-resolved item as sold; terminal items must be reactivated before other state changes.",
-                ItemMutationInput,
-                self._mark_item_sold,
-            ),
-            "reactivate_item": _ToolSpec(
-                "Reactivate a sold or discarded resolved item with a non-terminal state and an explicit resolved Location or explicit null for unknown location.",
-                ReactivateItemInput,
-                self._reactivate_item,
+            "restore_item": _ToolSpec(
+                "Restore a removed item with an explicit non-terminal state and known or unknown location.",
+                RestoreItemInput,
+                self._restore_item,
             ),
         }
 
@@ -553,18 +606,21 @@ class ToolDispatcher:
             lambda: self.inventory.move_item(
                 args.item_id,
                 args.location_id,
+                portion=args.portion.model_dump() if args.portion else None,
                 original_text=self.original_text,
             ),
         )
         return self._item_dict(item)
 
     def _take_item(self, raw: BaseModel) -> dict[str, Any]:
-        args = self._cast(ItemMutationInput, raw)
+        args = self._cast(PortionedItemInput, raw)
         self._require_resolved("item", args.item_id)
         item = self._validated_write(
             [("item", args.item_id)],
             lambda: self.inventory.take_item(
-                args.item_id, original_text=self.original_text
+                args.item_id,
+                portion=args.portion.model_dump() if args.portion else None,
+                original_text=self.original_text,
             ),
         )
         return self._item_dict(item)
@@ -580,30 +636,39 @@ class ToolDispatcher:
         )
         return self._item_dict(item)
 
-    def _discard_item(self, raw: BaseModel) -> dict[str, Any]:
-        args = self._cast(ItemMutationInput, raw)
+    def _change_item_quantity(self, raw: BaseModel) -> dict[str, Any]:
+        args = self._cast(ChangeItemQuantityInput, raw)
         self._require_resolved("item", args.item_id)
         item = self._validated_write(
             [("item", args.item_id)],
-            lambda: self.inventory.discard_item(
-                args.item_id, original_text=self.original_text
+            lambda: self.inventory.change_item_quantity(
+                args.item_id,
+                quantity_mode=args.quantity_mode,
+                quantity=args.quantity,
+                reason=args.reason,
+                reason_source=args.reason_source,
+                original_text=self.original_text,
             ),
         )
         return self._item_dict(item)
 
-    def _mark_item_sold(self, raw: BaseModel) -> dict[str, Any]:
-        args = self._cast(ItemMutationInput, raw)
+    def _remove_item(self, raw: BaseModel) -> dict[str, Any]:
+        args = self._cast(RemoveItemInput, raw)
         self._require_resolved("item", args.item_id)
         item = self._validated_write(
             [("item", args.item_id)],
-            lambda: self.inventory.mark_item_sold(
-                args.item_id, original_text=self.original_text
+            lambda: self.inventory.remove_item(
+                args.item_id,
+                portion=args.portion.model_dump() if args.portion else None,
+                reason=args.reason,
+                reason_source=args.reason_source,
+                original_text=self.original_text,
             ),
         )
         return self._item_dict(item)
 
-    def _reactivate_item(self, raw: BaseModel) -> dict[str, Any]:
-        args = self._cast(ReactivateItemInput, raw)
+    def _restore_item(self, raw: BaseModel) -> dict[str, Any]:
+        args = self._cast(RestoreItemInput, raw)
         self._require_resolved("item", args.item_id)
         references = [("item", args.item_id)]
         if args.location_id is not None:
@@ -611,7 +676,7 @@ class ToolDispatcher:
             references.append(("location", args.location_id))
         item = self._validated_write(
             references,
-            lambda: self.inventory.reactivate_item(
+            lambda: self.inventory.restore_item(
                 args.item_id,
                 state=args.state,
                 location_id=args.location_id,
@@ -746,7 +811,9 @@ class ToolDispatcher:
             "name": item.name,
             "description": item.description,
             "state": item.state,
+            "quantity_mode": item.quantity_mode,
             "quantity": item.quantity,
+            "removal_reason": item.removal_reason,
             "attributes": item.attributes,
             "aliases": [alias.name for alias in item.aliases],
             "tags": [link.tag.name for link in item.tag_links],
