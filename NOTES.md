@@ -25,3 +25,26 @@ Current clusters introduced from production Telegram testing:
   - #99 semantic entity matching and specificity
 - **Telegram presentation / mobile navigation**
   - #100 compact rendering, native formatting, approximate quantity display, drill-down navigation, and paging
+- **Configuration / operator policy / future user preferences**
+  - #101 configuration classification, layering, hard-coded-setting audit, and future per-user override candidates
+
+
+## Configuration classification note
+
+When deciding whether a hard-coded value should move into configuration, distinguish at least:
+
+- domain invariants;
+- protocol/API constants;
+- deployment/operator settings;
+- secrets/credentials;
+- product defaults / UX tuning;
+- future user preferences;
+- internal implementation constants.
+
+A future user-preference layer is a design concern even while the current product remains single-user. The audit should mark which values may later support per-user overrides and who is allowed to change them, but must not weaken correctness/safety invariants or prematurely implement multi-user support.
+
+Configuration precedence, when applicable, should be explicit. A candidate model is:
+
+`product default -> deployment/operator override -> future user override`
+
+Secrets remain a separate channel, and domain invariants are not overrideable configuration.
