@@ -141,3 +141,51 @@ Conclusion:
 
 Follow-up:
 - Preserve `--require-production` (or an equivalent deployment-specific invariant) if startup/configuration code is refactored later.
+
+
+### 2026-09-26 — 0091 + 0092 integration CI regression and compatibility fix
+
+Status: completed
+
+Question:
+Would the optimized ordinary CI from batch 0092 remain within its intended ~2 minute envelope after the deployment/recovery test additions from batch 0091 were merged, and if not, could the regression be removed without weakening meaningful coverage?
+
+Context:
+- PR #89 merged as `b283a779c9f680b0207f934f12b3a1b68f281d0d`.
+- PR #90 merged as `96cffb2a72d3450cf6f5357509d05dee105fcf13`.
+- Combined ordinary CI #499 was functionally green but measured 157 s job wall, 138 s fast-coverage step, and 133.72 s pytest for 689 passed / 45 deselected tests at 83.45% branch coverage.
+- The final compatibility fix was PR #91, merged as `d04a4e08fe9d51529b5fa1811e49e5290cf6f011`.
+
+Procedure:
+1. Profile only the deployment/recovery test files added by PR #89 on an exact detached checkout of `96cffb2...` on U24.
+2. Measure `tests/test_startup_preflight.py` separately from the other new deployment/recovery suites.
+3. Inspect the slowest test cases.
+4. Replace only the redundant malformed-environment Cartesian subprocess matrix (5 malformed values × 5 real CLI entrypoints) with pairwise factor coverage: every malformed value and every real entrypoint still appears once.
+5. Run the focused startup-preflight suite locally.
+6. Verify PR #91 with GitHub-hosted ordinary CI.
+7. Merge PR #91 and run ordinary CI twice on the exact final main SHA.
+8. Dispatch manual extended CI with `target_sha` equal to that same final main SHA.
+
+Observed result:
+- U24 profiling before the fix: startup-preflight file 29.08 s; the other five new deployment/recovery suites together 11.70 s.
+- U24 startup-preflight after the pairwise matrix change: 14.60 s, green.
+- PR #91 exact-head CI #500: 110 s verify job, 94 s fast step, 669 passed / 45 deselected in 91.48 s, 83.51% coverage, green.
+- Final main SHA: `d04a4e08fe9d51529b5fa1811e49e5290cf6f011`.
+- Final ordinary CI #501 attempt 1: 149 s verify job; pytest 669 passed / 45 deselected in 122.81 s; 83.45% coverage; green.
+- Exact same final SHA #501 attempt 2: 81 s verify job; fast step 69 s; pytest 669 passed / 45 deselected in 66.29 s; 83.51% coverage; green.
+- Final manual extended run #2 checked out and logged exact SHA `d04a4e08fe9d51529b5fa1811e49e5290cf6f011`.
+- Extended result: 714 passed in 216.94 s, 83.75% branch coverage, migration/corpus/scenario checks green, full scenario evaluation green, retrieval evaluation 86/86 green.
+
+Conclusion:
+- The integration initially introduced a real deterministic CI regression, mainly from a redundant 25-process configuration-validation test matrix.
+- Removing only that redundancy restored the ordinary workload without moving meaningful deployment/recovery tests to extended verification.
+- GitHub-hosted runner variance remains very large: the identical final tree produced 149 s and 81 s ordinary verify jobs. Timing should therefore be tracked with deterministic workload profiling plus multiple hosted observations rather than a single run.
+- Functional integration of batches 0091 and 0092 is green on the final immutable main SHA, including the full extended gate.
+
+Limitations:
+- Hosted-runner timing remains externally noisy and cannot guarantee a hard wall-time bound for every run.
+- The compatibility change preserves factor coverage rather than every Cartesian combination; this is appropriate because environment validation occurs before command-specific dispatch.
+
+Follow-up:
+- Keep monitoring ordinary CI timing as the suite grows.
+- Profile newly added subprocess-heavy tests before expanding the extended set or weakening fast-gate coverage.
