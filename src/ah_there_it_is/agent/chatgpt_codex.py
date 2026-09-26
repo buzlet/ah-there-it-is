@@ -117,8 +117,11 @@ class ChatGPTCodexLLMClient:
     ) -> LLMResponse:
         body = self._request_payload(messages, tools)
         started = time.perf_counter()
+        deadline = started + self.config.timeout_seconds
         attempts = 0
         for attempt in range(self.config.max_retries + 1):
+            if time.perf_counter() >= deadline:
+                raise ProviderRequestError("ChatGPT Codex request timed out")
             attempts = attempt + 1
             try:
                 credentials = self._credential_source.get()
@@ -156,8 +159,16 @@ class ChatGPTCodexLLMClient:
                         continue
 
                     try:
+                        def bounded_chunks() -> Iterable[bytes]:
+                            for chunk in response.iter_bytes():
+                                if time.perf_counter() >= deadline:
+                                    raise ProviderRequestError(
+                                        "ChatGPT Codex response timed out"
+                                    )
+                                yield chunk
+
                         parsed = parse_responses_sse(
-                            response.iter_bytes(),
+                            bounded_chunks(),
                             max_bytes=self.config.max_response_bytes,
                             secrets=(credentials.access_token, credentials.account_id or ""),
                         )
@@ -326,13 +337,10 @@ class ChatGPTCodexLLMClient:
         message = error.get("message")
         parts = []
         if isinstance(code, str) and code:
-            parts.append(code[:120])
+            parts.append(redact_sensitive_text(code, (access_token, account_id or ""))[:120])
         if isinstance(message, str) and message:
-            parts.append(message[:1000])
-        return redact_sensitive_text(
-            ": ".join(parts),
-            (access_token, account_id or ""),
-        )
+            parts.append(redact_sensitive_text(message, (access_token, account_id or ""))[:1000])
+        return ": ".join(parts)
 
 
 def parse_responses_sse(
@@ -372,16 +380,15 @@ def parse_responses_sse(
                 code = upstream_error.get("code")
                 message = upstream_error.get("message")
                 detail = ": ".join(
-                    str(part)[:1000]
+                    redact_sensitive_text(part, secrets)[:1000]
                     for part in (code, message)
                     if isinstance(part, str) and part
                 )
             else:
                 detail = ""
-            safe_detail = redact_sensitive_text(detail, secrets)
             raise ProviderRequestError(
                 "ChatGPT Codex stream returned an error"
-                + (f": {safe_detail}" if safe_detail else "")
+                + (f": {detail}" if detail else "")
             ) from None
         if kind == "response.output_text.delta":
             delta = event.get("delta")

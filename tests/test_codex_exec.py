@@ -5,6 +5,7 @@ from __future__ import annotations
 import json
 import os
 from pathlib import Path
+import signal
 import sys
 import textwrap
 import time
@@ -111,6 +112,7 @@ def test_fake_exec_uses_empty_temp_cwd_and_returns_structured_tool_call(tmp_path
             "type": "item.completed",
             "item": {"type": "agent_message", "text": json.dumps(answer)},
         }))
+        print(json.dumps({"type": "turn.completed"}))
     """)
     monkeypatch.setenv("AH_THERE_IT_IS_DATABASE_URL", "sqlite:///secret.db")
     monkeypatch.setenv("OPENAI_API_KEY", "api-secret")
@@ -180,6 +182,20 @@ def test_jsonl_final_message_and_structured_tool_call_parsing() -> None:
     assert result["tool_calls"][0].arguments == {"value": 7}
 
 
+@pytest.mark.parametrize("ending", [None, "turn.failed"])
+def test_jsonl_requires_successful_completed_turn(ending: str | None) -> None:
+    events = [
+        {"type": "turn.started"},
+        {"type": "item.completed", "item": {
+            "type": "agent_message", "text": '{"content":"ok","tool_calls":[]}',
+        }},
+    ]
+    if ending:
+        events.append({"type": ending})
+    with pytest.raises(ProviderProtocolError, match="completed turn"):
+        parse_codex_exec_jsonl("\n".join(json.dumps(event) for event in events))
+
+
 @pytest.mark.parametrize("output", [
     "not-json",
     json.dumps({"type": "strange.event"}),
@@ -223,6 +239,34 @@ def test_unexpected_internal_command_event_terminates_process_group(tmp_path: Pa
     assert time.monotonic() - started < 4
 
 
+@pytest.mark.skipif(os.name != "posix", reason="requires POSIX process groups")
+def test_exec_cleans_up_child_after_cli_exits(tmp_path: Path) -> None:
+    pid_file = tmp_path / "child.pid"
+    script = _fake_cli(tmp_path, f"""
+        import json, pathlib, subprocess, sys
+        child = subprocess.Popen(
+            [sys.executable, "-c", "import time; time.sleep(20)"],
+            stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+        )
+        pathlib.Path({str(pid_file)!r}).write_text(str(child.pid))
+        print(json.dumps({{"type": "item.completed", "item": {{
+            "type": "agent_message", "text": '{{"content":"ok","tool_calls":[]}}',
+        }}}}), flush=True)
+        print(json.dumps({{"type": "turn.completed"}}), flush=True)
+    """)
+    try:
+        assert _provider(script).complete([AgentMessage(role="user", content="hi")], []).content == "ok"
+        child_pid = int(pid_file.read_text())
+        state = Path(f"/proc/{child_pid}/stat")
+        assert not state.exists() or state.read_text().split()[2] == "Z"
+    finally:
+        if pid_file.exists():
+            try:
+                os.kill(int(pid_file.read_text()), signal.SIGKILL)
+            except ProcessLookupError:
+                pass
+
+
 def test_exec_timeout_and_bounded_output(tmp_path: Path) -> None:
     sleeping = _fake_cli(tmp_path, """
         import time
@@ -258,3 +302,19 @@ def test_nonzero_exec_error_redacts_cached_credentials(tmp_path: Path) -> None:
         provider.complete([AgentMessage(role="user", content="fail")], [])
     assert "status 9" in str(raised.value)
     assert TOKEN not in str(raised.value)
+
+
+def test_nonzero_exec_error_does_not_expose_token_prefix_at_detail_limit(tmp_path: Path) -> None:
+    boundary_token = "unique-token-prefix-then-secret-suffix"
+    script = _fake_cli(tmp_path, f"""
+        import sys
+        sys.stderr.write({('x' * 1185 + boundary_token)!r})
+        raise SystemExit(9)
+    """)
+    provider = _provider(
+        script,
+        source=StaticChatGPTCredentialSource(ChatGPTCredentials(boundary_token, None)),
+    )
+    with pytest.raises(ProviderRequestError) as raised:
+        provider.complete([AgentMessage(role="user", content="fail")], [])
+    assert "unique-token" not in str(raised.value)

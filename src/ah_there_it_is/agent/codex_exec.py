@@ -152,9 +152,9 @@ class CodexExecLLMClient:
             detail = ""
             if redaction_secrets:
                 detail = redact_sensitive_text(
-                    stderr.decode("utf-8", errors="replace")[:1200],
+                    stderr.decode("utf-8", errors="replace"),
                     redaction_secrets,
-                )
+                )[:1200]
             raise ProviderRequestError(
                 f"codex exec exited with status {returncode}"
                 + (f": {detail}" if detail.strip() else "")
@@ -257,6 +257,8 @@ def parse_codex_exec_jsonl(
     """Extract the final agent message and reject internal tool activity."""
     messages: list[str] = []
     unexpected_count = 0
+    completed_turn = False
+    failed_turn = False
     for line in output.splitlines():
         if not line.strip():
             continue
@@ -270,14 +272,16 @@ def parse_codex_exec_jsonl(
         item = event.get("item")
         if event_type not in _ALLOWED_EVENT_TYPES:
             raise ProviderProtocolError("codex exec emitted an unexpected event type")
+        if event_type == "turn.failed":
+            failed_turn = True
+        if event_type == "turn.completed":
+            completed_turn = True
         if isinstance(item, dict):
             item_type = item.get("type")
             if item_type not in _ALLOWED_ITEM_TYPES:
                 unexpected_count += 1
                 continue
-            if item_type == "agent_message" and event_type in (
-                "item.completed", "item.updated", "item.started",
-            ):
+            if item_type == "agent_message" and event_type == "item.completed":
                 text = item.get("text")
                 if isinstance(text, str):
                     messages.append(text)
@@ -285,6 +289,8 @@ def parse_codex_exec_jsonl(
             raise ProviderRequestError("codex exec emitted an error event")
     if unexpected_count:
         raise UnexpectedCodexToolError(unexpected_count)
+    if failed_turn or not completed_turn:
+        raise ProviderProtocolError("codex exec did not produce a completed turn")
     if not messages:
         raise ProviderProtocolError("codex exec produced no final agent message")
     return messages[-1]
@@ -445,6 +451,9 @@ def _run_process(
             raise TimeoutError
         time.sleep(0.01)
     returncode = process.wait()
+    if os.name == "posix":
+        # The CLI leader may exit while a tool subprocess remains in its session.
+        _terminate_process_group(process)
     stdout_thread.join(timeout=2)
     stderr_thread.join(timeout=2)
     stdin_thread.join(timeout=1)
@@ -466,14 +475,13 @@ def _run_process(
 
 
 def _terminate_process_group(process) -> None:
-    if process.poll() is not None:
-        return
     try:
         if os.name == "posix":
             os.killpg(process.pid, signal.SIGKILL)
-        else:
+        elif process.poll() is None:
             process.kill()
     except ProcessLookupError:
         pass
     except OSError:
-        process.kill()
+        if process.poll() is None:
+            process.kill()

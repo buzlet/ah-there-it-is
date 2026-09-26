@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 from pathlib import Path
+import time
 
 import httpx
 import pytest
@@ -182,6 +183,25 @@ def test_codex_auth_http_401_is_redacted_and_does_not_refresh_or_rewrite(
     assert auth_file.read_bytes() == before
 
 
+def test_http_error_does_not_expose_token_prefix_at_detail_limit() -> None:
+    boundary_token = "unique-token-prefix-then-secret-suffix"
+
+    def handler(_request: httpx.Request) -> httpx.Response:
+        return httpx.Response(403, json={"error": {
+            "message": "x" * 985 + boundary_token,
+        }})
+
+    client = _client(handler, source=StaticChatGPTCredentialSource(
+        ChatGPTCredentials(boundary_token, None)
+    ))
+    try:
+        with pytest.raises(ProviderRequestError) as raised:
+            client.complete([AgentMessage(role="user", content="hi")], [])
+    finally:
+        client.close()
+    assert "unique-token" not in str(raised.value)
+
+
 def test_request_maps_generic_history_and_tools_to_codex_responses() -> None:
     captured: dict[str, object] = {}
 
@@ -345,6 +365,39 @@ def test_sse_oversized_tool_arguments_and_stream_error_are_bounded_and_safe() ->
         parse_responses_sse([error], secrets=(TOKEN, ACCOUNT))
     assert TOKEN not in str(raised.value)
     assert ACCOUNT not in str(raised.value)
+
+
+def test_sse_error_does_not_expose_token_prefix_at_detail_limit() -> None:
+    boundary_token = "unique-token-prefix-then-secret-suffix"
+    error = _sse_event("error", {"type": "error", "error": {
+        "message": "x" * 985 + boundary_token,
+    }})
+    with pytest.raises(ProviderRequestError) as raised:
+        parse_responses_sse([error], secrets=(boundary_token,))
+    assert "unique-token" not in str(raised.value)
+
+
+def test_direct_stream_has_an_overall_elapsed_time_limit() -> None:
+    class SlowChunks(httpx.SyncByteStream):
+        def __iter__(self):
+            time.sleep(0.03)
+            yield _completed_response([{
+                "type": "message", "content": [{"type": "output_text", "text": "late"}],
+            }])
+
+    http = httpx.Client(transport=httpx.MockTransport(lambda _request: httpx.Response(
+        200, stream=SlowChunks(),
+    )))
+    client = ChatGPTCodexLLMClient(
+        ChatGPTCodexConfig(model="gpt-test", timeout_seconds=0.01, max_retries=0),
+        credential_source=StaticChatGPTCredentialSource(ChatGPTCredentials(TOKEN, ACCOUNT)),
+        client=http,
+    )
+    try:
+        with pytest.raises(ProviderRequestError, match="timed out"):
+            client.complete([AgentMessage(role="user", content="hi")], [])
+    finally:
+        http.close()
 
 
 @pytest.mark.parametrize("status", [401, 403])
