@@ -83,7 +83,6 @@ with create_session_factory(engine)() as session:
     assert child.returncode == -signal.SIGKILL
 
 
-@pytest.mark.extended
 def test_sigkill_reservation_operator_recovery_replays_then_unblocks_next_update(
     tmp_path: Path,
 ) -> None:

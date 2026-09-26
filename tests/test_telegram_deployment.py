@@ -50,7 +50,6 @@ def test_runtime_cli_rejects_invalid_production_config_without_echo(
     assert "secret" not in capsys.readouterr().err
 
 
-@pytest.mark.extended
 def test_second_process_cannot_hold_telegram_lock(tmp_path: Path) -> None:
     database_url = f"sqlite:///{tmp_path / 'inventory.db'}"
     token = "synthetic-bot-token"

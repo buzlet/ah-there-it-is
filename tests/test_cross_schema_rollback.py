@@ -17,9 +17,6 @@ from deploy.cross_schema_rollback import rollback_cross_schema
 from deploy import cross_schema_rollback
 
 
-pytestmark = pytest.mark.extended
-
-
 OLD_REVISION = "1a7c4e9d2b10"
 
 

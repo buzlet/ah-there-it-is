@@ -36,19 +36,17 @@ def _run(
     )
 
 
-@pytest.mark.parametrize(("mode", "command"), [
-    ("Production", ["-m", "ah_there_it_is.runtime_cli", "paths"]),
-    ("production ", ["-m", "ah_there_it_is.runtime_cli", "serve"]),
-    ("prod", ["-m", "ah_there_it_is.runtime_cli", "telegram-bot"]),
-    ("unknown", ["-m", "ah_there_it_is.storage_cli", "migration-check"]),
-    ("", ["-m", "ah_there_it_is.runtime_cli", "schema-check", "--require-production"]),
+@pytest.mark.parametrize("mode", ["Production", "production ", "prod", "unknown", ""])
+@pytest.mark.parametrize("command", [
+    ["-m", "ah_there_it_is.runtime_cli", "paths"],
+    ["-m", "ah_there_it_is.runtime_cli", "serve"],
+    ["-m", "ah_there_it_is.runtime_cli", "telegram-bot"],
+    ["-m", "ah_there_it_is.storage_cli", "migration-check"],
+    ["-m", "ah_there_it_is.runtime_cli", "schema-check", "--require-production"],
 ])
 def test_malformed_environment_rejected_by_real_entrypoints(
     mode: str, command: list[str],
 ) -> None:
-    # Config validation happens before command-specific execution. Pairing every
-    # malformed mode with a different real entrypoint preserves both factor
-    # coverages without paying for the redundant 5x5 subprocess product.
     result = _run(command, mode=mode)
     assert result.returncode != 0
     assert "configuration" in result.stderr.lower()
