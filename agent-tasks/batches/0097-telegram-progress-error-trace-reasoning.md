@@ -26,7 +26,7 @@ AH_THERE_IT_IS_LLM_MODEL=gpt-6-luna
 No application reasoning-effort setting currently exists. The direct provider
 request/config path does not currently expose an explicit reasoning effort, so
 production is using backend/default behavior rather than an operator-selected
-`high` effort.
+`low` effort.
 
 Telegram production incident:
 
@@ -52,7 +52,7 @@ visible indication that work is in progress.
 
 1. Production model remains `gpt-6-luna`.
 2. Production reasoning effort must be explicitly configurable and set to
-   `high` after this batch is reviewed/merged.
+   `low` after this batch is reviewed/merged.
 3. The generic provider contract remains provider-neutral.
 4. Error/evaluation traces must always be JSON-safe and secret-safe.
 5. Telegram must show an active `typing` chat action for the duration of an
@@ -72,7 +72,7 @@ Add the smallest provider-neutral/config-safe setting required to configure
 reasoning effort, conceptually:
 
 ```text
-AH_THERE_IT_IS_LLM_REASONING_EFFORT=high
+AH_THERE_IT_IS_LLM_REASONING_EFFORT=low
 ```
 
 Requirements:
@@ -86,10 +86,10 @@ Requirements:
 - never infer effort from the executor model;
 - existing providers remain behavior-compatible;
 - deterministic tests inspect the exact outgoing payload;
-- run a bounded live `gpt-6-luna` probe with `high` through the normal factory
+- run a bounded live `gpt-6-luna` probe with `low` through the normal factory
   path.
 
-Do not add hidden/default `high` globally. Production activation happens only
+Do not add hidden/default `low` globally. Production activation happens only
 after review/merge.
 
 ### 2. JSON-safe failure traces
@@ -169,7 +169,7 @@ Do not operate on production update `587093696` from the implementation branch.
 At minimum cover:
 
 - config parsing/validation for reasoning effort;
-- exact direct-provider request body for `high`;
+- exact direct-provider request body for `low`;
 - info/trace metadata contains safe effort value;
 - current Luna capability behavior remains intact;
 - recursive JSON-safe conversion including nested Exception values;
@@ -200,7 +200,7 @@ On U24 as `rdu01`:
 - use existing Codex-managed ChatGPT login;
 - run one bounded normal-factory direct provider smoke with:
   - model `gpt-6-luna`
-  - reasoning effort `high`;
+  - reasoning effort `low`;
 - do not mutate production inventory during the probe;
 - do not expose auth state.
 
@@ -211,7 +211,7 @@ Do not activate the work branch in production.
 Accept when:
 
 - application has an explicit validated reasoning-effort setting;
-- direct Luna request demonstrably sends `high`;
+- direct Luna request demonstrably sends `low`;
 - raw Python exceptions can no longer break JSON persistence;
 - the exact production-style ValueError regression passes;
 - accepted Telegram requests visibly maintain `typing` while processing;
@@ -228,7 +228,7 @@ After independent review and merge, orchestrator will:
 2. set production:
    `AH_THERE_IT_IS_LLM_PROVIDER=chatgpt-codex`
    `AH_THERE_IT_IS_LLM_MODEL=gpt-6-luna`
-   `AH_THERE_IT_IS_LLM_REASONING_EFFORT=high`;
+   `AH_THERE_IT_IS_LLM_REASONING_EFFORT=low`;
 3. restart web/Telegram;
 4. run provider smoke;
 5. inspect production recovery status for update `587093696`;
@@ -250,5 +250,5 @@ After independent review and merge, orchestrator will:
 
 Stop at `READY FOR REVIEW`.
 
-Report implementation SHA, exact tests, live Luna/high evidence, PR/CI, and any
+Report implementation SHA, exact tests, live Luna/low evidence, PR/CI, and any
 remaining recovery/operator step.
