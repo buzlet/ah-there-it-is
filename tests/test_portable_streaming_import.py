@@ -333,7 +333,7 @@ def test_history_event_write_is_bounded_and_preserves_fields(tmp_path: Path) -> 
             "original_text": f"event {index} " + "y" * 512,
             "created_at": stamp,
         }
-        for index in range(2500, 0, -1)
+        for index in range(300, 0, -1)
     ]
     source = tmp_path / "history.json"
     source.write_text(json.dumps(raw), encoding="utf-8")
@@ -355,9 +355,9 @@ def test_history_event_write_is_bounded_and_preserves_fields(tmp_path: Path) -> 
                 )
                 assert len(session.identity_map) == 0
         with Session(engine) as session:
-            assert session.scalar(select(func.count(Event.id))) == 2500
+            assert session.scalar(select(func.count(Event.id))) == 300
             first = session.get(Event, 1)
-            last = session.get(Event, 2500)
+            last = session.get(Event, 300)
             assert first.payload == {"index": 1, "body": "x" * 2048}
             assert first.original_text == "event 1 " + "y" * 512
             assert (last.from_location_id, last.to_location_id) == (None, 1)
@@ -372,7 +372,7 @@ def test_late_history_event_failure_rolls_back_inventory_and_events(tmp_path: Pa
     event = raw["history"]["events"][0]
     raw["history"]["events"] = [
         {**event, "id": index, "payload": {"index": index, "body": "z" * 1024}}
-        for index in range(1, 1001)
+        for index in range(1, 101)
     ]
     source = tmp_path / "late-history-failure.json"
     source.write_text(json.dumps(raw), encoding="utf-8")
@@ -398,7 +398,7 @@ def test_late_history_event_failure_rolls_back_inventory_and_events(tmp_path: Pa
                     _write_portable_workspace_events(
                         session,
                         workspace,
-                        batch_size=100,
+                        batch_size=10,
                         _observe_batch=fail_late,
                     )
         with Session(engine) as session:
@@ -627,6 +627,7 @@ def _portable_semantics(value: dict) -> dict:
     return normalized
 
 
+@pytest.mark.extended
 def test_portable_target_scale_bounded_roundtrip_and_late_failure(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,

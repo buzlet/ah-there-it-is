@@ -187,6 +187,7 @@ def test_campaign_resume_skips_completed_slots_and_ignores_stale_temp(tmp_path: 
             probe_executor=lambda case: {"case_id": case.id, "passed": True},
             base_dir=tmp_path,
             result_path=output,
+            sleep=lambda _seconds: None,
         )
     first = json.loads(output.read_text(encoding="utf-8"))
     assert [a["slot_id"] for a in first["attempts"]] == ["live_eval:live-b:1"]
@@ -205,6 +206,7 @@ def test_campaign_resume_skips_completed_slots_and_ignores_stale_temp(tmp_path: 
         ),
         base_dir=tmp_path,
         result_path=output,
+        sleep=lambda _seconds: None,
     )
     assert resumed_calls == ["live-b", "live-a", "live-a", "probe-z"]
     assert len(result["attempts"]) == 5
@@ -221,6 +223,7 @@ def test_campaign_resume_refuses_provider_config_and_prompt_identity_changes(tmp
         probe_executor=lambda case: {"case_id": case.id, "passed": True},
         base_dir=tmp_path,
         result_path=output,
+        sleep=lambda _seconds: None,
     )
     with pytest.raises(ValueError, match="identity"):
         run_campaign(
@@ -273,6 +276,7 @@ def test_campaign_result_does_not_persist_provider_or_evidence_secrets(tmp_path:
         probe_executor=lambda case: {"case_id": case.id, "passed": True},
         base_dir=tmp_path,
         result_path=output,
+        sleep=lambda _seconds: None,
     )
     text = output.read_text(encoding="utf-8")
     assert "top-secret" not in text
@@ -306,6 +310,7 @@ def test_campaign_sanitizes_provider_exception_messages(tmp_path: Path) -> None:
         probe_executor=lambda case: {"case_id": case.id, "passed": True},
         base_dir=tmp_path,
         result_path=output,
+        sleep=lambda _seconds: None,
     )
 
     text = output.read_text(encoding="utf-8")

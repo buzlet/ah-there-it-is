@@ -7,6 +7,8 @@ from pathlib import Path
 
 import pytest
 
+pytestmark = pytest.mark.extended
+
 from tools.agent import lifecycle_checkpoints as lifecycle
 
 

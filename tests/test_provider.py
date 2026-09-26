@@ -44,7 +44,10 @@ def _server(payload: dict):
     _Handler.authorization = None
     _Handler.headers_seen = {}
     server = ThreadingHTTPServer(("127.0.0.1", 0), _Handler)
-    thread = threading.Thread(target=server.serve_forever, daemon=True)
+    thread = threading.Thread(
+        target=lambda: server.serve_forever(poll_interval=0.01),
+        daemon=True,
+    )
     thread.start()
     return server, thread
 

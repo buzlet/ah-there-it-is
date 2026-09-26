@@ -43,3 +43,6 @@ ah_there_it_is = [
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 addopts = "-q"
+markers = [
+    "extended: meaningful verification reserved for explicit extended CI",
+]

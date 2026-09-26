@@ -17,6 +17,10 @@ from urllib.error import URLError
 from urllib.request import urlopen
 import zipfile
 
+import pytest
+
+pytestmark = pytest.mark.extended
+
 from ah_there_it_is.storage import CURRENT_SCHEMA_REVISION
 
 

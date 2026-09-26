@@ -27,7 +27,7 @@ SOURCE ?=
 
 export PYTHONPATH := src
 
-.PHONY: help test test-agent test-web test-provider compile check migrate migration-check \
+.PHONY: help test test-fast test-profile test-extended test-fast-coverage test-extended-coverage test-agent test-web test-provider compile check migrate migration-check \
 	eval-export experiment-replay provider-smoke migration serve corpus-check live-eval \
 	live-compare scenario-check scenario-eval retrieval-eval model-probe provider-contract \
 	storage-test db-backup db-validate db-restore db-restore-rehearsal portable-export \
@@ -37,6 +37,9 @@ export PYTHONPATH := src
 help:
 	@printf '%s\n' \
 	  'make test' \
+	  'make test-fast' \
+	  'make test-profile' \
+	  'make test-extended' \
 	  'make compile' \
 	  'make check' \
 	  'make migration-check' \
@@ -49,6 +52,25 @@ help:
 
 test:
 	$(PYTHON) -m pytest
+
+test-fast:
+	$(PYTHON) -m pytest -m "not extended"
+
+test-profile:
+	$(PYTHON) -m pytest -m "not extended" --durations=30
+
+test-extended:
+	$(PYTHON) -m pytest
+
+test-fast-coverage:
+	$(PYTHON) -m coverage erase
+	$(PYTHON) -m coverage run --branch --source=ah_there_it_is -m pytest -m "not extended"
+	$(PYTHON) -m coverage report --show-missing --precision=2 --fail-under=83.00
+
+test-extended-coverage:
+	$(PYTHON) -m coverage erase
+	$(PYTHON) -m coverage run --branch --source=ah_there_it_is -m pytest
+	$(PYTHON) -m coverage report --show-missing --precision=2 --fail-under=83.00
 
 test-agent:
 	$(PYTHON) -m pytest tests/test_agent.py

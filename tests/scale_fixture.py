@@ -3,9 +3,13 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from pathlib import Path
+import sqlite3
 
 from sqlalchemy.orm import Session
 
+from ah_there_it_is.db.migrations import upgrade_database
+from ah_there_it_is.db.session import create_db_engine
 from ah_there_it_is.services.inventory import InventoryService
 
 
@@ -121,3 +125,21 @@ def build_target_scale_inventory(session: Session) -> ScaleInventory:
         suggestion_location_id=suggestion_location,
         duplicate_location_ids=(duplicate_ids[0], duplicate_ids[1]),
     )
+
+
+def build_target_scale_database(path: Path) -> ScaleInventory:
+    """Build the expensive immutable target-scale database once."""
+    url = f"sqlite:///{path}"
+    upgrade_database(url)
+    engine = create_db_engine(url)
+    try:
+        with Session(engine) as session:
+            return build_target_scale_inventory(session)
+    finally:
+        engine.dispose()
+
+
+def clone_target_scale_database(source: Path, destination: Path) -> None:
+    """Clone the template through SQLite backup so WAL state is included."""
+    with sqlite3.connect(source) as original, sqlite3.connect(destination) as clone:
+        original.backup(clone)
