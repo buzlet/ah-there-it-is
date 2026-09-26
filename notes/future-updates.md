@@ -16,6 +16,8 @@ and possible future batches that are not part of the currently issued work.
   and v9 issuance flow rather than implementing directly from this list.
 - Preserve useful history; normally append or edit deliberately instead of
   periodically wiping the file.
+- Record experiments and their outcomes in `notes/experiments.md`, including enough
+  context to reproduce them later.
 
 ## Candidate updates
 
