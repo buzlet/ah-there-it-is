@@ -202,3 +202,9 @@ Report:
 - values deliberately kept in code;
 - verification performed;
 - PR/CI status if applicable.
+
+
+## Executor notifications
+
+Use the selected U24 executor notification protocol. Notifications are
+best-effort operational UX and do not change acceptance criteria.
