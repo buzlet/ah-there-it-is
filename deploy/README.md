@@ -11,8 +11,9 @@ the real token and allowed user ID are installed out of band.
 | Current code + repository-local venv | `/home/rdu01/apps/ah-there-it-is/current` (symlink to one checkout) | `rdu01` |
 | Active SQLite + WAL + Telegram lock | `/home/rdu01/.local/share/ah-there-it-is/` | directory `0700`, DB/lock `0600` |
 | Backups | `/home/rdu01/.local/share/ah-there-it-is/backups/` | directory `0700`, files `0600` |
-| Environment and secrets | `/home/rdu01/.local/state/ah-there-it-is/runtime.env` | directory `0700`, file `0600`; outside Git |
-| Service definitions | user `systemd`, linked from `deploy/systemd/` | `systemctl --user` |
+| Common environment | `/home/rdu01/.local/state/ah-there-it-is/runtime.env` | directory `0700`, file `0600`; outside Git |
+| Telegram secrets | `/home/rdu01/.local/state/ah-there-it-is/telegram.env` | directory `0700`, file `0600`; outside Git; Telegram unit only |
+| Service definitions | `/home/rdu01/.config/systemd/user/ah-there-it-is-*.service` | regular copied files, independent of old checkouts |
 | Logs | user journal (`journalctl --user -u ...`) | host journal policy |
 
 The parent `/home/rdu01/.config` is root-owned on this host, but its existing
@@ -34,20 +35,21 @@ install -d -m 700 /home/rdu01/apps/ah-there-it-is \
   /home/rdu01/.local/share/ah-there-it-is \
   /home/rdu01/.local/share/ah-there-it-is/backups \
   /home/rdu01/.local/state/ah-there-it-is
-ln -s /home/rdu01/projects/0091-deployment-readiness \
-  /home/rdu01/apps/ah-there-it-is/current
 ```
 
-Create `runtime.env` outside Git with mode `0600` and these non-secret lines:
+Create `runtime.env` outside Git with mode `0600` and these common lines:
 
 ```text
 AH_THERE_IT_IS_ENV=production
 AH_THERE_IT_IS_DATABASE_URL=sqlite:////home/rdu01/.local/share/ah-there-it-is/inventory.db
 ```
 
-Install `AH_THERE_IT_IS_TELEGRAM_BOT_TOKEN` and
-`AH_THERE_IT_IS_TELEGRAM_ALLOWED_USER_ID` there only when ready to activate the
-real bot. Add the selected provider/model settings there if the heuristic
+Create a separate `telegram.env` outside Git with mode `0600` (empty until bot
+activation). Install `AH_THERE_IT_IS_TELEGRAM_BOT_TOKEN` and
+`AH_THERE_IT_IS_TELEGRAM_ALLOWED_USER_ID` only in `telegram.env` when ready to
+activate the real bot. The web unit explicitly unsets those variables even if
+they enter its manager environment. Add selected provider/model settings to
+`runtime.env` if the heuristic
 provider is not the intended production choice. Do not put secret values in
 shell commands, Git, screenshots, or issue/PR text. Production mode requires an
 explicit absolute SQLite URL; the bot also requires both Telegram settings.
@@ -65,9 +67,10 @@ AH_THERE_IT_IS_ENV=production \
 AH_THERE_IT_IS_DATABASE_URL=sqlite:////home/rdu01/.local/share/ah-there-it-is/inventory.db \
   .venv/bin/ah-there-it-is schema-check
 chmod 600 /home/rdu01/.local/share/ah-there-it-is/inventory.db
-systemctl --user link "$PWD/deploy/systemd/ah-there-it-is-web.service" \
-  "$PWD/deploy/systemd/ah-there-it-is-telegram.service"
-systemctl --user daemon-reload
+if [ ! -e /home/rdu01/.local/state/ah-there-it-is/telegram.env ]; then
+  install -m 600 /dev/null /home/rdu01/.local/state/ah-there-it-is/telegram.env
+fi
+.venv/bin/python deploy/install_user_units.py --switch-release "$PWD"
 systemctl --user enable --now ah-there-it-is-web.service
 curl --fail http://127.0.0.1:8000/health
 ```
@@ -76,8 +79,10 @@ Expected: matching `database_heads` and `packaged_heads`, web `active`, health
 `status: ok`. Runtime
 startup does not migrate or repair; a mismatched/missing schema makes the unit
 fail. The read-only preflight examines a private temporary copy because SQLite
-can alter the source `-shm` even with a read-only connection. `systemctl --user link`
-may report an existing link on repeat installs.
+can alter the source `-shm` even with a read-only connection. The installer
+copies unit definitions into the stable user unit directory, runs
+`daemon-reload`, and verifies `FragmentPath`, effective preflight and start
+commands, and environment boundaries.
 
 ## Normal stop, restart, and upgrade
 
@@ -89,18 +94,22 @@ systemctl --user show ah-there-it-is-web.service -p MainPID -p ActiveState
 ```
 
 For an update, take a validated backup (below), prepare the new checkout and
-venv, then atomically repoint `current` while both units are stopped:
+venv, then use that checkout's installer while both units are stopped:
 
 ```bash
-ln -s /absolute/path/to/new-checkout /home/rdu01/apps/ah-there-it-is/current.next
-mv -Tf /home/rdu01/apps/ah-there-it-is/current.next \
-  /home/rdu01/apps/ah-there-it-is/current
+cd /absolute/path/to/new-checkout
+.venv/bin/python deploy/install_user_units.py --switch-release "$PWD"
+systemctl --user show ah-there-it-is-web.service -p FragmentPath -p NeedDaemonReload -p ExecStartPre
+systemctl --user show ah-there-it-is-telegram.service -p FragmentPath -p NeedDaemonReload -p EnvironmentFiles
 ```
 
-Run the new
-checkout's explicit `storage_cli upgrade` and `migration-check`, then start
-web and, only with valid real Telegram settings, the bot. `systemctl --user
-restart ah-there-it-is-telegram.service` stops the old unit before starting
+The installer refuses to switch while either unit has a live PID. It replaces
+the `current` symlink atomically, reloads systemd and checks effective unit
+settings. The installed definitions remain usable after deleting the old
+checkout. Run the new checkout's explicit `storage_cli upgrade` and read-only
+`schema-check`, then start web and, only with valid real Telegram settings, the
+bot. `systemctl --user restart ah-there-it-is-telegram.service` stops the old
+unit before starting
 the new one. Kernel locks on both bot identity and database reject a concurrent
 manual poller before its first Telegram call, including when the same bot uses
 a different DB path. They are released after process exit or crash. These
@@ -121,6 +130,13 @@ failures (`RestartPreventExitStatus=2`). 429, 5xx and transport failures retry;
 they do not report ready until polling succeeds. Use
 `.venv/bin/python deploy/probes/telegram_systemd_status.py` for the reproducible
 scratch/fake-API host probe; it never contacts Telegram or sends messages.
+
+For the release lifecycle probe, run
+`.venv/bin/python deploy/probes/release_lifecycle.py` from the active checkout.
+It prepares two disposable installed release copies, stops and starts only the
+web unit, switches `current` to each, deletes the old copy, verifies web health
+and effective stable unit paths, then restores the original release. It requires
+the Telegram unit to be stopped.
 
 On a failed upgrade, stop both units. A code rollback is safe only if the old
 package accepts the current schema; confirm `migration-check` with that package
@@ -154,7 +170,7 @@ authoritative DB. Keep an off-machine backup copy through external operations.
 On this host, a controlled probe used `deploy/probes/fake_telegram_api.py`, an
 empty `getUpdates` response, and a non-production token. It sent no messages.
 With the fake API on `127.0.0.1:18791`, temporary probe-only Telegram settings
-in the private `runtime.env` let the real `systemd` Telegram unit hold the
+in the private `telegram.env` let the real `systemd` Telegram unit hold the
 production DB lock. A second `ah-there-it-is telegram-bot` using the same DB
 exited `2` with `Telegram poller already owns database lock`; the first PID
 remained active. Unit restart replaced the PID and the old PID was gone. The
@@ -184,6 +200,7 @@ systemctl --user stop ah-there-it-is-telegram.service
 systemctl --user show ah-there-it-is-telegram.service -p MainPID -p ActiveState
 systemd-run --user --wait --pipe --collect -P \
   -p EnvironmentFile=/home/rdu01/.local/state/ah-there-it-is/runtime.env \
+  -p EnvironmentFile=/home/rdu01/.local/state/ah-there-it-is/telegram.env \
   /home/rdu01/apps/ah-there-it-is/current/.venv/bin/ah-there-it-is \
   telegram-recovery-status 101
 ```
@@ -197,6 +214,7 @@ flag is deliberately required:
 ```bash
 systemd-run --user --wait --pipe --collect -P \
   -p EnvironmentFile=/home/rdu01/.local/state/ah-there-it-is/runtime.env \
+  -p EnvironmentFile=/home/rdu01/.local/state/ah-there-it-is/telegram.env \
   /home/rdu01/apps/ah-there-it-is/current/.venv/bin/ah-there-it-is \
   telegram-recover 101 --attempt 1 --confirm-atomic-rollback
 systemctl --user start ah-there-it-is-telegram.service
@@ -208,7 +226,7 @@ again and use the next unused attempt number. Never reuse the original key or
 repeat a completed recovery. A reply may still duplicate if a send succeeded
 but its checkpoint did not commit.
 
-## Host observations at 2026-09-25 issuance checkout
+## Host observations
 
 Verified: Python 3.12 venv installation succeeded; user `systemd` is running
 with `Linger=yes`; web unit is enabled and active on loopback; migration head is
@@ -218,10 +236,15 @@ rehearsal succeeded; the Telegram singleton and restart/upgrade probes
 succeeded without external calls; a SIGKILL of the web main process caused
 `systemd` to restart it with a new PID and restored health. The private runtime
 file contains only the environment and DB URL above. The Telegram unit is
-linked but disabled and stopped because no production token or allowed user ID
-was supplied.
+installed as a stable unit but disabled and stopped because no production token
+or allowed user ID was supplied. On 2026-09-26 the Direct release probe switched
+between two isolated installed copies, deleted the old copy, verified the new
+web process and health, and restored the checkout. `FragmentPath` and effective
+unit settings remained stable after `daemon-reload`. With a temporary synthetic
+Telegram credential in the common file, the web process environment did not
+contain the credential; the original common file was restored afterwards.
 
-Remaining host inputs: install the actual Telegram token/allowed user ID in the
-private file and select/provision the intended live LLM provider. Then run the
+Remaining host inputs: install the actual Telegram token/allowed user ID in
+`telegram.env` and select/provision the intended live LLM provider. Then run the
 real bot activation and a non-mutating connectivity check under operator
 control. Backup retention and off-machine copies remain external policy.
