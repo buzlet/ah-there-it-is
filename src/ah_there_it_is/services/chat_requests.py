@@ -226,6 +226,10 @@ class ChatRequestService:
             )
         )
 
+    def completed_result(self, record: ChatRequestRecord) -> AgentRunResult:
+        """Read a durable completed result without reserving or executing a key."""
+        return self._result_from_record(self.session, record)
+
     def _reserve(
         self,
         *,

@@ -6,9 +6,11 @@ from collections.abc import Mapping
 import json
 import os
 from functools import lru_cache
-from typing import Any
+from pathlib import Path
+from typing import Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field
+from sqlalchemy.engine import make_url
 
 from ah_there_it_is.data_paths import default_database_url
 
@@ -23,11 +25,41 @@ def database_url_override(
     return value
 
 
+def environment_mode(
+    environ: Mapping[str, str] | None = None,
+) -> Literal["development", "production"]:
+    env = os.environ if environ is None else environ
+    mode = env.get("AH_THERE_IT_IS_ENV", "development")
+    if mode not in ("development", "production"):
+        raise ValueError("AH_THERE_IT_IS_ENV must be 'development' or 'production'")
+    return mode
+
+
 def resolve_database_url(
     environ: Mapping[str, str] | None = None,
 ) -> str:
     env = os.environ if environ is None else environ
     override = database_url_override(env)
+    if environment_mode(env) == "production":
+        if override is None:
+            raise ValueError("production requires AH_THERE_IT_IS_DATABASE_URL")
+        try:
+            url = make_url(override)
+            valid = (
+                url.drivername == "sqlite"
+                and url.database is not None
+                and Path(url.database).is_absolute()
+                and not url.query
+                and not url.host
+                and not url.username
+                and not url.password
+            )
+        except Exception:
+            valid = False
+        if not valid:
+            raise ValueError(
+                "production requires an absolute file-backed SQLite database URL"
+            ) from None
     if override is not None:
         return override
     return default_database_url(environ=env)
@@ -39,7 +71,7 @@ class Settings(BaseModel):
     model_config = ConfigDict(frozen=True)
 
     app_name: str = "Ah, There It Is!"
-    environment: str = "development"
+    environment: Literal["development", "production"] = "development"
     database_url: str = Field(default_factory=resolve_database_url)
     llm_provider: str = "heuristic"
     llm_provider_name: str | None = None
@@ -67,7 +99,7 @@ class Settings(BaseModel):
 def get_settings() -> Settings:
     return Settings(
         app_name=os.getenv("AH_THERE_IT_IS_APP_NAME", "Ah, There It Is!"),
-        environment=os.getenv("AH_THERE_IT_IS_ENV", "development"),
+        environment=environment_mode(),
         database_url=resolve_database_url(),
         llm_provider=os.getenv("AH_THERE_IT_IS_LLM_PROVIDER", "heuristic"),
         llm_provider_name=os.getenv("AH_THERE_IT_IS_LLM_PROVIDER_NAME") or None,

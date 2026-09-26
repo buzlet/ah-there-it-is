@@ -1,0 +1,21 @@
+[Unit]
+Description=Ah There It Is local web service
+After=default.target
+
+[Service]
+Type=simple
+WorkingDirectory=%h/apps/ah-there-it-is/current
+EnvironmentFile=%h/.local/state/ah-there-it-is/runtime.env
+UnsetEnvironment=AH_THERE_IT_IS_TELEGRAM_BOT_TOKEN AH_THERE_IT_IS_TELEGRAM_ALLOWED_USER_ID
+ExecStartPre=%h/apps/ah-there-it-is/current/.venv/bin/ah-there-it-is schema-check --require-production
+ExecStart=%h/apps/ah-there-it-is/current/.venv/bin/ah-there-it-is serve --host 127.0.0.1 --port 8000
+Restart=on-failure
+RestartSec=3
+RestartPreventExitStatus=2
+TimeoutStopSec=45
+KillMode=control-group
+UMask=0077
+NoNewPrivileges=yes
+
+[Install]
+WantedBy=default.target

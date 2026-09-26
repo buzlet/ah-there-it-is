@@ -36,6 +36,8 @@ ah-there-it-is serve
 
 `Makefile` is the canonical repeated-command surface.
 
+For the U24 target host, see [the deployment runbook](deploy/README.md).
+
 ### Telegram bot and Item media
 
 Run the Telegram adapter only as an explicit process after the database has been

@@ -3,7 +3,11 @@
 from __future__ import annotations
 
 import argparse
+from datetime import datetime, timezone
 import json
+from pathlib import Path
+import sys
+from uuid import uuid4
 
 from ah_there_it_is.bootstrap import (
     apply_bootstrap_import,
@@ -33,6 +37,9 @@ def main() -> int:
     backup.add_argument("destination")
     backup.add_argument("--overwrite", action="store_true")
 
+    automatic_backup = subparsers.add_parser("backup-auto")
+    automatic_backup.add_argument("directory")
+
     validate = subparsers.add_parser("validate")
     validate.add_argument("database")
 
@@ -61,7 +68,11 @@ def main() -> int:
     import_json.add_argument("--dry-run", action="store_true")
 
     args = parser.parse_args()
-    database_url = get_settings().database_url
+    try:
+        database_url = get_settings().database_url
+    except ValueError:
+        print("error: invalid AH_THERE_IT_IS configuration", file=sys.stderr)
+        return 2
 
     exit_code = 0
     if args.command == "backup":
@@ -70,6 +81,10 @@ def main() -> int:
             args.destination,
             overwrite=args.overwrite,
         ).as_dict()
+    elif args.command == "backup-auto":
+        stamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
+        destination = Path(args.directory) / f"pre-upgrade-{stamp}-{uuid4().hex}.db"
+        result = create_backup(database_url, destination, overwrite=False).as_dict()
     elif args.command == "validate":
         result = validate_database(args.database).as_dict()
     elif args.command == "restore":

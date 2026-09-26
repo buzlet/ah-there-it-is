@@ -5,7 +5,9 @@ from __future__ import annotations
 from collections.abc import Callable
 from contextlib import AbstractContextManager
 from dataclasses import dataclass
+import os
 from pathlib import Path
+import socket
 import time
 from threading import Event
 from typing import Any
@@ -19,7 +21,10 @@ from ah_there_it_is.config import Settings, get_settings
 from ah_there_it_is.db.session import create_db_engine, create_session_factory
 from ah_there_it_is.services.chat_application import ChatApplicationService
 from ah_there_it_is.telegram.adapter import TelegramAdapter
-from ah_there_it_is.telegram.client import TelegramBotClient, TelegramClientError
+from ah_there_it_is.telegram.client import (
+    TelegramBotClient, TelegramClientError, TelegramConflictError,
+    TelegramPermanentError,
+)
 from ah_there_it_is.telegram.polling import TelegramPollingService
 
 
@@ -81,13 +86,28 @@ class TelegramRuntime(AbstractContextManager["TelegramRuntime"]):
             self.engine.dispose()
 
     def run_forever(self, *, stop_event: Event | None = None) -> None:
-        """Poll until stopped, retrying only bounded Telegram transport errors."""
+        """Poll until stopped, retrying transient Telegram failures."""
         stop = stop_event or Event()
         failures = 0
+        conflicts = 0
+        ready = False
         while not stop.is_set():
             try:
                 self.polling.run_once()
+            except TelegramConflictError:
+                conflicts += 1
+                if conflicts >= 3:
+                    raise TelegramPermanentError(
+                        "Telegram polling conflict persisted (status=409)",
+                        status_code=409,
+                    ) from None
+                self.sleep(
+                    min(30.0, self.settings.telegram_retry_backoff_seconds * conflicts)
+                )
+            except TelegramPermanentError:
+                raise
             except TelegramClientError:
+                conflicts = 0
                 delay = min(
                     30.0,
                     self.settings.telegram_retry_backoff_seconds
@@ -98,6 +118,25 @@ class TelegramRuntime(AbstractContextManager["TelegramRuntime"]):
                     self.sleep(delay)
             else:
                 failures = 0
+                conflicts = 0
+                if not ready:
+                    _notify_systemd_ready()
+                    ready = True
+
+
+def _notify_systemd_ready() -> None:
+    address = os.environ.get("NOTIFY_SOCKET")
+    if not address:
+        return
+    if address.startswith("@"):
+        address = "\0" + address[1:]
+    try:
+        with socket.socket(socket.AF_UNIX, socket.SOCK_DGRAM) as connection:
+            connection.sendto(b"READY=1", address)
+    except OSError:
+        raise TelegramRuntimeConfigurationError(
+            "Telegram systemd readiness notification failed"
+        ) from None
 
 
 def build_telegram_runtime(

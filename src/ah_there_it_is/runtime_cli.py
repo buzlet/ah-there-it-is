@@ -7,8 +7,10 @@ import ipaddress
 import json
 from dataclasses import asdict, dataclass
 from pathlib import Path
+import shutil
 import sqlite3
 import sys
+import tempfile
 from typing import Sequence
 
 import uvicorn
@@ -80,26 +82,57 @@ def runtime_schema_gate(
 
 
 def _read_database_heads(database: Path) -> tuple[str, ...]:
-    uri = database.as_uri() + "?mode=ro"
+    # SQLite can update an existing -shm even for mode=ro. Inspect a private
+    # copy so service preflight never changes the configured DB or its sidecars.
+    files = (database, Path(f"{database}-wal"), Path(f"{database}-shm"))
     try:
-        connection = sqlite3.connect(uri, uri=True)
+        before = _database_file_state(files)
+        with tempfile.TemporaryDirectory(prefix="ah-there-it-is-schema-") as directory:
+            snapshot = Path(directory) / database.name
+            for source in files:
+                if source in before:
+                    shutil.copyfile(source, Path(directory) / source.name)
+            if _database_file_state(files) != before:
+                raise RuntimeSchemaError(
+                    f"configured database changed during schema preflight: {database}"
+                )
+            connection = sqlite3.connect(snapshot.as_uri() + "?mode=ro", uri=True)
+            try:
+                try:
+                    rows = connection.execute(
+                        "SELECT version_num FROM alembic_version ORDER BY version_num"
+                    ).fetchall()
+                except sqlite3.Error as exc:
+                    raise RuntimeSchemaError(
+                        f"configured database has no readable Alembic revision state: {database}; "
+                        f"run {_EXPLICIT_UPGRADE!r} before 'ah-there-it-is serve'"
+                    ) from exc
+            finally:
+                connection.close()
+            if _database_file_state(files) != before:
+                raise RuntimeSchemaError(
+                    f"configured database changed during schema preflight: {database}"
+                )
+    except OSError as exc:
+        raise RuntimeSchemaError(
+            f"cannot inspect configured database read-only: {database}: {exc}"
+        ) from exc
     except sqlite3.Error as exc:
         raise RuntimeSchemaError(
             f"cannot open configured database read-only: {database}: {exc}"
         ) from exc
-    try:
-        try:
-            rows = connection.execute(
-                "SELECT version_num FROM alembic_version ORDER BY version_num"
-            ).fetchall()
-        except sqlite3.Error as exc:
-            raise RuntimeSchemaError(
-                f"configured database has no readable Alembic revision state: {database}; "
-                f"run {_EXPLICIT_UPGRADE!r} before 'ah-there-it-is serve'"
-            ) from exc
-    finally:
-        connection.close()
     return tuple(str(row[0]) for row in rows)
+
+
+def _database_file_state(files: tuple[Path, ...]) -> dict[Path, tuple[int, int, int]]:
+    state: dict[Path, tuple[int, int, int]] = {}
+    for path in files:
+        try:
+            stat = path.stat()
+        except FileNotFoundError:
+            continue
+        state[path] = (stat.st_ino, stat.st_size, stat.st_mtime_ns)
+    return state
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -107,6 +140,14 @@ def build_parser() -> argparse.ArgumentParser:
     subparsers = parser.add_subparsers(dest="command", required=True)
 
     subparsers.add_parser("paths", help="show resolved local data paths")
+    schema_check = subparsers.add_parser(
+        "schema-check", help="read-only service startup schema preflight",
+    )
+    schema_check.add_argument(
+        "--require-production",
+        action="store_true",
+        help="fail unless production mode is explicitly configured",
+    )
     subparsers.add_parser("doctor", help="read-only active database health check")
     subparsers.add_parser("repair-search-index", help="explicitly rebuild derived FTS state")
 
@@ -134,6 +175,18 @@ def build_parser() -> argparse.ArgumentParser:
         default=100,
         help="maximum updates requested per poll (1-100)",
     )
+    recovery_status = subparsers.add_parser(
+        "telegram-recovery-status",
+        help="inspect one interrupted Telegram update without executing it",
+    )
+    recovery_status.add_argument("update_id", type=_telegram_update_id)
+    recovery = subparsers.add_parser(
+        "telegram-recover",
+        help="operator retry of one interrupted Telegram update with a new request key",
+    )
+    recovery.add_argument("update_id", type=_telegram_update_id)
+    recovery.add_argument("--attempt", type=_positive_attempt, required=True)
+    recovery.add_argument("--confirm-atomic-rollback", action="store_true")
     return parser
 
 
@@ -183,6 +236,26 @@ def _telegram_limit(value: str) -> int:
     return limit
 
 
+def _telegram_update_id(value: str) -> int:
+    try:
+        update_id = int(value)
+    except ValueError as exc:
+        raise argparse.ArgumentTypeError("update id must be an integer") from exc
+    if update_id < 0 or update_id >= 2**63 - 1:
+        raise argparse.ArgumentTypeError("update id is out of range")
+    return update_id
+
+
+def _positive_attempt(value: str) -> int:
+    try:
+        attempt = int(value)
+    except ValueError as exc:
+        raise argparse.ArgumentTypeError("attempt must be an integer") from exc
+    if attempt < 1:
+        raise argparse.ArgumentTypeError("attempt must be positive")
+    return attempt
+
+
 def runtime_paths(database_url: str) -> dict[str, object]:
     explicit = database_url_override() is not None
     database: dict[str, object] = {
@@ -204,10 +277,30 @@ def runtime_paths(database_url: str) -> dict[str, object]:
 
 def main(argv: Sequence[str] | None = None) -> int:
     args = build_parser().parse_args(argv)
-    settings = get_settings()
+    try:
+        settings = get_settings()
+    except ValueError:
+        # Pydantic and numeric parsing errors may include the supplied value.
+        print("error: invalid AH_THERE_IT_IS configuration", file=sys.stderr)
+        return 2
 
     if args.command == "paths":
         print(json.dumps(runtime_paths(settings.database_url), sort_keys=True))
+        return 0
+
+    if args.command == "schema-check":
+        if args.require_production and settings.environment != "production":
+            print(
+                "error: this service requires explicit production configuration",
+                file=sys.stderr,
+            )
+            return 2
+        try:
+            status = runtime_schema_gate(settings.database_url, command_name=args.command)
+        except RuntimeSchemaError as exc:
+            print(f"error: {exc}", file=sys.stderr)
+            return 2
+        print(json.dumps(status.as_dict(), sort_keys=True))
         return 0
 
     if args.command in {"doctor", "repair-search-index"}:
@@ -247,24 +340,67 @@ def main(argv: Sequence[str] | None = None) -> int:
             reload=False,
         )
         return 0
-    if args.command == "telegram-bot":
+    if args.command in {"telegram-bot", "telegram-recovery-status", "telegram-recover"}:
         try:
-            runtime_schema_gate(settings.database_url, command_name="telegram-bot")
+            runtime_schema_gate(settings.database_url, command_name=args.command)
         except RuntimeSchemaError as exc:
             print(f"error: {exc}", file=sys.stderr)
             return 2
         from ah_there_it_is.telegram.runtime import (
             TelegramRuntimeConfigurationError,
+            build_telegram_runtime,
             run_telegram_bot,
+            validate_telegram_settings,
+        )
+        from ah_there_it_is.telegram.adapter import (
+            TelegramRecoveryError,
+            TelegramRecoveryRequiredError,
+        )
+        from ah_there_it_is.telegram.client import TelegramPermanentError
+        from ah_there_it_is.telegram.singleton import (
+            TelegramSingletonError,
+            telegram_singleton,
         )
 
         try:
-            return run_telegram_bot(
-                settings,
-                poll_timeout=args.poll_timeout,
-                limit=args.limit,
+            validate_telegram_settings(settings)
+            if args.command == "telegram-recover" and not args.confirm_atomic_rollback:
+                print("error: --confirm-atomic-rollback is required", file=sys.stderr)
+                return 2
+            with telegram_singleton(
+                settings.database_url, settings.telegram_bot_token or ""
+            ):
+                if args.command == "telegram-bot":
+                    return run_telegram_bot(
+                        settings,
+                        poll_timeout=args.poll_timeout,
+                        limit=args.limit,
+                    )
+                with build_telegram_runtime(settings) as runtime:
+                    adapter = runtime.polling.adapter
+                    if args.command == "telegram-recovery-status":
+                        print(json.dumps(adapter.recovery_status(args.update_id)))
+                    else:
+                        execution = adapter.recover_update(
+                            args.update_id, attempt=args.attempt,
+                        )
+                        print(json.dumps({
+                            "update_id": args.update_id,
+                            "recovery_request_key": (
+                                f"telegram-recovery:{args.update_id}:{args.attempt}"
+                            ),
+                            "replayed": execution.replayed,
+                            "status": "completed",
+                        }))
+                    return 0
+        except TelegramPermanentError as exc:
+            print(
+                f"error: permanent Telegram API failure status={exc.status_code}",
+                file=sys.stderr,
             )
-        except TelegramRuntimeConfigurationError as exc:
+            return 2
+        except (TelegramRuntimeConfigurationError, TelegramSingletonError,
+                TelegramRecoveryRequiredError, TelegramRecoveryError) as exc:
             print(f"error: {exc}", file=sys.stderr)
             return 2
     raise AssertionError(f"unsupported command: {args.command}")
