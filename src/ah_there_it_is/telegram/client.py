@@ -137,6 +137,23 @@ class TelegramBotClient:
             messages.append(self._parse_message(result))
         return tuple(messages)
 
+    def send_chat_action(self, chat_id: int, action: str = "typing") -> None:
+        if isinstance(chat_id, bool) or not isinstance(chat_id, int):
+            raise ValueError("chat_id must be an integer")
+        if action != "typing":
+            raise ValueError("unsupported chat action")
+        try:
+            result = self._call(
+                "sendChatAction", {"chat_id": chat_id, "action": action},
+                timeout=httpx.Timeout(min(1.0, self.timeout.connect or 1.0)),
+                max_retries=0,
+            )
+        except TelegramClientError:
+            # Telegram may echo request identity in API descriptions.
+            raise TelegramClientError("Telegram chat action request failed") from None
+        if result is not True:
+            raise TelegramResponseError("Telegram sendChatAction result was malformed")
+
     send_text = send_message
 
     def close(self) -> None:
@@ -149,13 +166,17 @@ class TelegramBotClient:
     def __exit__(self, *_exc: object) -> None:
         self.close()
 
-    def _call(self, method: str, payload: Mapping[str, Any]) -> Any:
+    def _call(
+        self, method: str, payload: Mapping[str, Any], *,
+        timeout: httpx.Timeout | None = None, max_retries: int | None = None,
+    ) -> Any:
         url = f"{self.base_url}/bot{self._token}/{method}"
-        for attempt in range(self.max_retries + 1):
+        retries = self.max_retries if max_retries is None else max_retries
+        for attempt in range(retries + 1):
             try:
-                response = self._client.post(url, json=dict(payload), timeout=self.timeout)
+                response = self._client.post(url, json=dict(payload), timeout=timeout or self.timeout)
             except httpx.RequestError as exc:
-                if attempt >= self.max_retries:
+                if attempt >= retries:
                     raise TelegramTransportError(
                         f"Telegram transport failed ({type(exc).__name__})"
                     ) from None
@@ -163,7 +184,7 @@ class TelegramBotClient:
                 continue
 
             if response.status_code == 429 or response.status_code >= 500:
-                if attempt < self.max_retries:
+                if attempt < retries:
                     self._backoff(attempt, response)
                     continue
                 if response.status_code == 429:

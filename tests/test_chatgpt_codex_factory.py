@@ -50,6 +50,7 @@ def test_environment_selects_chatgpt_codex_and_model_deterministically(
     monkeypatch.setenv("AH_THERE_IT_IS_ENV", "development")
     monkeypatch.setenv("AH_THERE_IT_IS_LLM_PROVIDER", "chatgpt-codex")
     monkeypatch.setenv("AH_THERE_IT_IS_LLM_MODEL", "gpt-6-luna")
+    monkeypatch.setenv("AH_THERE_IT_IS_LLM_REASONING_EFFORT", "low")
     get_settings.cache_clear()
     try:
         settings = get_settings()
@@ -58,8 +59,24 @@ def test_environment_selects_chatgpt_codex_and_model_deterministically(
 
     assert settings.llm_provider == "chatgpt-codex"
     assert settings.llm_model == "gpt-6-luna"
+    assert settings.llm_reasoning_effort == "low"
     assert settings.llm_api_key is None
     assert "chatgpt_access_token" not in Settings.model_fields
+
+
+@pytest.mark.parametrize("value", ["LOW", "fast"])
+def test_environment_rejects_unsupported_reasoning_effort(
+    monkeypatch: pytest.MonkeyPatch,
+    value: str,
+) -> None:
+    monkeypatch.setenv("AH_THERE_IT_IS_ENV", "development")
+    monkeypatch.setenv("AH_THERE_IT_IS_LLM_REASONING_EFFORT", value)
+    get_settings.cache_clear()
+    try:
+        with pytest.raises(ValueError, match="REASONING_EFFORT"):
+            get_settings()
+    finally:
+        get_settings.cache_clear()
 
 
 @pytest.mark.parametrize("model", [None, "", "   "])
@@ -86,6 +103,7 @@ def test_factory_constructs_direct_adapter_with_safe_metadata(
     factory = factory_module.build_llm_factory(Settings(
         llm_provider="chatgpt-codex",
         llm_model="gpt-6-luna",
+        llm_reasoning_effort="low",
         llm_api_key="unrelated-platform-key",
     ))
     client = factory()
@@ -95,6 +113,7 @@ def test_factory_constructs_direct_adapter_with_safe_metadata(
         assert info["provider"] == "chatgpt-codex"
         assert info["model"] == "gpt-6-luna"
         assert info["config"]["parallel_tool_calls"] is True
+        assert info["config"]["reasoning_effort"] == "low"
         assert "unrelated-platform-key" not in json.dumps(info)
         assert calls == []
     finally:
@@ -135,6 +154,7 @@ def test_factory_rereads_replaced_auth_cache_and_uses_only_direct_endpoint(
     settings = Settings(
         llm_provider="chatgpt-codex",
         llm_model="gpt-6-luna",
+        llm_reasoning_effort="low",
         llm_api_key="unrelated-platform-key",
         llm_max_retries=0,
     )
@@ -159,6 +179,21 @@ def test_factory_rereads_replaced_auth_cache_and_uses_only_direct_endpoint(
         f"Bearer {ACCESS_ONE}", f"Bearer {ACCESS_TWO}",
     ]
     assert all("unrelated-platform-key" not in json.dumps(request[2]) for request in requests)
+    assert requests[0][2] == {
+        "model": "gpt-6-luna",
+        "instructions": "",
+        "input": [{
+            "role": "user",
+            "content": [{"type": "input_text", "text": "Say first"}],
+        }],
+        "tool_choice": "auto",
+        "parallel_tool_calls": True,
+        "store": False,
+        "stream": True,
+        "include": [],
+        "reasoning": {"effort": "low"},
+    }
+    assert requests[1][2]["reasoning"] == {"effort": "low"}
     assert dict(os.environ) == environment_before
     assert not any(secret in json.dumps(client.info.model_dump()) for secret in (
         ACCESS_ONE, ACCESS_TWO, ACCOUNT, "unrelated-platform-key",

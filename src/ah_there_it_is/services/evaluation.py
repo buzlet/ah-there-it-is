@@ -14,6 +14,7 @@ from sqlalchemy.orm import Session, selectinload
 
 from ah_there_it_is.db.models import AgentFeedback, AgentRunLog, utc_now
 from ah_there_it_is.domain.exceptions import EntityNotFoundError
+from ah_there_it_is.services.json_safety import exact_json, json_safe, safe_exception_diagnostic
 
 
 @dataclass(frozen=True)
@@ -109,14 +110,18 @@ class EvaluationService:
             system_prompt=system_prompt,
             llm_provider=llm_provider,
             llm_model=llm_model,
-            llm_config=dict(llm_config),
-            input_messages=list(input_messages),
-            tool_trace=list(tool_trace),
-            mutation_receipts=list(mutation_receipts),
+            llm_config=json_safe(llm_config),
+            input_messages=json_safe(input_messages),
+            tool_trace=json_safe(tool_trace),
+            mutation_receipts=exact_json(list(mutation_receipts)),
             final_content=final_content,
             rounds=rounds,
             status=status,
-            error=error,
+            error=(
+                safe_exception_diagnostic(error)
+                if isinstance(error, BaseException)
+                else json_safe(error)
+            ),
         )
         self.session.add(run)
         self._persist(run, commit=commit)

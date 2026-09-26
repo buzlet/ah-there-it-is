@@ -218,8 +218,37 @@ def test_model_capabilities_preserve_evidence_and_default_conservatively(
         )
         assert payload["parallel_tool_calls"] is parallel_tool_calls
         assert client.info.config["parallel_tool_calls"] is parallel_tool_calls
+        assert "reasoning" not in payload
     finally:
         transport.close()
+
+
+def test_reasoning_effort_uses_responses_shape_and_safe_metadata() -> None:
+    client = ChatGPTCodexLLMClient(ChatGPTCodexConfig(model="gpt-6-luna", reasoning_effort="low"))
+    try:
+        payload = client._request_payload([AgentMessage(role="user", content="hi")], [])
+        assert payload == {
+            "model": "gpt-6-luna",
+            "instructions": "",
+            "input": [{
+                "role": "user",
+                "content": [{"type": "input_text", "text": "hi"}],
+            }],
+            "tool_choice": "auto",
+            "parallel_tool_calls": True,
+            "store": False,
+            "stream": True,
+            "include": [],
+            "reasoning": {"effort": "low"},
+        }
+        assert client.info.config["reasoning_effort"] == "low"
+    finally:
+        client.close()
+
+
+def test_unsupported_reasoning_effort_is_rejected() -> None:
+    with pytest.raises(ValueError, match="reasoning_effort"):
+        ChatGPTCodexLLMClient(ChatGPTCodexConfig(model="gpt-6-luna", reasoning_effort="wild"))
 
 
 def test_http_error_does_not_expose_token_prefix_at_detail_limit() -> None:

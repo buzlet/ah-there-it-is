@@ -14,6 +14,7 @@ from ah_there_it_is.agent.protocol import AgentMessage, LLMClient
 from ah_there_it_is.agent.tools import ToolDispatcher
 from ah_there_it_is.services.conversations import ConversationService
 from ah_there_it_is.services.evaluation import EvaluationService
+from ah_there_it_is.services.json_safety import safe_exception_diagnostic
 
 
 SYSTEM_PROMPT_VERSION = "inventory-v1"
@@ -206,18 +207,22 @@ class AgentRunner:
                 for tool_result in round_trace["tool_results"]:
                     if tool_result["result"].get("commit_state") == "provisional":
                         tool_result["result"]["commit_state"] = "rolled_back"
-            self._record_run(
-                conversation_id=conversation_id,
-                user_message_id=None,
-                assistant_message_id=None,
-                input_messages=input_messages,
-                tool_trace=tool_trace,
-                mutation_receipts=[],
-                final_content=None,
-                rounds=rounds,
-                status="failed",
-                error=f"{type(exc).__name__}: {exc}",
-            )
+            try:
+                self._record_run(
+                    conversation_id=conversation_id,
+                    user_message_id=None,
+                    assistant_message_id=None,
+                    input_messages=input_messages,
+                    tool_trace=tool_trace,
+                    mutation_receipts=[],
+                    final_content=None,
+                    rounds=rounds,
+                    status="failed",
+                    error=safe_exception_diagnostic(exc),
+                )
+            except Exception:
+                # Trace persistence must never replace the application failure.
+                self.session.rollback()
             raise
 
     def _record_run(

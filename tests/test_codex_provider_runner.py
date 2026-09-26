@@ -84,6 +84,7 @@ def _provider(handler, requests: list[dict], tmp_path, monkeypatch):
     factory = factory_module.build_llm_factory(Settings(
         llm_provider="chatgpt-codex",
         llm_model="gpt-test",
+        llm_reasoning_effort="low",
         llm_max_retries=0,
     ))
     return factory()
@@ -119,6 +120,8 @@ def test_runner_receives_tool_call_and_full_history_on_next_round(
     trace = EvaluationService(session).get_run(result.run_id)
     assert trace.llm_provider == "chatgpt-codex"
     assert trace.llm_model == "gpt-test"
+    assert trace.llm_config["reasoning_effort"] == "low"
+    assert all(request["reasoning"] == {"effort": "low"} for request in requests)
     assert "provider_state" not in json.dumps(trace.tool_trace)
     assert TOKEN not in json.dumps(trace.llm_config)
     assert "runner-fake-account" not in json.dumps(trace.llm_config)

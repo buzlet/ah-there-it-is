@@ -7,6 +7,7 @@ from threading import Event
 from typing import Any
 
 from ah_there_it_is.telegram.adapter import TelegramAdapter, TelegramAdapterResult
+from ah_there_it_is.telegram.progress import TelegramTyping
 
 
 @dataclass(frozen=True)
@@ -38,7 +39,7 @@ class TelegramPollingService:
         self.poll_timeout = poll_timeout
         self.limit = limit
 
-    def run_once(self) -> TelegramPollResult:
+    def run_once(self, *, stop_event: Event | None = None) -> TelegramPollResult:
         offset = self.adapter.next_offset()
         updates = list(
             self.client.get_updates(
@@ -64,11 +65,17 @@ class TelegramPollingService:
                 discarded += 1
                 continue
 
-            outcome = self.adapter.process_update(
-                update,
-                request_key=request_key,
-                send_reply=True,
-            )
+            assert update.message is not None
+            with TelegramTyping(
+                self.client,
+                update.message.chat.id,
+                stop_event=stop_event,
+            ):
+                outcome = self.adapter.process_update(
+                    update,
+                    request_key=request_key,
+                    send_reply=True,
+                )
             # A successful send is the point at which this update can be acked.
             offset = self.adapter.acknowledge_update(update.update_id)
             outcomes.append(outcome)
@@ -84,7 +91,7 @@ class TelegramPollingService:
     def run_forever(self, *, stop_event: Event | None = None) -> None:
         stop = stop_event or Event()
         while not stop.is_set():
-            self.run_once()
+            self.run_once(stop_event=stop)
 
     poll_once = run_once
     process_updates = run_once

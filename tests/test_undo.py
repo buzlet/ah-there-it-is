@@ -35,8 +35,9 @@ def undo_turn(session: Session, conversation_id: int):
     )
 
 
-def test_undo_item_creation_marks_removed_and_preserves_history(session: Session) -> None:
-    created = create_item_turn(session)
+@pytest.mark.parametrize("name", ["Meter", "Плата 0x123456"])
+def test_undo_item_creation_marks_removed_and_preserves_history(session: Session, name: str) -> None:
+    created = create_item_turn(session, name)
     item = session.scalar(select(Item))
     original_event_ids = tuple(session.scalars(select(Event.id).order_by(Event.id)))
 

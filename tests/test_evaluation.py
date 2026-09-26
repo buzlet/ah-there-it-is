@@ -42,6 +42,155 @@ def test_agent_run_log_captures_prompt_input_and_tool_trace(session: Session) ->
     assert run.final_content == "Не найдено."
 
 
+def test_production_value_error_is_persisted_as_safe_json_and_original_raised(session: Session) -> None:
+    conversation_id = ConversationService(session).create().id
+    error = ValueError("unknown quantity requires a null value")
+    run = EvaluationService(session).record_run(
+        conversation_id=conversation_id, user_message_id=None, assistant_message_id=None,
+        prompt_version="test", prompt_hash="x", system_prompt="p", llm_provider="test",
+        llm_model="test", llm_config={}, input_messages=[],
+        tool_trace=[{"tool_results": [{"error": error, "nested": [error]}]}],
+        final_content=None, rounds=1, status="failed",
+        error=ValueError("provider failed access_token=trace-secret at 0x123456789abc"),
+    )
+    persisted = EvaluationService(session).get_run(run.id).tool_trace
+    assert persisted[0]["tool_results"][0]["error"] == {
+        "exception_type": "ValueError", "message": "unknown quantity requires a null value"
+    }
+    assert run.error == "ValueError: provider failed access_token=[redacted] at [address]"
+
+
+def test_json_safety_redacts_secrets_and_never_calls_object_repr() -> None:
+    import json
+    from collections import UserList
+
+    from ah_there_it_is.services.json_safety import json_safe
+
+    class Dangerous:
+        def __repr__(self):
+            raise AssertionError("repr must not be invoked")
+
+    class DangerousException(ValueError):
+        def __str__(self):
+            raise AssertionError("exception __str__ must not be invoked")
+
+    result = json_safe({
+        "trace": UserList([
+            DangerousException(
+                'Authorization: Bearer bearer-secret access_token="secret-value" at 0x123456789abc'
+            ),
+            Dangerous(),
+        ]),
+    })
+    encoded = json.dumps(result, allow_nan=False)
+    assert "bearer-secret" not in encoded
+    assert "secret-value" not in str(result)
+    assert "0x123456789abc" not in str(result)
+    assert "unsupported Dangerous" in str(result)
+
+
+def test_agent_runner_persists_real_tool_exception_and_reraises_it(session: Session) -> None:
+    class ToolFailureLLM:
+        @property
+        def info(self):
+            from ah_there_it_is.agent.protocol import LLMClientInfo
+            return LLMClientInfo(provider="test", model="failure", config={})
+
+        def complete(self, messages, tools):
+            from ah_there_it_is.agent.protocol import LLMResponse, ToolCall
+            return LLMResponse(tool_calls=(ToolCall(
+                id="bad-quantity", name="create_item",
+                arguments={"name": "broken", "quantity_value": None, "quantity_precision": "unknown"},
+            ),), metadata={"tool_diagnostic": ValueError(
+                "unknown quantity requires a null value"
+            )})
+
+    # Inject the exact exception at dispatcher boundary to reproduce the real
+    # error object embedded in tool trace before failure logging.
+    from ah_there_it_is.agent import runner as runner_module
+    original_dispatcher = runner_module.ToolDispatcher
+
+    class FailingDispatcher(original_dispatcher):
+        def execute(self, name, arguments):
+            raise ValueError("unknown quantity requires a null value")
+
+    runner_module.ToolDispatcher = FailingDispatcher
+    try:
+        with pytest.raises(ValueError, match="unknown quantity requires a null value"):
+            AgentRunner(session, ToolFailureLLM()).run("Создай предмет")
+    finally:
+        runner_module.ToolDispatcher = original_dispatcher
+    runs = EvaluationService(session).recent_runs(limit=1)
+    assert runs[0].status == "failed"
+    assert runs[0].error == "ValueError: unknown quantity requires a null value"
+    assert runs[0].tool_trace[0]["assistant"]["metadata"]["tool_diagnostic"] == {
+        "exception_type": "ValueError",
+        "message": "unknown quantity requires a null value",
+    }
+
+
+def test_trace_logging_failure_does_not_replace_original_agent_failure(
+    session: Session,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    class FailingLLM:
+        @property
+        def info(self):
+            raise AssertionError("LLM metadata is not needed by the injected logger")
+
+        def complete(self, _messages, _tools):
+            raise ValueError("unknown quantity requires a null value")
+
+    runner = AgentRunner(session, FailingLLM())
+
+    def fail_logging(**_kwargs):
+        raise TypeError("secondary JSON serialization failure")
+
+    monkeypatch.setattr(runner, "_record_run", fail_logging)
+    with pytest.raises(ValueError, match="unknown quantity requires a null value"):
+        runner.run("Создай предмет")
+
+
+def test_json_safety_redacts_structured_credentials() -> None:
+    import json
+    from ah_there_it_is.services.json_safety import json_safe
+
+    trace = {"nested": [{"access_token": "test-access-secret",
+                         "password": "test-password-secret",
+                         "Authorization": "Basic test-basic-secret"}]}
+    encoded = json.dumps(json_safe(trace))
+    assert "test-access-secret" not in encoded
+    assert "test-password-secret" not in encoded
+    assert "test-basic-secret" not in encoded
+
+
+def test_json_safety_preserves_ordinary_json_trace_values() -> None:
+    from ah_there_it_is.services.json_safety import json_safe
+
+    trace = {"model_number": "0x123456", "content": "я" * 8001,
+             "results": list(range(2001))}
+    assert json_safe(trace) == trace
+
+
+def test_json_safety_handles_cycles_without_losing_shared_values() -> None:
+    from ah_there_it_is.services.json_safety import json_safe
+
+    cycle = []
+    cycle.extend([cycle, cycle])
+    assert json_safe(cycle) == ["[circular reference]", "[circular reference]"]
+    shared = {"name": "Болты"}
+    assert json_safe([shared, shared]) == [shared, shared]
+
+
+def test_receipt_json_boundary_preserves_evidence_and_rejects_objects() -> None:
+    from ah_there_it_is.services.json_safety import exact_json
+
+    evidence = {"name": "Метка token=serial-number", "description": "я" * 8001}
+    assert exact_json(evidence) == evidence
+    with pytest.raises(TypeError):
+        exact_json({"error": ValueError("not domain evidence")})
+
+
 def test_feedback_is_upserted_and_summarized_by_exact_variant(session: Session) -> None:
     runner = AgentRunner(
         session,
