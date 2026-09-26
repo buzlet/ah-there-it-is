@@ -2,6 +2,7 @@ name: application-extended-ci
 
 permissions:
   contents: read
+  statuses: write
 
 'on':
   workflow_dispatch:
@@ -10,20 +11,61 @@ permissions:
         description: Exact commit SHA to verify
         required: true
         type: string
+  schedule:
+    - cron: '17 3 * * *'
 
 jobs:
-  verify-extended:
+  plan:
     runs-on: ubuntu-24.04
+    outputs:
+      target_sha: ${{ steps.plan.outputs.target_sha }}
+      should_run: ${{ steps.plan.outputs.should_run }}
+    steps:
+      - name: Select immutable target and detect prior deep verification
+        id: plan
+        env:
+          GH_TOKEN: ${{ github.token }}
+          MANUAL_TARGET: ${{ inputs.target_sha }}
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          if [ "$GITHUB_EVENT_NAME" = "workflow_dispatch" ]; then
+            target_sha="$MANUAL_TARGET"
+            should_run=true
+          else
+            target_sha="$GITHUB_SHA"
+            state="$(gh api "repos/$GITHUB_REPOSITORY/commits/$target_sha/status" \
+              --jq '[.statuses[] | select(.context == "application-extended-ci")][0].state // ""')"
+            if [ "$state" = "success" ]; then
+              should_run=false
+            else
+              should_run=true
+            fi
+          fi
+
+          gh api "repos/$GITHUB_REPOSITORY/commits/$target_sha" --jq .sha >/dev/null
+          printf 'target_sha=%s\n' "$target_sha" >> "$GITHUB_OUTPUT"
+          printf 'should_run=%s\n' "$should_run" >> "$GITHUB_OUTPUT"
+          echo "deep verification target: $target_sha"
+          echo "deep verification required: $should_run"
+
+  verify-extended:
+    needs: plan
+    if: needs.plan.outputs.should_run == 'true'
+    runs-on: ubuntu-24.04
+    env:
+      TARGET_SHA: ${{ needs.plan.outputs.target_sha }}
     steps:
       - uses: actions/checkout@v4
         with:
-          ref: ${{ inputs.target_sha }}
+          ref: ${{ env.TARGET_SHA }}
       - name: Bind run to exact target SHA
         shell: bash
         run: |
           set -euo pipefail
-          test "$(git rev-parse HEAD)" = "${{ inputs.target_sha }}"
-          echo "extended verification SHA: ${{ inputs.target_sha }}"
+          test "$(git rev-parse HEAD)" = "$TARGET_SHA"
+          echo "extended verification SHA: $TARGET_SHA"
       - uses: actions/setup-python@v5
         with:
           python-version: '3.12'
@@ -47,9 +89,21 @@ jobs:
       - uses: actions/upload-artifact@v4
         if: always()
         with:
-          name: extended-evaluation-reports-${{ inputs.target_sha }}
+          name: extended-evaluation-reports-${{ env.TARGET_SHA }}
           path: |
             scenario-eval.json
             retrieval-eval.json
           if-no-files-found: warn
-          retention-days: 5
+          retention-days: 14
+      - name: Mark exact SHA as deep-verified
+        if: success()
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          gh api --method POST "repos/$GITHUB_REPOSITORY/statuses/$TARGET_SHA" \
+            -f state=success \
+            -f context=application-extended-ci \
+            -f description='Full tests, branch coverage and deep evaluations passed' \
+            -f target_url="$GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID"

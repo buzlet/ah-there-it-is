@@ -24,6 +24,7 @@ ah-there-it-is = "ah_there_it_is.runtime_cli:main"
 [project.optional-dependencies]
 test = [
     "pytest>=9,<10",
+    "pytest-xdist>=3,<4",
 ]
 
 [tool.setuptools]
