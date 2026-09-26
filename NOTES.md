@@ -52,9 +52,22 @@ Secrets remain a separate channel, and domain invariants are not overrideable co
 
 ## U24 agent notification rule
 
-U24 agents use the host-local helper:
+Canonical sender is:
 
-`/home/rdu01/.local/bin/notify`
+`/home/gpt/.local/bin/notify`
+
+Agents running as `rdu01` use:
+
+`/home/rdu01/.local/bin/agent-notify`
+
+The wrapper sends through the canonical sender and appends Codex limits to every
+milestone:
+
+- 5-hour remaining percentage + relative time remaining until reset;
+- weekly remaining percentage + relative time remaining until reset.
+
+Use relative durations such as `3h 51m` or `6d 17h`, never the absolute reset
+clock time. Usage-reporting failure must not suppress the milestone itself.
 
 Notifications are best-effort and must be invoked with `|| true`.
 
