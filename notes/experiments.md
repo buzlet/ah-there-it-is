@@ -219,3 +219,34 @@ Conclusion:
 Follow-up:
 - Primary batch: `0093-production-mvp-activation`.
 - Parallel engineering batch: `0094-systemic-ci-test-scalability`.
+
+
+### 2026-09-26 — Global CI scaling with parallel fast tests and deep verification
+
+Status: completed / handed to batch 0094 for further hardening
+
+Question:
+Can ordinary CI scale without recurring per-test micro-optimization by separating fast feedback from deep coverage/rehearsal work and using global parallel execution?
+
+Context:
+- Integrated deployment + CI tree initially measured at main `96cffb2a72d3450cf6f5357509d05dee105fcf13`.
+- Subsequent CI-tiering work merged through PR #92; post-merge main was `c44dd826a81c7e067bb5e53367435f68bfd6ff7d` before later task-issuance commits.
+- The fast functional selection was kept broad; the experiment intentionally moved away from repeated test-by-test timing edits.
+
+Observed result:
+- Integrated ordinary CI before tiering: verify job about 157 s; coverage step about 138 s.
+- U24 serial fast suite without coverage: about 175.7 s.
+- U24 same fast suite with pytest-xdist, 4 workers, work stealing: about 77.7 s.
+- GitHub-hosted xdist PR verify runs: about 60 s and 63 s total; parallel test step about 36 s and 43 s.
+- Post-merge main ordinary CI #504: success; verify job about 64 s; parallel test step about 44 s.
+- Coverage was moved to the deep/manual+daily tier instead of being collected on every PR.
+- Manual deep workflow was dispatched for exact SHA `c44dd826a81c7e067bb5e53367435f68bfd6ff7d` as run `36241954401`; its final behavior/result is delegated to batch 0094 to inspect and harden rather than consuming MVP-orchestrator time.
+
+Conclusion:
+- Global parallelism changes the scaling regime materially; it is more sustainable than repeatedly trimming individual slow tests.
+- Coverage is suitable for a deep scheduled/manual tier provided exact-SHA binding, failure visibility, and freshness/change detection remain reliable.
+- CI optimization must remain a parallel engineering lane and must not block production MVP activation.
+
+Follow-up:
+- Batch `0094-systemic-ci-test-scalability` owns further validation/hardening of the ordinary/deep topology, scheduled freshness gate, coverage authority, and parallel-safety evidence.
+- Batch `0093-production-mvp-activation` is the primary project lane and must proceed independently.
