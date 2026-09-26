@@ -91,6 +91,8 @@ U24 agents running as `rdu01` use the wrapper:
 
 `/home/rdu01/.local/bin/agent-notify`
 
+Tracked source: `tools/agent/u24_agent_notify.sh`.
+
 The wrapper sends through the canonical sender and automatically appends current
 Codex usage limits from `/home/rdu01/.local/bin/codex-usage`.
 
