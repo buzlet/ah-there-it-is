@@ -1,0 +1,27 @@
+# Project notes
+
+## Backlog / issue clustering rule
+
+When new product observations, defects, UX wishes, or follow-up ideas appear:
+
+1. Classify the observation into a stable product cluster before creating an issue.
+2. Search the existing open issues in that cluster first.
+3. Prefer updating and expanding an existing issue when the new observation is part of the same problem boundary.
+4. Create a new issue only when the observation has a distinct implementation or verification boundary.
+5. Prefix issue titles with the cluster name, for example:
+   - `[Russian semantics] ...`
+   - `[Telegram UX] ...`
+6. Cross-link related issues inside the cluster and explicitly document boundaries between them so work is not duplicated.
+7. Keep semantic/data correctness separate from presentation/transport UX even when one user-visible example exposes both.
+8. When a concrete production conversation exposes a defect, preserve that example in the relevant issue and turn it into deterministic regression coverage.
+9. New requirements should be merged into the appropriate existing cluster issues rather than accumulated only in chat.
+10. Before issuing an implementation batch, review the whole relevant cluster and decide whether issues should be implemented together or as separate batches.
+
+Current clusters introduced from production Telegram testing:
+
+- **Russian semantics / canonical inventory structure**
+  - #97 relational location hierarchy
+  - #98 canonical item/location naming
+  - #99 semantic entity matching and specificity
+- **Telegram presentation / mobile navigation**
+  - #100 compact rendering, native formatting, approximate quantity display, drill-down navigation, and paging
