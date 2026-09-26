@@ -300,6 +300,7 @@ def main(argv: Sequence[str] | None = None) -> int:
             TelegramRecoveryError,
             TelegramRecoveryRequiredError,
         )
+        from ah_there_it_is.telegram.client import TelegramPermanentError
         from ah_there_it_is.telegram.singleton import (
             TelegramSingletonError,
             telegram_singleton,
@@ -310,7 +311,9 @@ def main(argv: Sequence[str] | None = None) -> int:
             if args.command == "telegram-recover" and not args.confirm_atomic_rollback:
                 print("error: --confirm-atomic-rollback is required", file=sys.stderr)
                 return 2
-            with telegram_singleton(settings.database_url):
+            with telegram_singleton(
+                settings.database_url, settings.telegram_bot_token or ""
+            ):
                 if args.command == "telegram-bot":
                     return run_telegram_bot(
                         settings,
@@ -334,6 +337,12 @@ def main(argv: Sequence[str] | None = None) -> int:
                             "status": "completed",
                         }))
                     return 0
+        except TelegramPermanentError as exc:
+            print(
+                f"error: permanent Telegram API failure status={exc.status_code}",
+                file=sys.stderr,
+            )
+            return 2
         except (TelegramRuntimeConfigurationError, TelegramSingletonError,
                 TelegramRecoveryRequiredError, TelegramRecoveryError) as exc:
             print(f"error: {exc}", file=sys.stderr)

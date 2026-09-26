@@ -3,7 +3,9 @@ Description=Ah There It Is Telegram poller
 After=default.target
 
 [Service]
-Type=simple
+Type=notify
+NotifyAccess=main
+TimeoutStartSec=infinity
 WorkingDirectory=%h/apps/ah-there-it-is/current
 EnvironmentFile=%h/.local/state/ah-there-it-is/runtime.env
 ExecStartPre=%h/apps/ah-there-it-is/current/.venv/bin/python -m ah_there_it_is.storage_cli migration-check

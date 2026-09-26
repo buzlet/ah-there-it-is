@@ -25,6 +25,18 @@ class TelegramTransportError(TelegramClientError):
 class TelegramApiError(TelegramClientError):
     """Telegram returned an HTTP or ``ok=false`` API response."""
 
+    def __init__(self, message: str, *, status_code: int | None = None) -> None:
+        super().__init__(message)
+        self.status_code = status_code
+
+
+class TelegramPermanentError(TelegramApiError):
+    """A non-retryable Telegram configuration or API rejection."""
+
+
+class TelegramConflictError(TelegramApiError):
+    """Another poller may currently own this bot (HTTP/API 409)."""
+
 
 class TelegramResponseError(TelegramClientError):
     """Telegram returned a malformed response shape."""
@@ -155,13 +167,18 @@ class TelegramBotClient:
                     self._backoff(attempt, response)
                     continue
                 if response.status_code == 429:
-                    raise TelegramApiError("Telegram API rate limit response")
+                    raise TelegramApiError(
+                        "Telegram API rate limit response", status_code=429
+                    )
                 raise TelegramApiError(
-                    f"Telegram HTTP error status={response.status_code}"
+                    f"Telegram HTTP error status={response.status_code}",
+                    status_code=response.status_code,
                 )
             if response.status_code >= 400:
-                raise TelegramApiError(
-                    f"Telegram HTTP error status={response.status_code}"
+                error_class = self._error_class(response.status_code)
+                raise error_class(
+                    f"Telegram HTTP error status={response.status_code}",
+                    status_code=response.status_code,
                 )
             try:
                 body = response.json()
@@ -178,11 +195,20 @@ class TelegramBotClient:
                 detail = f"Telegram API returned ok=false{f' code={safe_code}' if safe_code is not None else ''}"
                 if description:
                     detail += f": {description}"
-                raise TelegramApiError(detail)
+                error_class = self._error_class(safe_code)
+                raise error_class(detail, status_code=safe_code)
             if "result" not in body:
                 raise TelegramResponseError("Telegram response omitted result")
             return body["result"]
         raise TelegramTransportError("Telegram transport retry budget exhausted")
+
+    @staticmethod
+    def _error_class(code: int | None) -> type[TelegramApiError]:
+        if code == 409:
+            return TelegramConflictError
+        if code is not None and 400 <= code < 500 and code != 429:
+            return TelegramPermanentError
+        return TelegramApiError
 
     def _backoff(self, attempt: int, response: httpx.Response | None = None) -> None:
         delay = self.backoff_seconds * (2**attempt)

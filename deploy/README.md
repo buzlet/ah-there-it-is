@@ -17,8 +17,10 @@ the real token and allowed user ID are installed out of band.
 
 The parent `/home/rdu01/.config` is root-owned on this host, but its existing
 `systemd/user` subdirectory is writable by `rdu01`. The state directory is
-therefore the usable secrets location. Keep the Telegram lock file across
-deployments; never remove or replace it while any poller can run.
+therefore the usable secrets location. A private `locks/` child holds a
+SHA-256-derived bot identity lock; the raw token is never a path component.
+The DB also has its own lock beside `inventory.db`. Keep both lock files across
+deployments; never remove or replace them while any poller can run.
 
 ## First install and explicit schema setup
 
@@ -96,9 +98,10 @@ Run the new
 checkout's explicit `storage_cli upgrade` and `migration-check`, then start
 web and, only with valid real Telegram settings, the bot. `systemctl --user
 restart ah-there-it-is-telegram.service` stops the old unit before starting
-the new one. The database-derived kernel lock also rejects a concurrent manual
-poller before its first Telegram call. It is released after process exit or
-crash. The lock is host-local: do not run another host against this same bot.
+the new one. Kernel locks on both bot identity and database reject a concurrent
+manual poller before its first Telegram call, including when the same bot uses
+a different DB path. They are released after process exit or crash. These
+locks are host-local: do not run another host against this same bot.
 
 ```bash
 systemctl --user start ah-there-it-is-web.service
@@ -106,6 +109,15 @@ systemctl --user enable --now ah-there-it-is-telegram.service
 systemctl --user show ah-there-it-is-telegram.service -p MainPID -p ActiveState
 journalctl --user -u ah-there-it-is-telegram.service -n 30 --no-pager
 ```
+
+The Telegram unit uses `Type=notify`. It remains `activating` until its first
+successful `getUpdates`; a live PID alone is not readiness. HTTP/API 401 fails
+immediately with process status `2`. A 409 conflict fails after three
+consecutive attempts with status `2`. Systemd does not restart those permanent
+failures (`RestartPreventExitStatus=2`). 429, 5xx and transport failures retry;
+they do not report ready until polling succeeds. Use
+`.venv/bin/python deploy/probes/telegram_systemd_status.py` for the reproducible
+scratch/fake-API host probe; it never contacts Telegram or sends messages.
 
 On a failed upgrade, stop both units. A code rollback is safe only if the old
 package accepts the current schema; confirm `migration-check` with that package

@@ -5,6 +5,7 @@ from __future__ import annotations
 from pathlib import Path
 import subprocess
 import sys
+import os
 
 import pytest
 from sqlalchemy import func, select
@@ -51,30 +52,35 @@ def test_runtime_cli_rejects_invalid_production_config_without_echo(
 
 def test_second_process_cannot_hold_telegram_lock(tmp_path: Path) -> None:
     database_url = f"sqlite:///{tmp_path / 'inventory.db'}"
+    token = "synthetic-bot-token"
+    lock_dir = tmp_path / "locks"
     script = (
-        "import sys; from ah_there_it_is.telegram.singleton import telegram_singleton; "
-        "\nwith telegram_singleton(sys.argv[1]):\n"
+        "import os, sys; from pathlib import Path; "
+        "from ah_there_it_is.telegram.singleton import telegram_singleton; "
+        "\nwith telegram_singleton(sys.argv[1], os.environ['PROBE_BOT_TOKEN'], "
+        "lock_dir=Path(sys.argv[2])):\n"
         " print('ready', flush=True); sys.stdin.readline()\n"
     )
     child = subprocess.Popen(
-        [sys.executable, "-c", script, database_url],
+        [sys.executable, "-c", script, database_url, str(lock_dir)],
         stdin=subprocess.PIPE,
         stdout=subprocess.PIPE,
         stderr=subprocess.PIPE,
         text=True,
+        env={**os.environ, "PROBE_BOT_TOKEN": token},
     )
     try:
         assert child.stdout is not None
         assert child.stdout.readline().strip() == "ready"
-        with pytest.raises(TelegramSingletonError, match="already owns"):
-            with telegram_singleton(database_url):
+        with pytest.raises(TelegramSingletonError, match="already has a poller"):
+            with telegram_singleton(database_url, token, lock_dir=lock_dir):
                 pytest.fail("second process acquired poller lock")
         assert child.poll() is None
         assert lock_path(database_url).stat().st_mode & 0o777 == 0o600
     finally:
         child.terminate()
         child.communicate(timeout=5)
-    with telegram_singleton(database_url):
+    with telegram_singleton(database_url, token, lock_dir=lock_dir):
         pass
 
 
