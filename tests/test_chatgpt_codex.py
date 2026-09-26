@@ -115,6 +115,33 @@ def test_credential_source_rejects_bad_or_wrong_auth_without_mutation(
     assert auth_file.read_bytes() == before
 
 
+def test_credential_source_missing_file_fails_without_secret_detail(tmp_path: Path) -> None:
+    with pytest.raises(CredentialSourceError, match="unavailable") as raised:
+        CodexAuthFileCredentialSource(tmp_path / "missing-auth.json").get()
+    assert TOKEN not in str(raised.value)
+
+
+def test_missing_optional_account_id_is_not_added_as_a_header() -> None:
+    def handler(request: httpx.Request) -> httpx.Response:
+        assert "ChatGPT-Account-ID" not in request.headers
+        return httpx.Response(
+            200,
+            headers={"content-type": "text/event-stream"},
+            stream=Chunks(_completed_response([{
+                "type": "message", "content": [{"type": "output_text", "text": "ok"}],
+            }])),
+        )
+
+    client = _client(
+        handler,
+        source=StaticChatGPTCredentialSource(ChatGPTCredentials(TOKEN, None)),
+    )
+    try:
+        assert client.complete([AgentMessage(role="user", content="hi")], []).content == "ok"
+    finally:
+        client._client.close()
+
+
 def test_codex_auth_http_401_is_redacted_and_does_not_refresh_or_rewrite(
     tmp_path: Path,
 ) -> None:
@@ -210,6 +237,8 @@ def test_request_maps_generic_history_and_tools_to_codex_responses() -> None:
         "type": "function_call_output", "call_id": "call_old", "output": '{"location":"box"}',
     }
     assert body["tools"][0]["parameters"] == tools[0].input_schema
+    assert TOKEN not in json.dumps(body)
+    assert ACCOUNT not in json.dumps(body)
     headers = captured["headers"]
     assert isinstance(headers, dict)
     assert headers["authorization"] == f"Bearer {TOKEN}"
@@ -217,6 +246,27 @@ def test_request_maps_generic_history_and_tools_to_codex_responses() -> None:
     assert result.content == "Found it."
     assert result.tool_calls == ()
     assert TOKEN not in repr(client.info)
+
+
+def test_direct_adapter_rejects_unknown_returned_tool_name() -> None:
+    def handler(_request: httpx.Request) -> httpx.Response:
+        return httpx.Response(
+            200,
+            headers={"content-type": "text/event-stream"},
+            stream=Chunks(_completed_response([{
+                "type": "function_call", "call_id": "call_1",
+                "name": "drop_inventory", "arguments": "{}",
+            }])),
+        )
+
+    client = _client(handler)
+    try:
+        with pytest.raises(ProviderProtocolError, match="unknown tool"):
+            client.complete([AgentMessage(role="user", content="hi")], [
+                ToolDefinition(name="lookup_item", description="test", input_schema={"type": "object"}),
+            ])
+    finally:
+        client._client.close()
 
 
 def test_sse_parser_handles_fragmentation_comments_text_and_multiple_calls() -> None:
@@ -247,6 +297,23 @@ def test_sse_parser_handles_fragmentation_comments_text_and_multiple_calls() -> 
     assert [call.id for call in result["tool_calls"]] == ["call_1", "call_2"]
     assert result["tool_calls"][0].arguments == {"name": "cable"}
     assert result["tool_calls"][1].arguments == {"name": "key"}
+
+
+def test_sse_uses_incremental_tool_arguments_when_completed_output_is_empty() -> None:
+    events = b"".join([
+        _sse_event("response.output_item.added", {"type": "response.output_item.added", "item": {
+            "id": "item_1", "call_id": "call_1", "type": "function_call",
+            "name": "lookup_item", "arguments": "",
+        }}),
+        _sse_event("response.function_call_arguments.delta", {"type": "response.function_call_arguments.delta", "item_id": "item_1", "delta": '{"name":"cable"}'}),
+        _completed_response([]),
+    ])
+
+    result = parse_responses_sse([events])
+
+    assert len(result["tool_calls"]) == 1
+    assert result["tool_calls"][0].id == "call_1"
+    assert result["tool_calls"][0].arguments == {"name": "cable"}
 
 
 @pytest.mark.parametrize("chunks, message", [
@@ -280,29 +347,33 @@ def test_sse_oversized_tool_arguments_and_stream_error_are_bounded_and_safe() ->
     assert ACCOUNT not in str(raised.value)
 
 
-def test_sse_401_does_not_retry_and_transient_429_can_retry() -> None:
+@pytest.mark.parametrize("status", [401, 403])
+def test_auth_failure_does_not_retry_or_refresh(status: int) -> None:
     calls = 0
 
     def unauthorized(_request: httpx.Request) -> httpx.Response:
         nonlocal calls
         calls += 1
-        return httpx.Response(401, json={"error": {"message": "unauthorized"}})
+        return httpx.Response(status, json={"error": {"message": "unauthorized"}})
 
     client = _client(unauthorized, retries=2)
     try:
-        with pytest.raises(ProviderRequestError, match="HTTP 401"):
+        with pytest.raises(ProviderRequestError, match=f"HTTP {status}"):
             client.complete([AgentMessage(role="user", content="hi")], [])
     finally:
         client.close()
     assert calls == 1
 
+
+@pytest.mark.parametrize("status", [429, 500, 503])
+def test_transient_status_can_retry(status: int) -> None:
     calls = 0
 
     def transient_then_ok(_request: httpx.Request) -> httpx.Response:
         nonlocal calls
         calls += 1
         if calls == 1:
-            return httpx.Response(429, headers={"Retry-After": "1"})
+            return httpx.Response(status, headers={"Retry-After": "1"})
         return httpx.Response(
             200,
             headers={"content-type": "text/event-stream"},
@@ -315,3 +386,17 @@ def test_sse_401_does_not_retry_and_transient_429_can_retry() -> None:
     finally:
         client.close()
     assert calls == 2
+
+
+@pytest.mark.parametrize("failure", [httpx.ReadTimeout, httpx.ConnectError])
+def test_timeout_and_connection_errors_are_bounded_and_redacted(failure) -> None:
+    def broken(_request: httpx.Request) -> httpx.Response:
+        raise failure(f"upstream echoed {TOKEN}")
+
+    client = _client(broken, retries=0)
+    try:
+        with pytest.raises(ProviderRequestError) as raised:
+            client.complete([AgentMessage(role="user", content="hi")], [])
+    finally:
+        client.close()
+    assert TOKEN not in str(raised.value)

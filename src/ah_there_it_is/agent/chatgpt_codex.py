@@ -41,11 +41,11 @@ _MAX_RETRY_AFTER_SECONDS = 2.0
 @dataclass(frozen=True)
 class ChatGPTCodexConfig:
     model: str
+    codex_client_version: str = "0.156.1"
     timeout_seconds: float = 60.0
     max_retries: int = 1
     retry_backoff_seconds: float = 0.25
     max_response_bytes: int = 2 * 1024 * 1024
-    endpoint: str = CODEX_RESPONSES_URL
 
 
 class ChatGPTCodexLLMClient:
@@ -94,6 +94,7 @@ class ChatGPTCodexLLMClient:
                 "transport": "http-sse",
                 "store": False,
                 "stream": True,
+                "codex_client_version": self.config.codex_client_version,
                 "timeout_seconds": self.config.timeout_seconds,
                 "max_response_bytes": self.config.max_response_bytes,
             },
@@ -129,7 +130,7 @@ class ChatGPTCodexLLMClient:
             try:
                 with self._client.stream(
                     "POST",
-                    self.config.endpoint,
+                    CODEX_RESPONSES_URL,
                     json=body,
                     headers=self._headers(
                         credentials.access_token, credentials.account_id
@@ -175,6 +176,11 @@ class ChatGPTCodexLLMClient:
                         "attempts": attempts,
                         "transport": "http-sse",
                     }
+                    known_tools = {tool.name for tool in tools}
+                    if any(call.name not in known_tools for call in parsed["tool_calls"]):
+                        raise ProviderProtocolError(
+                            "ChatGPT Codex response named an unknown tool"
+                        )
                     return LLMResponse(
                         content=parsed["content"],
                         tool_calls=tuple(parsed["tool_calls"]),
@@ -184,6 +190,8 @@ class ChatGPTCodexLLMClient:
                         },
                     )
             except ProviderRequestError:
+                raise
+            except ProviderProtocolError:
                 raise
             except httpx.TimeoutException:
                 if attempt >= self.config.max_retries:
@@ -210,7 +218,7 @@ class ChatGPTCodexLLMClient:
             "Content-Type": "application/json",
             "originator": CODEX_ORIGINATOR,
             "Authorization": f"Bearer {access_token}",
-            "User-Agent": "codex_cli_rs/0.156.1",
+            "User-Agent": f"codex_cli_rs/{self.config.codex_client_version}",
         }
         if account_id:
             headers["ChatGPT-Account-ID"] = account_id
@@ -486,7 +494,7 @@ def parse_responses_sse(
                 final_calls.append(_decode_function_call(item))
     if not final_text:
         final_text = text_deltas
-    if output is None:
+    if not final_calls:
         for call in calls.values():
             final_calls.append(_decode_function_call(call))
     try:
