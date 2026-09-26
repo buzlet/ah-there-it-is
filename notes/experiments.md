@@ -189,3 +189,33 @@ Limitations:
 Follow-up:
 - Keep monitoring ordinary CI timing as the suite grows.
 - Profile newly added subprocess-heavy tests before expanding the extended set or weakening fast-gate coverage.
+
+
+### 2026-09-26 — Post-0091/0092 integrated CI scaling observation
+
+Status: completed
+
+Question:
+What happens to the optimized ordinary CI after the deployment/recovery tests from 0091 are integrated, and should the project continue tuning individual tests to hold a fixed wall-time target?
+
+Context:
+- Final integrated main after PR #89 and PR #90: `96cffb2a72d3450cf6f5357509d05dee105fcf13`.
+- Ordinary application-ci run #499 was the first fast-gate run over the combined tree.
+- Manual application-extended-ci run #1 targeted the same immutable SHA.
+
+Observed result:
+- Ordinary CI #499: green; verify job about 157 s; fast-test step about 138 s; pytest 689 passed / 45 deselected in 133.72 s; branch coverage 83.45%.
+- Manual extended CI #1: exact-SHA bind green; 734 passed; branch coverage 83.75%; full scenario and retrieval evaluation green.
+- U24 serial fast selection without coverage was still about 174 s, showing that coverage is not the only scaling cost.
+- A short experiment identified duplicated subprocess cost in production-preflight tests, but the resulting micro-optimization direction was explicitly rejected as the primary long-term strategy.
+- Experimental branch `integration/0091-0092-ci-runtime` was restored to a tree identical to accepted main; its experimental commits remain history only and are not implementation authority.
+
+Conclusion:
+- Repeated per-test shaving or moving newly slow tests to extended is not a sustainable CI architecture as the MVP grows.
+- Future optimization should treat ordinary and deep verification as separate tiers and evaluate scalable parallel/sharded execution.
+- Coverage and expensive full verification are candidates for the deep tier with manual exact-SHA dispatch plus scheduled execution when main changed.
+- Production MVP activation is the primary project stream; CI/test scalability is parallel improvement work and must not block launch.
+
+Follow-up:
+- Primary batch: `0093-production-mvp-activation`.
+- Parallel engineering batch: `0094-systemic-ci-test-scalability`.
