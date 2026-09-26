@@ -138,32 +138,80 @@ web unit, switches `current` to each, deletes the old copy, verifies web health
 and effective stable unit paths, then restores the original release. It requires
 the Telegram unit to be stopped.
 
-On a failed upgrade, stop both units. A code rollback is safe only if the old
-package accepts the current schema; confirm `migration-check` with that package
-before restarting it. Otherwise restore a validated pre-upgrade backup by the
-documented storage CLI procedure during downtime. Never overwrite the active
-database merely to rehearse rollback.
+On a failed upgrade, stop both units. A code-only rollback is safe only if the
+old package accepts the upgraded schema; check it with that package before
+restarting. The ordinary `storage_cli restore` and `restore-rehearsal` require
+the installed package's current revision and cannot restore a pre-upgrade
+backup across schema revisions. For a schema rollback use the separate
+procedure below. Never overwrite the active database merely to rehearse it.
 
 ## Backup and recovery rehearsal
 
-Use a unique name and `umask 077`. These commands use the explicit active DB
-setting shown above (or a trusted private shell environment):
+Use `backup-auto` before each deployment. It adds a UTC timestamp and random
+suffix and still uses the backup CLI's no-overwrite publication. These commands
+use the explicit active DB setting shown above (or a trusted private shell
+environment):
 
 ```bash
 umask 077
-AH_THERE_IT_IS_DATABASE_URL=sqlite:////home/rdu01/.local/share/ah-there-it-is/inventory.db \
-  .venv/bin/python -m ah_there_it_is.storage_cli backup \
-  /home/rdu01/.local/share/ah-there-it-is/backups/pre-upgrade.db
-.venv/bin/python -m ah_there_it_is.storage_cli validate \
-  /home/rdu01/.local/share/ah-there-it-is/backups/pre-upgrade.db
+backup_report=$(AH_THERE_IT_IS_DATABASE_URL=sqlite:////home/rdu01/.local/share/ah-there-it-is/inventory.db \
+  .venv/bin/python -m ah_there_it_is.storage_cli backup-auto \
+  /home/rdu01/.local/share/ah-there-it-is/backups)
+backup=$(printf '%s' "$backup_report" | .venv/bin/python -c 'import json,sys; print(json.load(sys.stdin)["path"])')
+.venv/bin/python -m ah_there_it_is.storage_cli validate "$backup"
 AH_THERE_IT_IS_DATABASE_URL=sqlite:////home/rdu01/.local/share/ah-there-it-is/inventory.db \
   .venv/bin/python -m ah_there_it_is.storage_cli restore-rehearsal \
-  /home/rdu01/.local/share/ah-there-it-is/backups/pre-upgrade.db
+  "$backup"
 ```
 
 Expected: integrity `ok`, no foreign-key violations, and rehearsal `ok: true`.
 The rehearsal creates a scratch active database; it does not replace the
 authoritative DB. Keep an off-machine backup copy through external operations.
+
+### Roll back across schema revisions
+
+Retain the old checkout, its installed venv, and the validated pre-upgrade
+backup path (`$backup` above) until the new release is accepted. If the upgrade
+changed schema and the old package rejects the upgraded DB, stop both services
+and run the new release's separate rollback tool. Supply the old package's
+Python interpreter and its exact Alembic revision. Example for the tested
+`1a7c4e9d2b10` to `2b8d5f1a4c20` transition:
+
+```bash
+systemctl --user stop ah-there-it-is-telegram.service ah-there-it-is-web.service
+systemctl --user show ah-there-it-is-web.service ah-there-it-is-telegram.service -p MainPID
+new_release=/absolute/path/to/new-checkout
+old_release=/absolute/path/to/old-checkout
+"$new_release/.venv/bin/python" "$new_release/deploy/cross_schema_rollback.py" \
+  /home/rdu01/.local/share/ah-there-it-is/inventory.db \
+  "$backup" "$old_release/.venv/bin/python" \
+  --old-revision 1a7c4e9d2b10
+cd "$old_release"
+.venv/bin/python deploy/install_user_units.py --switch-release "$PWD"
+systemctl --user start ah-there-it-is-web.service
+```
+
+The rollback tool requires both service PIDs to be zero. It validates the old
+backup with the old installed package, checkpoints the upgraded DB's WAL,
+creates and validates a uniquely named upgraded safety backup, stages and
+validates the old DB, moves the upgraded DB and sidecars into a private
+quarantine directory, and publishes the old DB with a no-overwrite hard link.
+It syncs files and directories before reporting success, validates the restored
+DB with the old package, and removes empty WAL/SHM left by validation. The
+output names both the upgraded safety backup and quarantine; keep them until
+recovery is confirmed. If a competing process recreates the active path, the
+tool refuses to overwrite it and retains the upgraded copy in quarantine.
+Resolve such an interruption under downtime using those preserved files; do
+not start either unit on an uncertain DB. Switch to the old release only after
+the tool succeeds and verify its effective units and web health before enabling
+Telegram. This is a maintenance operation with exclusive database ownership.
+
+The Direct rehearsal is `.venv/bin/python deploy/probes/cross_schema_rollback.py`.
+It creates a scratch DB with a historical old package, validates its backup,
+upgrades the scratch DB, leaves committed upgraded WAL after process death,
+executes the rollback command under stopped units, verifies the old package and
+old web server, then restores the production web unit. It never replaces the
+production DB.
 
 ## Telegram no-message acceptance
 
