@@ -49,6 +49,7 @@ with telegram_singleton(sys.argv[1], os.environ['PROBE_BOT_TOKEN'], lock_dir=Pat
     return child
 
 
+@pytest.mark.extended
 def test_bot_and_database_ownership_are_independent_and_clean_exit_releases(
     tmp_path: Path,
 ) -> None:
@@ -77,6 +78,7 @@ def test_bot_and_database_ownership_are_independent_and_clean_exit_releases(
         pass
 
 
+@pytest.mark.extended
 def test_sigkill_releases_bot_and_database_ownership(tmp_path: Path) -> None:
     url = f"sqlite:///{tmp_path / 'inventory.db'}"
     lock_dir = tmp_path / "locks"
