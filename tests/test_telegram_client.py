@@ -89,6 +89,25 @@ def test_send_chat_action_maps_typing_request() -> None:
     assert seen == [("/botsecret/sendChatAction", {"chat_id": 99, "action": "typing"})]
 
 
+def test_typing_has_a_short_timeout_and_no_transport_retries() -> None:
+    requests = []
+    sleeps = []
+
+    def respond(request: httpx.Request) -> httpx.Response:
+        requests.append(request)
+        return httpx.Response(429, json={"parameters": {"retry_after": 30}})
+
+    with TelegramBotClient(
+        "secret", timeout_seconds=300, max_retries=5,
+        transport=httpx.MockTransport(respond), sleep=sleeps.append,
+    ) as client:
+        with pytest.raises(TelegramClientError):
+            client.send_chat_action(99)
+    assert len(requests) == 1
+    assert sleeps == []
+    assert all(value <= 1 for value in requests[0].extensions["timeout"].values())
+
+
 def test_send_chat_action_error_does_not_expose_token_or_chat_identity() -> None:
     def respond(_request: httpx.Request) -> httpx.Response:
         return httpx.Response(200, json={

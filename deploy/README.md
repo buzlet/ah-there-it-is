@@ -66,12 +66,23 @@ select the direct ChatGPT/Codex Responses provider in `runtime.env`:
 ```text
 AH_THERE_IT_IS_LLM_PROVIDER=chatgpt-codex
 AH_THERE_IT_IS_LLM_MODEL=<explicit operator-selected model>
+# Set only after batch 0097 is reviewed and merged:
+AH_THERE_IT_IS_LLM_REASONING_EFFORT=low
 ```
 
 `AH_THERE_IT_IS_LLM_MODEL` must be chosen explicitly; the application does not
 select a permanent model from Codex defaults. The only model with sanitized live
 evidence for text, native tool selection, and synthetic multi-round continuation
 is `gpt-6-luna`. Other models do not inherit that compatibility evidence.
+
+For the reviewed production configuration, keep `gpt-6-luna` and explicitly
+select `low`. Reasoning effort is optional, with accepted values `none`,
+`minimal`, `low`, `medium`, `high`, and `xhigh`; model support can differ.
+Unset or blank means no effort override, not an implicit `low`. Only the direct
+`chatgpt-codex` provider maps this setting to Responses `reasoning.effort`;
+other providers retain their existing behavior. The selected non-secret value
+is recorded in run configuration metadata. The request shape follows the
+[official Responses reasoning guide](https://developers.openai.com/api/docs/guides/reasoning).
 
 The service user must already have a Codex-managed ChatGPT login. By default the
 provider reads the current auth cache under `$CODEX_HOME/auth.json`, or
@@ -277,6 +288,19 @@ checkpoint can be sent again; Telegram's API supplies no atomic send/checkpoint
 transaction. This is the remaining external-reply duplication risk.
 
 ### Interrupted Telegram request recovery
+
+Accepted private text updates show Telegram `typing` while processing, refreshed
+about every four seconds. Rejected updates do not show progress. Chat actions use
+one transport attempt with at most one second per HTTP timeout phase, without
+retry/backoff; failures are advisory and do not change inventory or acknowledge
+the update. Refresh stops when processing ends or shutdown is requested; an
+already in-flight action must finish before its worker is joined. Telegram may
+display the last action briefly until its indicator expires.
+
+No additional failure reply is sent. A stopped typing indicator is not evidence
+that a mutation committed or rolled back. Failure recovery remains an explicit
+operator action using durable request status below; the bot never skips or
+automatically replays a failed update.
 
 If a poller dies after reserving `telegram:<update_id>`, the durable request
 can remain `processing`; an application failure can leave it `failed`. The bot

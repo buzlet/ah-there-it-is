@@ -33,15 +33,16 @@ def message_count(session: Session) -> int:
     return int(session.scalar(select(func.count(Message.id))) or 0)
 
 
-def test_create_retry_returns_same_run_without_duplicate_event(session: Session) -> None:
+@pytest.mark.parametrize("name", ["USB tester", "Плата 0x123456"])
+def test_create_retry_returns_same_run_without_duplicate_event(session: Session, name: str) -> None:
     llm = ScriptedLLMClient(
         [
             LLMResponse(
-                tool_calls=(call("1", "search_items", query="USB tester"),)
+                tool_calls=(call("1", "search_items", query=name),)
             ),
             LLMResponse(
                 tool_calls=(
-                    call("2", "create_item", name="USB tester", state="new"),
+                    call("2", "create_item", name=name, state="new"),
                 )
             ),
             LLMResponse(content="Created."),
@@ -73,7 +74,7 @@ def test_create_retry_returns_same_run_without_duplicate_event(session: Session)
     assert llm.remaining == 0
     assert event_count(session) == after_first == 1
     assert message_count(session) == messages_after_first == 2
-    assert InventoryService(session).get_item(1).name == "USB tester"
+    assert InventoryService(session).get_item(1).name == name
 
 
 def test_move_retry_does_not_duplicate_history_event(session: Session) -> None:

@@ -151,6 +151,46 @@ def test_trace_logging_failure_does_not_replace_original_agent_failure(
         runner.run("Создай предмет")
 
 
+def test_json_safety_redacts_structured_credentials() -> None:
+    import json
+    from ah_there_it_is.services.json_safety import json_safe
+
+    trace = {"nested": [{"access_token": "test-access-secret",
+                         "password": "test-password-secret",
+                         "Authorization": "Basic test-basic-secret"}]}
+    encoded = json.dumps(json_safe(trace))
+    assert "test-access-secret" not in encoded
+    assert "test-password-secret" not in encoded
+    assert "test-basic-secret" not in encoded
+
+
+def test_json_safety_preserves_ordinary_json_trace_values() -> None:
+    from ah_there_it_is.services.json_safety import json_safe
+
+    trace = {"model_number": "0x123456", "content": "я" * 8001,
+             "results": list(range(2001))}
+    assert json_safe(trace) == trace
+
+
+def test_json_safety_handles_cycles_without_losing_shared_values() -> None:
+    from ah_there_it_is.services.json_safety import json_safe
+
+    cycle = []
+    cycle.extend([cycle, cycle])
+    assert json_safe(cycle) == ["[circular reference]", "[circular reference]"]
+    shared = {"name": "Болты"}
+    assert json_safe([shared, shared]) == [shared, shared]
+
+
+def test_receipt_json_boundary_preserves_evidence_and_rejects_objects() -> None:
+    from ah_there_it_is.services.json_safety import exact_json
+
+    evidence = {"name": "Метка token=serial-number", "description": "я" * 8001}
+    assert exact_json(evidence) == evidence
+    with pytest.raises(TypeError):
+        exact_json({"error": ValueError("not domain evidence")})
+
+
 def test_feedback_is_upserted_and_summarized_by_exact_variant(session: Session) -> None:
     runner = AgentRunner(
         session,

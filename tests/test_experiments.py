@@ -28,6 +28,23 @@ def _source_search_run(session: Session):
     return EvaluationService(session).get_run(source.run_id)
 
 
+def test_experiment_trace_persistence_uses_shared_json_safety(session: Session) -> None:
+    source = _source_search_run(session)
+    run = ExperimentService(session).record_run(
+        source_run_id=source.id, experiment_name="failure", prompt_version="v1",
+        prompt_hash="test", system_prompt="test", llm_provider="test", llm_model="test",
+        llm_config={"access_token": "test-secret"}, input_messages=[],
+        tool_trace=[{"error": ValueError("unknown quantity requires a null value")}],
+        final_content=None, rounds=1, status="failed",
+    )
+    session.expire_all()
+    stored = ExperimentService(session).get_run(run.id)
+    assert stored.llm_config == {"access_token": "[redacted]"}
+    assert stored.tool_trace == [{"error": {
+        "exception_type": "ValueError", "message": "unknown quantity requires a null value",
+    }}]
+
+
 def test_experiment_replays_exact_captured_evidence(session: Session) -> None:
     inventory = InventoryService(session)
     balcony = inventory.create_location("Балкон")

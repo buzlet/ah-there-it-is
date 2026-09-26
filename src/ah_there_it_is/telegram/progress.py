@@ -26,6 +26,7 @@ class TelegramTyping:
         self._wait_fn = wait
         self._external_stop = stop_event
         self._thread: Thread | None = None
+        self._last_send_started = 0.0
 
     def __enter__(self) -> "TelegramTyping":
         self._send()
@@ -43,6 +44,11 @@ class TelegramTyping:
             self._thread.join()
 
     def _send(self) -> None:
+        if self._stop.is_set() or (
+            self._external_stop is not None and self._external_stop.is_set()
+        ):
+            return
+        self._last_send_started = time.monotonic()
         try:
             method = getattr(self.client, "send_chat_action", None)
             if callable(method):
@@ -67,7 +73,8 @@ class TelegramTyping:
         if self._wait_fn is not None:
             return self._wait_fn(self.interval)
 
-        deadline = time.monotonic() + self.interval
+        # Include transport time in the refresh interval.
+        deadline = self._last_send_started + self.interval
         while True:
             if self._stop.is_set() or (
                 self._external_stop is not None and self._external_stop.is_set()

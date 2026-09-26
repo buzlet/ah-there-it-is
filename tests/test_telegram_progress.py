@@ -120,3 +120,37 @@ def test_external_shutdown_stops_refreshing() -> None:
         assert client.actions == [(71, "typing")] * 2
     finally:
         clock.close()
+
+
+def test_already_requested_shutdown_does_not_send_initial_action() -> None:
+    client = ActionClient()
+    shutdown = Event()
+    shutdown.set()
+    with TelegramTyping(client, 71, stop_event=shutdown):
+        pass
+    assert client.actions == []
+
+
+def test_refresh_interval_includes_transport_time(monkeypatch: pytest.MonkeyPatch) -> None:
+    from ah_there_it_is.telegram import progress as progress_module
+
+    now = [0.0]
+    waits = []
+    monkeypatch.setattr(progress_module.time, "monotonic", lambda: now[0])
+
+    class SlowClient:
+        def send_chat_action(self, chat_id, action):
+            now[0] += 1.0
+
+    progress = TelegramTyping(SlowClient(), 71)
+
+    def advance(seconds):
+        waits.append(seconds)
+        now[0] += seconds
+        return False
+
+    monkeypatch.setattr(progress._stop, "wait", advance)
+    progress._send()
+    assert progress._wait_interval() is False
+    assert sum(waits) == 3.0
+    assert now[0] == 4.0

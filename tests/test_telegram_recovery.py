@@ -281,6 +281,60 @@ def test_value_error_trace_failure_stays_recoverable_and_is_not_a_json_crash(
         engine.dispose()
 
 
+def test_real_quantity_validation_failure_persists_and_recovers_once(tmp_path: Path) -> None:
+    from ah_there_it_is.agent.errors import AgentTurnFailedError
+    from ah_there_it_is.agent.tools import ToolDispatcher
+
+    database_url = f"sqlite:///{tmp_path / 'quantity-error.db'}"
+    upgrade_database(database_url)
+    engine = create_db_engine(database_url)
+    factory = create_session_factory(engine)
+    arguments = {"name": "Болты", "quantity_mode": "unknown", "quantity": 1}
+    update = _update(118, "Болты")
+    client = _Client([update])
+    bad_llm = ScriptedLLMClient([
+        LLMResponse(tool_calls=(ToolCall(id="bad", name="create_item", arguments=arguments),)),
+    ])
+    try:
+        with factory() as session:
+            # Pydantic itself supplies ctx.error, not a synthetic metadata object.
+            raw = ToolDispatcher(session).execute("create_item", arguments)
+            assert isinstance(raw["error"]["detail"][0]["ctx"]["error"], ValueError)
+            adapter = TelegramAdapter(
+                session, ChatApplicationService(session, lambda: bad_llm), client,
+                allowed_user_id=7,
+            )
+            with pytest.raises(AgentTurnFailedError, match="invalid_arguments"):
+                TelegramPollingService(adapter, client).run_once()
+            logged = EvaluationService(session).recent_runs(limit=1)[0]
+            error = logged.tool_trace[0]["tool_results"][0]["result"]["error"]
+            assert error["detail"][0]["ctx"]["error"] == {
+                "exception_type": "ValueError",
+                "message": "unknown quantity requires a null value",
+            }
+            assert adapter.recovery_status(118)["request_has_run"] is False
+            assert adapter.next_offset() == 0
+            assert session.scalar(select(func.count(Item.id))) == 0
+        # Reopen the database and verify the durable failure gate before recovery.
+        with factory() as session:
+            good_llm = _llm("Болты")
+            adapter = TelegramAdapter(
+                session, ChatApplicationService(session, lambda: good_llm), client,
+                allowed_user_id=7,
+            )
+            with pytest.raises(TelegramRecoveryRequiredError):
+                TelegramPollingService(adapter, client).run_once()
+            assert good_llm.remaining == 3
+            adapter.recover_update(118, attempt=1)
+            TelegramPollingService(adapter, client).run_once()
+            TelegramPollingService(adapter, client).run_once()
+            assert session.scalar(select(func.count(Item.id))) == 1
+            assert len(client.sent) == 1
+            assert adapter.next_offset() == 119
+    finally:
+        engine.dispose()
+
+
 def test_failed_recovery_attempt_can_be_recovered_without_reusing_a_key(
     tmp_path: Path,
 ) -> None:
