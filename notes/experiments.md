@@ -106,3 +106,38 @@ Limitations:
 Follow-up:
 - After PR #89 and PR #90 are both integrated, measure ordinary CI again on the combined main tree.
 - If the combined deterministic workload materially increases or ordinary hosted CI routinely exceeds two minutes, profile the new hotspots before moving any additional meaningful tests to extended verification.
+
+
+### 2026-09-26 — Production-mode fail-closed systemd preflight
+
+Status: completed
+
+Question:
+Can shipped production systemd units reject an absent or non-production environment mode without breaking the convenient development default used by ordinary local CLI execution?
+
+Context:
+- PR: #89
+- Correction head: `5fa4323af138394ed43614a564b223e85bba2859`
+- Production units use `ah-there-it-is schema-check --require-production` in `ExecStartPre`.
+- Generic CLI still defaults an unset environment mode to development.
+
+Procedure:
+1. Exercise the exact shipped `ExecStartPre` through transient user-systemd units with scratch EnvironmentFiles.
+2. Test unset environment mode, unset mode with a prepared relative SQLite DB, explicit development, malformed mode, missing production DB, relative production DB, and valid production with a prepared absolute DB.
+3. Verify invalid cases stop before `ExecStart` and do not echo a synthetic secret marker.
+4. Reinstall/reload the actual user units, restart web, and verify health; keep Telegram stopped.
+
+Observed result:
+- Unset, development, malformed, missing-DB, and relative-production configurations failed before service start.
+- Explicit production with a valid absolute prepared SQLite DB passed preflight.
+- Synthetic secret marker was absent from output.
+- Installed units verified after reload; production web returned health OK.
+- Telegram remained stopped with MainPID=0.
+- Exact-head application-ci #497 succeeded.
+
+Conclusion:
+- A deployment-specific production requirement can be enforced without changing normal local development semantics.
+- Keeping the production requirement in shipped service preflight avoids treating a missing environment variable as a valid production configuration.
+
+Follow-up:
+- Preserve `--require-production` (or an equivalent deployment-specific invariant) if startup/configuration code is refactored later.
