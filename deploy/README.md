@@ -58,6 +58,34 @@ provider is not the intended production choice. Do not put secret values in
 shell commands, Git, screenshots, or issue/PR text. Production mode requires an
 explicit absolute SQLite URL; the bot also requires both Telegram settings.
 
+## Optional ChatGPT/Codex provider after review
+
+After the provider integration has been reviewed and merged, an operator may
+select the direct ChatGPT/Codex Responses provider in `runtime.env`:
+
+```text
+AH_THERE_IT_IS_LLM_PROVIDER=chatgpt-codex
+AH_THERE_IT_IS_LLM_MODEL=<explicit operator-selected model>
+```
+
+`AH_THERE_IT_IS_LLM_MODEL` must be chosen explicitly; the application does not
+select a permanent model from Codex defaults. The only model with sanitized live
+evidence for text, native tool selection, and synthetic multi-round continuation
+is `gpt-6-luna`. Other models do not inherit that compatibility evidence.
+
+The service user must already have a Codex-managed ChatGPT login. By default the
+provider reads the current auth cache under `$CODEX_HOME/auth.json`, or
+`~/.codex/auth.json` when `CODEX_HOME` is unset. If needed, set `CODEX_HOME` to
+the non-secret Codex home directory in `runtime.env`; never put credentials or
+auth-file contents there. The application only reads the current access
+credential and does not log in or refresh it. If the Codex login expires or is
+removed, provider calls fail until Codex itself restores its credential state.
+
+Public OpenAI Platform API keys are unrelated to this provider, and
+`codex exec` is not used by normal application runtime. Production
+`runtime.env` must not be switched to this provider from an unreviewed work
+branch.
+
 Explicitly create/upgrade the schema before starting either unit. These
 commands use only the non-secret DB setting. Do not source an untrusted
 environment file as shell code:

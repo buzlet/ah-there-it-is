@@ -9,13 +9,10 @@ import pytest
 from sqlalchemy.orm import Session
 
 from ah_there_it_is.agent import AgentRunner
-from ah_there_it_is.agent.chatgpt_codex import ChatGPTCodexConfig, ChatGPTCodexLLMClient
-from ah_there_it_is.agent.codex_credentials import (
-    ChatGPTCredentials,
-    StaticChatGPTCredentialSource,
-)
+from ah_there_it_is.agent import factory as factory_module
 from ah_there_it_is.agent.errors import AgentLoopLimitError, ProviderRequestError
 from ah_there_it_is.agent.protocol import AgentMessage
+from ah_there_it_is.config import Settings
 from ah_there_it_is.services import InventoryService
 from ah_there_it_is.services.evaluation import EvaluationService
 
@@ -65,28 +62,43 @@ def _text(response_id: str, content: str) -> httpx.Response:
     )
 
 
-def _provider(handler, requests: list[dict]):
+def _provider(handler, requests: list[dict], tmp_path, monkeypatch):
     def capture(request: httpx.Request) -> httpx.Response:
         requests.append(json.loads(request.content))
         return handler(request)
 
-    return ChatGPTCodexLLMClient(
-        ChatGPTCodexConfig(model="gpt-test", max_retries=0),
-        credential_source=StaticChatGPTCredentialSource(
-            ChatGPTCredentials(TOKEN, "runner-fake-account")
-        ),
-        client=httpx.Client(transport=httpx.MockTransport(capture)),
-    )
+    (tmp_path / "auth.json").write_text(json.dumps({
+        "auth_mode": "chatgpt",
+        "tokens": {"access_token": TOKEN, "account_id": "runner-fake-account"},
+    }))
+    monkeypatch.setenv("CODEX_HOME", str(tmp_path))
+    adapter_type = factory_module.ChatGPTCodexLLMClient
+
+    def injected_adapter(config):
+        return adapter_type(
+            config,
+            client=httpx.Client(transport=httpx.MockTransport(capture)),
+        )
+
+    monkeypatch.setattr(factory_module, "ChatGPTCodexLLMClient", injected_adapter)
+    factory = factory_module.build_llm_factory(Settings(
+        llm_provider="chatgpt-codex",
+        llm_model="gpt-test",
+        llm_max_retries=0,
+    ))
+    return factory()
 
 
-def test_runner_receives_tool_call_and_full_history_on_next_round(session: Session) -> None:
+def test_runner_receives_tool_call_and_full_history_on_next_round(
+    session: Session, tmp_path, monkeypatch,
+) -> None:
     InventoryService(session).create_item("Probe cable")
     requests: list[dict] = []
     responses = [
         _call("search_1", "search_items", {"query": "Probe cable"}),
         _text("resp_final", "Нашёл предмет Probe cable."),
     ]
-    provider = _provider(lambda _request: responses.pop(0), requests)
+    provider = _provider(lambda _request: responses.pop(0), requests, tmp_path, monkeypatch)
     try:
         result = AgentRunner(session, provider, system_prompt="synthetic runner test").run(
             "Найди Probe cable"
@@ -113,11 +125,13 @@ def test_runner_receives_tool_call_and_full_history_on_next_round(session: Sessi
     assert trace.tool_trace[0]["assistant"]["tool_calls"][0]["name"] == "search_items"
 
 
-def test_runner_max_round_limit_still_applies_to_adapter(session: Session) -> None:
+def test_runner_max_round_limit_still_applies_to_adapter(
+    session: Session, tmp_path, monkeypatch,
+) -> None:
     requests: list[dict] = []
     provider = _provider(
         lambda _request: _call("search_loop", "search_items", {"query": "none"}),
-        requests,
+        requests, tmp_path, monkeypatch,
     )
     try:
         with pytest.raises(AgentLoopLimitError):
@@ -131,7 +145,9 @@ def test_runner_max_round_limit_still_applies_to_adapter(session: Session) -> No
     assert len(requests) == 1
 
 
-def test_provider_failure_rolls_back_prior_tool_mutation(session: Session) -> None:
+def test_provider_failure_rolls_back_prior_tool_mutation(
+    session: Session, tmp_path, monkeypatch,
+) -> None:
     inventory = InventoryService(session)
     item = inventory.create_item("Probe cable")
     shelf = inventory.create_location("Probe shelf")
@@ -145,7 +161,7 @@ def test_provider_failure_rolls_back_prior_tool_mutation(session: Session) -> No
             json={"error": {"code": "unauthorized", "message": f"rejected {TOKEN}"}},
         ),
     ]
-    provider = _provider(lambda _request: results.pop(0), requests)
+    provider = _provider(lambda _request: results.pop(0), requests, tmp_path, monkeypatch)
     try:
         with pytest.raises(ProviderRequestError) as raised:
             AgentRunner(session, provider).run(

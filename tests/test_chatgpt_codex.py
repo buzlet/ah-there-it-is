@@ -143,8 +143,10 @@ def test_missing_optional_account_id_is_not_added_as_a_header() -> None:
         client._client.close()
 
 
-def test_codex_auth_http_401_is_redacted_and_does_not_refresh_or_rewrite(
+@pytest.mark.parametrize("status_code", [401, 403])
+def test_codex_auth_http_failure_is_redacted_and_does_not_refresh_or_rewrite(
     tmp_path: Path,
+    status_code: int,
 ) -> None:
     auth_file = tmp_path / "auth.json"
     auth_file.write_text(json.dumps({
@@ -165,7 +167,7 @@ def test_codex_auth_http_401_is_redacted_and_does_not_refresh_or_rewrite(
         assert request.headers["Authorization"] == f"Bearer {TOKEN}"
         assert request.headers["ChatGPT-Account-ID"] == ACCOUNT
         return httpx.Response(
-            401,
+            status_code,
             json={"error": {"code": "auth_failed", "message": f"bad {TOKEN} {ACCOUNT}"}},
         )
 
@@ -181,6 +183,43 @@ def test_codex_auth_http_401_is_redacted_and_does_not_refresh_or_rewrite(
     assert ACCOUNT not in str(raised.value)
     assert "auth_failed" in str(raised.value)
     assert auth_file.read_bytes() == before
+
+
+@pytest.mark.parametrize(
+    ("model", "parallel_tool_calls"),
+    [
+        ("gpt-6-luna", True),
+        ("gpt-test", False),
+        ("gpt-5.6-sol", False),
+    ],
+)
+def test_model_capabilities_preserve_evidence_and_default_conservatively(
+    model: str,
+    parallel_tool_calls: bool,
+) -> None:
+    transport = httpx.Client(transport=httpx.MockTransport(
+        lambda _request: httpx.Response(500)
+    ))
+    client = ChatGPTCodexLLMClient(
+        ChatGPTCodexConfig(model=model),
+        credential_source=StaticChatGPTCredentialSource(
+            ChatGPTCredentials(TOKEN, ACCOUNT)
+        ),
+        client=transport,
+    )
+    try:
+        payload = client._request_payload(
+            [AgentMessage(role="user", content="Use the lookup tool")],
+            [ToolDefinition(
+                name="lookup_item",
+                description="Look up a synthetic item",
+                input_schema={"type": "object", "properties": {}},
+            )],
+        )
+        assert payload["parallel_tool_calls"] is parallel_tool_calls
+        assert client.info.config["parallel_tool_calls"] is parallel_tool_calls
+    finally:
+        transport.close()
 
 
 def test_http_error_does_not_expose_token_prefix_at_detail_limit() -> None:
@@ -398,6 +437,43 @@ def test_direct_stream_has_an_overall_elapsed_time_limit() -> None:
             client.complete([AgentMessage(role="user", content="hi")], [])
     finally:
         http.close()
+
+
+@pytest.mark.parametrize("status", [401, 503])
+def test_error_body_obeys_overall_deadline_before_retry(monkeypatch, status) -> None:
+    now = [0.0]
+    chunks_read = []
+    closed = []
+    requests = []
+    monkeypatch.setattr(time, "perf_counter", lambda: now[0])
+
+    class SlowError(httpx.SyncByteStream):
+        def __iter__(self):
+            for chunk in (b'{"error":', b'{"message":', b'"rejected"}}'):
+                now[0] += 0.03
+                chunks_read.append(chunk)
+                yield chunk
+
+        def close(self):
+            closed.append(True)
+
+    def respond(request):
+        requests.append(request)
+        return httpx.Response(status, stream=SlowError())
+
+    with httpx.Client(transport=httpx.MockTransport(respond)) as http:
+        client = ChatGPTCodexLLMClient(
+            ChatGPTCodexConfig(model="gpt-test", timeout_seconds=0.05, max_retries=1),
+            credential_source=StaticChatGPTCredentialSource(ChatGPTCredentials(TOKEN, ACCOUNT)),
+            client=http,
+            sleep=lambda delay: pytest.fail("expired requests must not sleep or retry"),
+        )
+        with pytest.raises(ProviderRequestError, match="timed out"):
+            client.complete([AgentMessage(role="user", content="hi")], [])
+
+    assert len(chunks_read) == 2
+    assert len(requests) == 1
+    assert closed == [True]
 
 
 @pytest.mark.parametrize("status", [401, 403])

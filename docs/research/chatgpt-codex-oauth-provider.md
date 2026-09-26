@@ -1,21 +1,22 @@
-# ChatGPT/Codex OAuth provider spike
+# ChatGPT/Codex OAuth provider research
 
 Observed 2026-09-26 with Codex CLI 0.156.1. This note records sanitized research and
-bounded experiments for batch 0095. No credential values, account identifiers, or live
-response bodies are retained here.
+bounded experiments for batches 0095 and 0096. No credential values, account
+identifiers, or live response bodies are retained here.
 
 ## Decision
 
-Carry the direct ChatGPT/Codex Responses adapter forward as the preferred candidate for a
-later, explicitly approved integration batch. On the current ChatGPT login it passed
-text generation, native structured tool selection, and a synthetic tool-result
-continuation. It re-reads the existing Codex credential cache and has no login, refresh,
-or credential-write path.
+Use the direct ChatGPT/Codex Responses adapter as the preferred application provider.
+On the current ChatGPT login it passed text generation, native structured tool
+selection, and a synthetic tool-result continuation. It re-reads the existing Codex
+credential cache and has no login, refresh, or credential-write path. Batch 0096
+registered it behind the explicit `chatgpt-codex` provider selector. No permanent
+production provider or model has been selected.
 
-Keep the adapter isolated until a later batch decides how application configuration
-selects the ChatGPT login and model. Before enabling it, integration must account for
-model-specific Codex catalog behavior, particularly models marked `code_mode_only` and
-`use_responses_lite`. No production provider or model is selected by this spike.
+Model-specific Codex catalog behavior matters, particularly for models marked
+`code_mode_only` and `use_responses_lite`. The application enables parallel tool calls
+only for `gpt-6-luna`, the model with live tool-path evidence; unknown models default to
+parallel calls disabled. The operator still selects the model explicitly.
 
 The public OpenAI Responses endpoint is not a fallback for this OAuth credential: the
 same current ChatGPT access credential received HTTP 401 there with the missing Platform
@@ -33,9 +34,9 @@ the subprocess must detect and kill unexpected internal tool activity.
 `agent.protocol.LLMClient` accepts the complete `AgentMessage` history and tool
 definitions and returns generic text and `ToolCall` values. `AgentRunner` owns the
 conversation loop, calls application tools, appends tool results, and records traces.
-The new direct and subprocess clients implement that interface without changing the
-runner, inventory semantics, or production factory. Neither experimental provider is
-registered in `agent/factory.py`; production remains on its existing heuristic provider.
+The direct and subprocess clients implement that interface without changing the runner
+or inventory semantics. The direct client is registered in `agent/factory.py`; the
+`codex exec` subprocess remains unregistered and is not a production provider choice.
 
 The standalone live probe uses synthetic prompts and an in-memory message list. It does
 not connect to the application database, Web server, or Telegram. Ordinary tests use
@@ -120,12 +121,11 @@ other models as code-mode-only and Responses Lite:
 | `gpt-5.6-terra` | `code_mode_only` | yes | yes |
 | `gpt-5.6-luna` | `code_mode_only` | yes | yes |
 
-Codex source disables parallel tool calls for Responses Lite models. The experimental
-direct adapter currently sends `parallel_tool_calls: true` and does not yet fetch model
-metadata, so this spike makes no compatibility claim for those GPT-5.6 models. Later
-integration should consume the current catalog or require an explicit supported model,
-and derive request options from the selected model's metadata before enabling any
-model.
+Codex source disables parallel tool calls for Responses Lite models. The initial 0095
+probe used `parallel_tool_calls: true` for `gpt-6-luna`; batch 0096 preserves that
+behavior for this tested model and sends `false` for unlisted models. There is no
+compatibility claim for the listed GPT-5.6 models. No broad model catalog is embedded
+in the application.
 
 ## Subprocess adapter
 
@@ -191,9 +191,8 @@ output, timeouts and process-group cleanup, unexpected internal tools, runner
 compatibility, provider isolation, deployment safeguards, and runtime CLI behavior.
 Live probes are manual and are not part of ordinary CI.
 
-The later integration batch should decide how ChatGPT auth is selected, read model
-catalog metadata or constrain model selection, adapt request parameters to model
-capabilities, and add explicit production configuration only after those decisions.
-Production service activation, any application authentication policy, and Telegram
-configuration remain separate choices. This batch does not choose a permanent model or
-enable either experimental provider.
+Batch 0096 integrated the direct provider and retained `gpt-6-luna` as the only model
+with recorded live text, tool-selection, and continuation evidence. This is integration
+evidence, not a permanent production model choice. Production service activation and
+operator model selection remain post-review steps. Application authentication policy
+and Telegram configuration remain separate choices.

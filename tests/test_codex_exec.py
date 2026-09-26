@@ -258,7 +258,17 @@ def test_exec_cleans_up_child_after_cli_exits(tmp_path: Path) -> None:
         assert _provider(script).complete([AgentMessage(role="user", content="hi")], []).content == "ok"
         child_pid = int(pid_file.read_text())
         state = Path(f"/proc/{child_pid}/stat")
-        assert not state.exists() or state.read_text().split()[2] == "Z"
+        # SIGKILL delivery is asynchronous even after killpg returns. Give the
+        # kernel time to finish it; a surviving 20-second child still fails.
+        deadline = time.monotonic() + 1.0
+        while True:
+            try:
+                if state.read_text().split()[2] == "Z":
+                    break
+            except FileNotFoundError:
+                break
+            assert time.monotonic() < deadline, "Codex child survived process-group cleanup"
+            time.sleep(0.01)
     finally:
         if pid_file.exists():
             try:

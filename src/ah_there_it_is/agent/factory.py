@@ -4,6 +4,10 @@ from __future__ import annotations
 
 from collections.abc import Callable
 
+from ah_there_it_is.agent.chatgpt_codex import (
+    ChatGPTCodexConfig,
+    ChatGPTCodexLLMClient,
+)
 from ah_there_it_is.agent.gemini import GeminiConfig, GeminiLLMClient
 from ah_there_it_is.agent.heuristic import HeuristicLLMClient
 from ah_there_it_is.agent.openai_compatible import (
@@ -17,6 +21,16 @@ from ah_there_it_is.config import Settings
 def build_llm_factory(settings: Settings) -> Callable[[], LLMClient]:
     if settings.llm_provider == "heuristic":
         return HeuristicLLMClient
+    if settings.llm_provider == "chatgpt-codex":
+        if not settings.llm_model or not settings.llm_model.strip():
+            raise ValueError("AH_THERE_IT_IS_LLM_MODEL is required")
+        config = ChatGPTCodexConfig(
+            model=settings.llm_model,
+            timeout_seconds=settings.llm_timeout_seconds,
+            max_retries=settings.llm_max_retries,
+            retry_backoff_seconds=settings.llm_retry_backoff_seconds,
+        )
+        return lambda: ChatGPTCodexLLMClient(config)
     if settings.llm_provider == "gemini":
         if not settings.llm_model:
             raise ValueError("AH_THERE_IT_IS_LLM_MODEL is required")
