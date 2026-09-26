@@ -206,5 +206,7 @@ Report:
 
 ## Executor notifications
 
-Use the selected U24 executor notification protocol. Notifications are
-best-effort operational UX and do not change acceptance criteria.
+Use the selected U24 executor notification protocol. Every milestone notification
+must include the wrapper-provided 5-hour and weekly remaining percentages plus
+relative time remaining until each reset. Notifications are best-effort
+operational UX and do not change acceptance criteria.
