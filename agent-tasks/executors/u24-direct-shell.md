@@ -83,18 +83,43 @@ merge gate unless the batch explicitly declares additional host acceptance check
 
 ## User notifications
 
-This executor has a host-local best-effort notification helper:
+Canonical host sender:
 
-`/home/rdu01/.local/bin/notify`
+`/home/gpt/.local/bin/notify`
 
-Notifications are operational UX only. They must never change task outcome,
-transaction semantics, Git state, verification, or stop conditions.
+U24 agents running as `rdu01` use the wrapper:
+
+`/home/rdu01/.local/bin/agent-notify`
+
+The wrapper sends through the canonical sender and automatically appends current
+Codex usage limits from `/home/rdu01/.local/bin/codex-usage`.
+
+Every notification must include:
+
+- 5-hour **remaining percentage**;
+- time **remaining until the 5-hour reset**;
+- weekly **remaining percentage**;
+- time **remaining until the weekly reset**.
+
+Show relative time-to-reset, not the absolute reset clock time.
+
+Example suffix:
+
+```text
+Limits: 5h 100% · 3h 51m; week 90% · 6d 17h
+```
 
 Always invoke notifications as best-effort:
 
 ```bash
-/home/rdu01/.local/bin/notify "MESSAGE" "TITLE" default || true
+/home/rdu01/.local/bin/agent-notify "MESSAGE" "TITLE" default || true
 ```
+
+If usage retrieval/parsing fails, the milestone notification should still be
+sent; usage reporting is advisory.
+
+Notifications are operational UX only. They must never change task outcome,
+transaction semantics, Git state, verification, or stop conditions.
 
 Never include secrets, tokens, auth material, private payloads, or long logs.
 
