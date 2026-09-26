@@ -26,6 +26,7 @@ def build_llm_factory(settings: Settings) -> Callable[[], LLMClient]:
             raise ValueError("AH_THERE_IT_IS_LLM_MODEL is required")
         config = ChatGPTCodexConfig(
             model=settings.llm_model,
+            reasoning_effort=settings.llm_reasoning_effort,
             timeout_seconds=settings.llm_timeout_seconds,
             max_retries=settings.llm_max_retries,
             retry_backoff_seconds=settings.llm_retry_backoff_seconds,

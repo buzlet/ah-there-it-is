@@ -66,6 +66,7 @@ class ChatGPTCodexConfig:
     retry_backoff_seconds: float = 0.25
     max_response_bytes: int = 2 * 1024 * 1024
     capabilities: ChatGPTCodexCapabilities | None = None
+    reasoning_effort: str | None = None
 
 
 class ChatGPTCodexLLMClient:
@@ -81,6 +82,9 @@ class ChatGPTCodexLLMClient:
     ) -> None:
         if not config.model.strip():
             raise ValueError("model must not be empty")
+        supported_efforts = {None, "none", "minimal", "low", "medium", "high", "xhigh"}
+        if config.reasoning_effort not in supported_efforts:
+            raise ValueError("reasoning_effort is unsupported")
         if config.timeout_seconds <= 0:
             raise ValueError("timeout_seconds must be > 0")
         if config.max_retries < 0:
@@ -121,6 +125,11 @@ class ChatGPTCodexLLMClient:
                 "timeout_seconds": self.config.timeout_seconds,
                 "max_response_bytes": self.config.max_response_bytes,
                 "parallel_tool_calls": self._capabilities.parallel_tool_calls,
+                **(
+                    {"reasoning_effort": self.config.reasoning_effort}
+                    if self.config.reasoning_effort is not None
+                    else {}
+                ),
             },
         )
 
@@ -324,6 +333,8 @@ class ChatGPTCodexLLMClient:
             "stream": True,
             "include": [],
         }
+        if self.config.reasoning_effort is not None:
+            payload["reasoning"] = {"effort": self.config.reasoning_effort}
         if tools:
             payload["tools"] = [
                 {

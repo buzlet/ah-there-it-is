@@ -137,6 +137,21 @@ class TelegramBotClient:
             messages.append(self._parse_message(result))
         return tuple(messages)
 
+    def send_chat_action(self, chat_id: int, action: str = "typing") -> None:
+        if isinstance(chat_id, bool) or not isinstance(chat_id, int):
+            raise ValueError("chat_id must be an integer")
+        if action != "typing":
+            raise ValueError("unsupported chat action")
+        try:
+            result = self._call(
+                "sendChatAction", {"chat_id": chat_id, "action": action}
+            )
+        except TelegramClientError:
+            # Telegram may echo request identity in API descriptions.
+            raise TelegramClientError("Telegram chat action request failed") from None
+        if result is not True:
+            raise TelegramResponseError("Telegram sendChatAction result was malformed")
+
     send_text = send_message
 
     def close(self) -> None:

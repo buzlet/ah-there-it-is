@@ -78,6 +78,9 @@ class Settings(BaseModel):
     llm_base_url: str | None = None
     llm_api_key: str | None = None
     llm_model: str | None = None
+    llm_reasoning_effort: (
+        Literal["none", "minimal", "low", "medium", "high", "xhigh"] | None
+    ) = None
     llm_timeout_seconds: float = Field(default=60.0, gt=0, le=600)
     llm_max_retries: int = Field(default=2, ge=0, le=10)
     llm_retry_backoff_seconds: float = Field(default=1.0, ge=0, le=60)
@@ -106,6 +109,9 @@ def get_settings() -> Settings:
         llm_base_url=os.getenv("AH_THERE_IT_IS_LLM_BASE_URL") or None,
         llm_api_key=os.getenv("AH_THERE_IT_IS_LLM_API_KEY") or None,
         llm_model=os.getenv("AH_THERE_IT_IS_LLM_MODEL") or None,
+        llm_reasoning_effort=_optional_reasoning_effort(
+            os.getenv("AH_THERE_IT_IS_LLM_REASONING_EFFORT")
+        ),
         llm_timeout_seconds=float(os.getenv("AH_THERE_IT_IS_LLM_TIMEOUT_SECONDS", "60")),
         llm_max_retries=int(os.getenv("AH_THERE_IT_IS_LLM_MAX_RETRIES", "2")),
         llm_retry_backoff_seconds=float(
@@ -146,6 +152,15 @@ def _optional_int(value: str | None) -> int | None:
     if value is None or not value.strip():
         return None
     return int(value)
+
+
+def _optional_reasoning_effort(value: str | None) -> str | None:
+    if value is None or not value.strip():
+        return None
+    effort = value.strip()
+    if effort not in {"none", "minimal", "low", "medium", "high", "xhigh"}:
+        raise ValueError("AH_THERE_IT_IS_LLM_REASONING_EFFORT is unsupported")
+    return effort
 
 
 def _json_object(value: str | None) -> dict[str, Any]:

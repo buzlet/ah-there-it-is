@@ -13,6 +13,7 @@ from sqlalchemy.orm import Session, aliased
 from ah_there_it_is.agent.runner import AgentRunResult
 from ah_there_it_is.agent.receipts import MutationReceipt
 from ah_there_it_is.db.models import AgentRunLog, ChatRequestRecord, utc_now
+from ah_there_it_is.services.json_safety import safe_exception_diagnostic
 
 
 class IdempotencyError(RuntimeError):
@@ -327,7 +328,7 @@ class ChatRequestService:
             self._stage_completed(record.id, result.run_id)
         except Exception as exc:
             self.session.rollback()
-            self._mark_failed(record.id, f"{type(exc).__name__}: {exc}")
+            self._mark_failed(record.id, safe_exception_diagnostic(exc))
             raise
 
         try:
@@ -373,7 +374,7 @@ class ChatRequestService:
             if record.status == "processing" and record.agent_run_id is None:
                 record.status = "failed"
                 record.error = (
-                    f"final commit failure: {type(commit_error).__name__}: {commit_error}"
+                    f"final commit failure: {safe_exception_diagnostic(commit_error)}"
                 )
                 record.updated_at = utc_now()
                 durable.commit()

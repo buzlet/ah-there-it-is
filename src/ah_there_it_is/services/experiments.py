@@ -17,6 +17,7 @@ from ah_there_it_is.db.models import (
 )
 from ah_there_it_is.domain.exceptions import EntityNotFoundError
 from ah_there_it_is.services.evaluation import canonical_llm_config
+from ah_there_it_is.services.json_safety import json_safe, safe_exception_diagnostic
 
 _MUTATION_TOOLS = {"create_item", "create_location", "create_category", "update_item", "move_item"}
 _REVIEW_CHOICES = {"baseline", "variant", "tie", "both_bad"}
@@ -93,14 +94,18 @@ class ExperimentService:
             system_prompt=system_prompt,
             llm_provider=llm_provider,
             llm_model=llm_model,
-            llm_config=dict(llm_config),
-            input_messages=list(input_messages),
-            tool_trace=list(tool_trace),
+            llm_config=json_safe(llm_config),
+            input_messages=json_safe(input_messages),
+            tool_trace=json_safe(tool_trace),
             final_content=final_content,
             rounds=rounds,
             status=status,
-            error=error,
-            divergence_reason=divergence_reason,
+            error=(
+                safe_exception_diagnostic(error)
+                if isinstance(error, BaseException)
+                else json_safe(error)
+            ),
+            divergence_reason=json_safe(divergence_reason),
         )
         self.session.add(run)
         self._commit(run)

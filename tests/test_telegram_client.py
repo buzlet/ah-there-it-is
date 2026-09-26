@@ -9,6 +9,7 @@ from ah_there_it_is.telegram.client import (
     MAX_TELEGRAM_TEXT_LENGTH,
     TelegramApiError,
     TelegramBotClient,
+    TelegramClientError,
     TelegramResponseError,
     TelegramTransportError,
 )
@@ -71,6 +72,39 @@ def test_send_message_splits_at_one_isolated_limit() -> None:
     assert b'"text":"' + (b"a" * MAX_TELEGRAM_TEXT_LENGTH) in bodies[0]
     assert b'"text":"aaa"' in bodies[1]
     assert [message.message_id for message in sent] == [1, 2]
+
+
+def test_send_chat_action_maps_typing_request() -> None:
+    seen = []
+
+    def respond(request: httpx.Request) -> httpx.Response:
+        seen.append((request.url.path, json.loads(request.content)))
+        return httpx.Response(200, json={"ok": True, "result": True})
+
+    with TelegramBotClient(
+        "secret", base_url="https://telegram.test", transport=httpx.MockTransport(respond)
+    ) as client:
+        client.send_chat_action(99)
+
+    assert seen == [("/botsecret/sendChatAction", {"chat_id": 99, "action": "typing"})]
+
+
+def test_send_chat_action_error_does_not_expose_token_or_chat_identity() -> None:
+    def respond(_request: httpx.Request) -> httpx.Response:
+        return httpx.Response(200, json={
+            "ok": False,
+            "error_code": 400,
+            "description": "Bad Request: chat_id 99 not found; token=secret",
+        })
+
+    with TelegramBotClient(
+        "secret", base_url="https://telegram.test", transport=httpx.MockTransport(respond)
+    ) as client:
+        with pytest.raises(TelegramClientError) as raised:
+            client.send_chat_action(99)
+
+    assert "secret" not in str(raised.value)
+    assert "99" not in str(raised.value)
 
 
 def test_client_retries_transient_http_failure_with_bounded_backoff() -> None:

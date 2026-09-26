@@ -32,6 +32,13 @@ class FakeChatService:
 class FakeTelegramClient:
     def __init__(self) -> None:
         self.sent: list[tuple[int, str]] = []
+        self.actions: list[tuple[int, str]] = []
+        self.fail_actions = False
+
+    def send_chat_action(self, chat_id: int, action: str = "typing"):
+        if self.fail_actions:
+            raise RuntimeError("transient typing failure")
+        self.actions.append((chat_id, action))
 
     def send_message(self, chat_id: int, text: str):
         self.sent.append((chat_id, text))
@@ -131,6 +138,7 @@ def test_only_allowed_private_text_reaches_application_and_mapping_is_reused(ses
     assert adapter.process_update(update(2, chat_type="group")).accepted is False
     assert adapter.process_update(update(3, text="  ")).accepted is False
     assert application.calls == []
+    assert client.actions == []
 
     accepted = adapter.process_update(update(4), request_key="telegram:4")
     assert accepted.accepted and accepted.invoked
@@ -292,6 +300,7 @@ def test_polling_orders_updates_discards_unauthorized_and_advances_offset(sessio
         "telegram:12",
     ]
     assert [call["message"] for call in application.calls] == ["first", "later"]
+    assert client.actions == [(100, "typing"), (100, "typing")]
     assert client.poll_calls == [{"offset": 0, "timeout": 17, "limit": 25}]
     assert adapter.next_offset() == 13
 
@@ -320,6 +329,21 @@ def test_send_failure_leaves_offset_and_replay_reuses_application_result(session
     assert application.calls[1]["conversation_id"] is None
     assert client.sent == [(100, "reply:hello")]
     assert [call["offset"] for call in client.poll_calls] == [0, 0]
+
+
+def test_typing_transport_failure_does_not_change_request_processing(session) -> None:
+    session.add(Conversation(id=41))
+    session.commit()
+    application = FakeChatService()
+    client = PollingTelegramClient([[update(21)]])
+    client.fail_actions = True
+    adapter = TelegramAdapter(session, application, client, allowed_user_id=7)
+
+    result = TelegramPollingService(adapter, client).run_once()
+
+    assert result.processed == 1
+    assert adapter.next_offset() == 22
+    assert len(application.calls) == 1
 
 
 def test_checkpoint_failure_allows_duplicate_reply_but_not_duplicate_mutation(session) -> None:

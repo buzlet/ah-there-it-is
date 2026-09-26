@@ -16,6 +16,7 @@ from ah_there_it_is.db.models import ChatRequestRecord, Item
 from ah_there_it_is.db.session import create_db_engine, create_session_factory
 from ah_there_it_is.services.chat_application import ChatApplicationService
 from ah_there_it_is.services.chat_requests import ChatRequestService
+from ah_there_it_is.services.evaluation import EvaluationService
 from ah_there_it_is.telegram.adapter import (
     TelegramAdapter, TelegramRecoveryError, TelegramRecoveryRequiredError,
 )
@@ -205,6 +206,77 @@ def test_failed_request_requires_controlled_recovery(tmp_path: Path) -> None:
             assert session.scalar(select(func.count(Item.id))) == 1
             assert len(client.sent) == 1
             assert llm.remaining == 0
+    finally:
+        engine.dispose()
+
+
+def test_value_error_trace_failure_stays_recoverable_and_is_not_a_json_crash(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    database_url = f"sqlite:///{tmp_path / 'value-error.db'}"
+    upgrade_database(database_url)
+    update = _update(117, "Предмет с неизвестным количеством")
+    engine = create_db_engine(database_url)
+    factory = create_session_factory(engine)
+
+    class DiagnosticFailureLLM:
+        @property
+        def info(self):
+            return ScriptedLLMClient([]).info
+
+        def complete(self, _messages, _tools):
+            return LLMResponse(
+                tool_calls=(ToolCall(
+                    id="bad-quantity",
+                    name="create_item",
+                    arguments={"name": "broken"},
+                ),),
+                metadata={
+                    "tool_diagnostic": ValueError(
+                        "unknown quantity requires a null value"
+                    ),
+                },
+            )
+
+    from ah_there_it_is.agent import runner as runner_module
+
+    original_dispatcher = runner_module.ToolDispatcher
+
+    class FailingDispatcher(original_dispatcher):
+        def execute(self, _name, _arguments):
+            raise ValueError("unknown quantity requires a null value")
+
+    monkeypatch.setattr(runner_module, "ToolDispatcher", FailingDispatcher)
+    client = _Client([update])
+    try:
+        with factory() as session:
+            adapter = TelegramAdapter(
+                session,
+                ChatApplicationService(session, DiagnosticFailureLLM),
+                client,
+                allowed_user_id=7,
+            )
+            with pytest.raises(ValueError, match="unknown quantity requires a null value"):
+                TelegramPollingService(adapter, client).run_once()
+
+            source = ChatRequestService(session).get("telegram:117")
+            assert source is not None
+            assert source.status == "failed"
+            assert source.agent_run_id is None
+            assert adapter.recovery_status(117) == {
+                "update_id": 117,
+                "request_status": "failed",
+                "request_has_run": False,
+                "attempts": [],
+            }
+            assert adapter.next_offset() == 0
+            logged = EvaluationService(session).recent_runs(limit=1)[0]
+            assert logged.status == "failed"
+            assert logged.tool_trace[0]["assistant"]["metadata"]["tool_diagnostic"] == {
+                "exception_type": "ValueError",
+                "message": "unknown quantity requires a null value",
+            }
     finally:
         engine.dispose()
 
