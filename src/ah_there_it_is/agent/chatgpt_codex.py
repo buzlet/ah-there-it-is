@@ -166,7 +166,8 @@ class ChatGPTCodexLLMClient:
                 ) as response:
                     if response.status_code >= 400:
                         detail = self._safe_upstream_error(
-                            response, credentials.access_token, credentials.account_id
+                            response, credentials.access_token, credentials.account_id,
+                            deadline=deadline,
                         )
                         if (
                             response.status_code not in _TRANSIENT_STATUS_CODES
@@ -341,10 +342,16 @@ class ChatGPTCodexLLMClient:
         response: httpx.Response,
         access_token: str,
         account_id: str | None,
+        *,
+        deadline: float,
     ) -> str:
         try:
             data = bytearray()
-            for chunk in response.iter_bytes(chunk_size=4096):
+            # Inspect every transport chunk; buffering small chunks into a
+            # fixed-size block can hide a slow error body from the deadline.
+            for chunk in response.iter_bytes():
+                if time.perf_counter() >= deadline:
+                    raise ProviderRequestError("ChatGPT Codex response timed out")
                 remaining = 16 * 1024 - len(data)
                 if remaining <= 0:
                     break
@@ -352,6 +359,8 @@ class ChatGPTCodexLLMClient:
                 if len(chunk) > remaining:
                     break
             parsed = json.loads(bytes(data))
+        except ProviderRequestError:
+            raise
         except Exception:
             return ""
         error = parsed.get("error") if isinstance(parsed, dict) else None

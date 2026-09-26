@@ -439,6 +439,43 @@ def test_direct_stream_has_an_overall_elapsed_time_limit() -> None:
         http.close()
 
 
+@pytest.mark.parametrize("status", [401, 503])
+def test_error_body_obeys_overall_deadline_before_retry(monkeypatch, status) -> None:
+    now = [0.0]
+    chunks_read = []
+    closed = []
+    requests = []
+    monkeypatch.setattr(time, "perf_counter", lambda: now[0])
+
+    class SlowError(httpx.SyncByteStream):
+        def __iter__(self):
+            for chunk in (b'{"error":', b'{"message":', b'"rejected"}}'):
+                now[0] += 0.03
+                chunks_read.append(chunk)
+                yield chunk
+
+        def close(self):
+            closed.append(True)
+
+    def respond(request):
+        requests.append(request)
+        return httpx.Response(status, stream=SlowError())
+
+    with httpx.Client(transport=httpx.MockTransport(respond)) as http:
+        client = ChatGPTCodexLLMClient(
+            ChatGPTCodexConfig(model="gpt-test", timeout_seconds=0.05, max_retries=1),
+            credential_source=StaticChatGPTCredentialSource(ChatGPTCredentials(TOKEN, ACCOUNT)),
+            client=http,
+            sleep=lambda delay: pytest.fail("expired requests must not sleep or retry"),
+        )
+        with pytest.raises(ProviderRequestError, match="timed out"):
+            client.complete([AgentMessage(role="user", content="hi")], [])
+
+    assert len(chunks_read) == 2
+    assert len(requests) == 1
+    assert closed == [True]
+
+
 @pytest.mark.parametrize("status", [401, 403])
 def test_auth_failure_does_not_retry_or_refresh(status: int) -> None:
     calls = 0
