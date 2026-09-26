@@ -15,6 +15,7 @@ from ah_there_it_is.db.models import (
     TelegramPollingState,
     utc_now,
 )
+from ah_there_it_is.services.chat_requests import ChatRequestService, IdempotentExecution
 from ah_there_it_is.telegram.client import (
     TelegramChat, TelegramMessage, TelegramUpdate, TelegramUser,
 )
@@ -29,6 +30,14 @@ class TelegramAdapterResult:
     content: str | None = None
     reason: str | None = None
     sent_messages: tuple[TelegramMessage, ...] = ()
+
+
+class TelegramRecoveryRequiredError(RuntimeError):
+    """An interrupted Telegram update needs an explicit operator decision."""
+
+
+class TelegramRecoveryError(RuntimeError):
+    """The requested Telegram recovery is not safe for this durable state."""
 
 
 class TelegramAdapter:
@@ -83,6 +92,7 @@ class TelegramAdapter:
         # used for that reservation (often ``None`` for the first message).
         # Otherwise ChatRequestService would mistake a delivery retry for a
         # conflicting request.
+        prior_request = None
         if request_key is not None:
             prior_request = self.session.scalar(
                 select(ChatRequestRecord).where(
@@ -91,13 +101,26 @@ class TelegramAdapter:
             )
             if prior_request is not None:
                 conversation_id = prior_request.requested_conversation_id
-        execution = self.chat_service.execute_chat(
-            message.text.strip(),
-            conversation_id=conversation_id,
-            request_key=request_key,
-            source_identity=self.source_identity,
-        )
-        result = execution.result
+        if prior_request is not None and prior_request.status in {"processing", "failed"}:
+            if prior_request.source_identity != self.source_identity:
+                raise TelegramRecoveryError("Telegram request source identity changed")
+            if prior_request.message != message.text.strip():
+                raise TelegramRecoveryError("Telegram update text differs from reserved request")
+            recovered = self._completed_recovery(prior_request, update.update_id)
+            if recovered is None:
+                raise TelegramRecoveryRequiredError(
+                    f"Telegram update {update.update_id} has a {prior_request.status} "
+                    "request; stop the poller and use telegram-recover"
+                )
+            result = ChatRequestService(self.session).completed_result(recovered)
+        else:
+            execution = self.chat_service.execute_chat(
+                message.text.strip(),
+                conversation_id=conversation_id,
+                request_key=request_key,
+                source_identity=self.source_identity,
+            )
+            result = execution.result
         if binding is None:
             binding = TelegramChatBinding(
                 chat_id=message.chat.id,
@@ -122,6 +145,86 @@ class TelegramAdapter:
             content=result.content,
             sent_messages=sent,
         )
+
+    def recovery_status(self, update_id: int) -> dict[str, object]:
+        source = self._recovery_source(update_id)
+        attempts = self._recovery_lineage(source, update_id)[1:]
+        return {
+            "update_id": update_id,
+            "request_status": source.status,
+            "request_has_run": source.agent_run_id is not None,
+            "attempts": [
+                {"request_key": attempt.request_key, "status": attempt.status}
+                for attempt in attempts
+            ],
+        }
+
+    def recover_update(self, update_id: int, *, attempt: int) -> IdempotentExecution:
+        """Operator retry with a new durable key; never retry the original key."""
+        if type(attempt) is not int or attempt < 1:
+            raise TelegramRecoveryError("recovery attempt must be a positive integer")
+        source = self._recovery_source(update_id)
+        lineage = self._recovery_lineage(source, update_id)
+        if lineage[-1].status == "completed":
+            raise TelegramRecoveryError("Telegram update already has a completed recovery")
+        key = f"telegram-recovery:{update_id}:{attempt}"
+        if any(record.request_key == key for record in lineage):
+            raise TelegramRecoveryError("recovery attempt key was already used")
+        recover_chat = getattr(self.chat_service, "recover_chat", None)
+        if not callable(recover_chat):
+            raise TelegramRecoveryError("chat service does not support recovery")
+        return recover_chat(
+            source_request_key=lineage[-1].request_key,
+            new_request_key=key,
+            recovery_note=f"Telegram operator confirmed atomic rollback; attempt {attempt}",
+            source_identity=self.source_identity,
+        )
+
+    def _recovery_source(self, update_id: int) -> ChatRequestRecord:
+        if type(update_id) is not int or update_id < 0 or update_id >= 2**63 - 1:
+            raise TelegramRecoveryError("update id is invalid")
+        source = ChatRequestService(self.session).get(f"telegram:{update_id}")
+        if source is None:
+            raise TelegramRecoveryError("Telegram update has no durable request")
+        if source.source_identity != self.source_identity:
+            raise TelegramRecoveryError("Telegram request source identity changed")
+        if source.status not in {"processing", "failed"} or source.agent_run_id is not None:
+            raise TelegramRecoveryError("Telegram update has no recoverable request")
+        return source
+
+    def _recovery_lineage(
+        self, source: ChatRequestRecord, update_id: int
+    ) -> list[ChatRequestRecord]:
+        lineage = [source]
+        while True:
+            children = list(self.session.scalars(
+                select(ChatRequestRecord)
+                .where(ChatRequestRecord.recovered_from_id == lineage[-1].id)
+                .order_by(ChatRequestRecord.id)
+            ))
+            if not children:
+                return lineage
+            if len(children) != 1:
+                raise TelegramRecoveryError("Telegram recovery history is ambiguous")
+            child = children[0]
+            if (
+                not child.request_key.startswith(f"telegram-recovery:{update_id}:")
+                or child.message != source.message
+                or child.requested_conversation_id != source.requested_conversation_id
+                or child.source_identity != source.source_identity
+                or child.agent_run_id is not None and child.status != "completed"
+                or len(lineage) >= 100
+            ):
+                raise TelegramRecoveryError("Telegram recovery history is inconsistent")
+            lineage.append(child)
+
+    def _completed_recovery(
+        self, source: ChatRequestRecord, update_id: int
+    ) -> ChatRequestRecord | None:
+        lineage = self._recovery_lineage(source, update_id)
+        if any(record.status == "completed" for record in lineage[1:-1]):
+            raise TelegramRecoveryError("Telegram recovery continued after completion")
+        return lineage[-1] if len(lineage) > 1 and lineage[-1].status == "completed" else None
 
     def conversation_id_for_chat(self, chat_id: int) -> int | None:
         binding = self.session.get(TelegramChatBinding, chat_id)

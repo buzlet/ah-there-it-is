@@ -134,6 +134,18 @@ def build_parser() -> argparse.ArgumentParser:
         default=100,
         help="maximum updates requested per poll (1-100)",
     )
+    recovery_status = subparsers.add_parser(
+        "telegram-recovery-status",
+        help="inspect one interrupted Telegram update without executing it",
+    )
+    recovery_status.add_argument("update_id", type=_telegram_update_id)
+    recovery = subparsers.add_parser(
+        "telegram-recover",
+        help="operator retry of one interrupted Telegram update with a new request key",
+    )
+    recovery.add_argument("update_id", type=_telegram_update_id)
+    recovery.add_argument("--attempt", type=_positive_attempt, required=True)
+    recovery.add_argument("--confirm-atomic-rollback", action="store_true")
     return parser
 
 
@@ -181,6 +193,26 @@ def _telegram_limit(value: str) -> int:
     if not 1 <= limit <= 100:
         raise argparse.ArgumentTypeError("Telegram update limit must be between 1 and 100")
     return limit
+
+
+def _telegram_update_id(value: str) -> int:
+    try:
+        update_id = int(value)
+    except ValueError as exc:
+        raise argparse.ArgumentTypeError("update id must be an integer") from exc
+    if update_id < 0 or update_id >= 2**63 - 1:
+        raise argparse.ArgumentTypeError("update id is out of range")
+    return update_id
+
+
+def _positive_attempt(value: str) -> int:
+    try:
+        attempt = int(value)
+    except ValueError as exc:
+        raise argparse.ArgumentTypeError("attempt must be an integer") from exc
+    if attempt < 1:
+        raise argparse.ArgumentTypeError("attempt must be positive")
+    return attempt
 
 
 def runtime_paths(database_url: str) -> dict[str, object]:
@@ -252,16 +284,21 @@ def main(argv: Sequence[str] | None = None) -> int:
             reload=False,
         )
         return 0
-    if args.command == "telegram-bot":
+    if args.command in {"telegram-bot", "telegram-recovery-status", "telegram-recover"}:
         try:
-            runtime_schema_gate(settings.database_url, command_name="telegram-bot")
+            runtime_schema_gate(settings.database_url, command_name=args.command)
         except RuntimeSchemaError as exc:
             print(f"error: {exc}", file=sys.stderr)
             return 2
         from ah_there_it_is.telegram.runtime import (
             TelegramRuntimeConfigurationError,
+            build_telegram_runtime,
             run_telegram_bot,
             validate_telegram_settings,
+        )
+        from ah_there_it_is.telegram.adapter import (
+            TelegramRecoveryError,
+            TelegramRecoveryRequiredError,
         )
         from ah_there_it_is.telegram.singleton import (
             TelegramSingletonError,
@@ -270,13 +307,35 @@ def main(argv: Sequence[str] | None = None) -> int:
 
         try:
             validate_telegram_settings(settings)
+            if args.command == "telegram-recover" and not args.confirm_atomic_rollback:
+                print("error: --confirm-atomic-rollback is required", file=sys.stderr)
+                return 2
             with telegram_singleton(settings.database_url):
-                return run_telegram_bot(
-                    settings,
-                    poll_timeout=args.poll_timeout,
-                    limit=args.limit,
-                )
-        except (TelegramRuntimeConfigurationError, TelegramSingletonError) as exc:
+                if args.command == "telegram-bot":
+                    return run_telegram_bot(
+                        settings,
+                        poll_timeout=args.poll_timeout,
+                        limit=args.limit,
+                    )
+                with build_telegram_runtime(settings) as runtime:
+                    adapter = runtime.polling.adapter
+                    if args.command == "telegram-recovery-status":
+                        print(json.dumps(adapter.recovery_status(args.update_id)))
+                    else:
+                        execution = adapter.recover_update(
+                            args.update_id, attempt=args.attempt,
+                        )
+                        print(json.dumps({
+                            "update_id": args.update_id,
+                            "recovery_request_key": (
+                                f"telegram-recovery:{args.update_id}:{args.attempt}"
+                            ),
+                            "replayed": execution.replayed,
+                            "status": "completed",
+                        }))
+                    return 0
+        except (TelegramRuntimeConfigurationError, TelegramSingletonError,
+                TelegramRecoveryRequiredError, TelegramRecoveryError) as exc:
             print(f"error: {exc}", file=sys.stderr)
             return 2
     raise AssertionError(f"unsupported command: {args.command}")

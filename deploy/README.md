@@ -152,6 +152,47 @@ both crash windows. A committed mutation is replayed once. A reply sent before
 checkpoint can be sent again; Telegram's API supplies no atomic send/checkpoint
 transaction. This is the remaining external-reply duplication risk.
 
+### Interrupted Telegram request recovery
+
+If a poller dies after reserving `telegram:<update_id>`, the durable request
+can remain `processing`; an application failure can leave it `failed`. The bot
+exits with status `2` at that update and `RestartPreventExitStatus=2` keeps the
+service stopped. It does not silently retry an uncertain mutation or skip the
+queue. The original request and each recovery attempt remain in the DB audit.
+
+Stop the Telegram unit and confirm `MainPID=0` before operator recovery. Use a
+private `systemd-run` invocation to load the secret environment file without
+putting the token in argv. Replace `101` with the blocked update ID:
+
+```bash
+systemctl --user stop ah-there-it-is-telegram.service
+systemctl --user show ah-there-it-is-telegram.service -p MainPID -p ActiveState
+systemd-run --user --wait --pipe --collect -P \
+  -p EnvironmentFile=/home/rdu01/.local/state/ah-there-it-is/runtime.env \
+  /home/rdu01/apps/ah-there-it-is/current/.venv/bin/ah-there-it-is \
+  telegram-recovery-status 101
+```
+
+Confirm the source is `processing` or `failed`, has no committed run, and the
+prior process is gone. Inventory mutations and final request completion share
+one SQLite transaction, so an unfinished request has no committed inventory
+effect. After that operator decision, execute one new durable attempt; the
+flag is deliberately required:
+
+```bash
+systemd-run --user --wait --pipe --collect -P \
+  -p EnvironmentFile=/home/rdu01/.local/state/ah-there-it-is/runtime.env \
+  /home/rdu01/apps/ah-there-it-is/current/.venv/bin/ah-there-it-is \
+  telegram-recover 101 --attempt 1 --confirm-atomic-rollback
+systemctl --user start ah-there-it-is-telegram.service
+```
+
+On redelivery the bot sends the committed recovery result, checkpoints update
+101, then processes later updates. If an attempt fails or dies, inspect status
+again and use the next unused attempt number. Never reuse the original key or
+repeat a completed recovery. A reply may still duplicate if a send succeeded
+but its checkpoint did not commit.
+
 ## Host observations at 2026-09-25 issuance checkout
 
 Verified: Python 3.12 venv installation succeeded; user `systemd` is running
