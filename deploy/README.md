@@ -63,7 +63,7 @@ AH_THERE_IT_IS_DATABASE_URL=sqlite:////home/rdu01/.local/share/ah-there-it-is/in
   .venv/bin/python -m ah_there_it_is.storage_cli upgrade
 AH_THERE_IT_IS_ENV=production \
 AH_THERE_IT_IS_DATABASE_URL=sqlite:////home/rdu01/.local/share/ah-there-it-is/inventory.db \
-  .venv/bin/python -m ah_there_it_is.storage_cli migration-check
+  .venv/bin/ah-there-it-is schema-check
 chmod 600 /home/rdu01/.local/share/ah-there-it-is/inventory.db
 systemctl --user link "$PWD/deploy/systemd/ah-there-it-is-web.service" \
   "$PWD/deploy/systemd/ah-there-it-is-telegram.service"
@@ -72,9 +72,12 @@ systemctl --user enable --now ah-there-it-is-web.service
 curl --fail http://127.0.0.1:8000/health
 ```
 
-Expected: `migration_check: ok`, web `active`, health `status: ok`. Runtime
+Expected: matching `database_heads` and `packaged_heads`, web `active`, health
+`status: ok`. Runtime
 startup does not migrate or repair; a mismatched/missing schema makes the unit
-fail. `systemctl --user link` may report an existing link on repeat installs.
+fail. The read-only preflight examines a private temporary copy because SQLite
+can alter the source `-shm` even with a read-only connection. `systemctl --user link`
+may report an existing link on repeat installs.
 
 ## Normal stop, restart, and upgrade
 

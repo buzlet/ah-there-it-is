@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import sys
 
 from ah_there_it_is.bootstrap import (
     apply_bootstrap_import,
@@ -61,7 +62,11 @@ def main() -> int:
     import_json.add_argument("--dry-run", action="store_true")
 
     args = parser.parse_args()
-    database_url = get_settings().database_url
+    try:
+        database_url = get_settings().database_url
+    except ValueError:
+        print("error: invalid AH_THERE_IT_IS configuration", file=sys.stderr)
+        return 2
 
     exit_code = 0
     if args.command == "backup":

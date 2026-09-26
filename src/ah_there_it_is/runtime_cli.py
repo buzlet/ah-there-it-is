@@ -7,8 +7,10 @@ import ipaddress
 import json
 from dataclasses import asdict, dataclass
 from pathlib import Path
+import shutil
 import sqlite3
 import sys
+import tempfile
 from typing import Sequence
 
 import uvicorn
@@ -80,26 +82,57 @@ def runtime_schema_gate(
 
 
 def _read_database_heads(database: Path) -> tuple[str, ...]:
-    uri = database.as_uri() + "?mode=ro"
+    # SQLite can update an existing -shm even for mode=ro. Inspect a private
+    # copy so service preflight never changes the configured DB or its sidecars.
+    files = (database, Path(f"{database}-wal"), Path(f"{database}-shm"))
     try:
-        connection = sqlite3.connect(uri, uri=True)
+        before = _database_file_state(files)
+        with tempfile.TemporaryDirectory(prefix="ah-there-it-is-schema-") as directory:
+            snapshot = Path(directory) / database.name
+            for source in files:
+                if source in before:
+                    shutil.copyfile(source, Path(directory) / source.name)
+            if _database_file_state(files) != before:
+                raise RuntimeSchemaError(
+                    f"configured database changed during schema preflight: {database}"
+                )
+            connection = sqlite3.connect(snapshot.as_uri() + "?mode=ro", uri=True)
+            try:
+                try:
+                    rows = connection.execute(
+                        "SELECT version_num FROM alembic_version ORDER BY version_num"
+                    ).fetchall()
+                except sqlite3.Error as exc:
+                    raise RuntimeSchemaError(
+                        f"configured database has no readable Alembic revision state: {database}; "
+                        f"run {_EXPLICIT_UPGRADE!r} before 'ah-there-it-is serve'"
+                    ) from exc
+            finally:
+                connection.close()
+            if _database_file_state(files) != before:
+                raise RuntimeSchemaError(
+                    f"configured database changed during schema preflight: {database}"
+                )
+    except OSError as exc:
+        raise RuntimeSchemaError(
+            f"cannot inspect configured database read-only: {database}: {exc}"
+        ) from exc
     except sqlite3.Error as exc:
         raise RuntimeSchemaError(
             f"cannot open configured database read-only: {database}: {exc}"
         ) from exc
-    try:
-        try:
-            rows = connection.execute(
-                "SELECT version_num FROM alembic_version ORDER BY version_num"
-            ).fetchall()
-        except sqlite3.Error as exc:
-            raise RuntimeSchemaError(
-                f"configured database has no readable Alembic revision state: {database}; "
-                f"run {_EXPLICIT_UPGRADE!r} before 'ah-there-it-is serve'"
-            ) from exc
-    finally:
-        connection.close()
     return tuple(str(row[0]) for row in rows)
+
+
+def _database_file_state(files: tuple[Path, ...]) -> dict[Path, tuple[int, int, int]]:
+    state: dict[Path, tuple[int, int, int]] = {}
+    for path in files:
+        try:
+            stat = path.stat()
+        except FileNotFoundError:
+            continue
+        state[path] = (stat.st_ino, stat.st_size, stat.st_mtime_ns)
+    return state
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -107,6 +140,7 @@ def build_parser() -> argparse.ArgumentParser:
     subparsers = parser.add_subparsers(dest="command", required=True)
 
     subparsers.add_parser("paths", help="show resolved local data paths")
+    subparsers.add_parser("schema-check", help="read-only service startup schema preflight")
     subparsers.add_parser("doctor", help="read-only active database health check")
     subparsers.add_parser("repair-search-index", help="explicitly rebuild derived FTS state")
 
@@ -245,6 +279,15 @@ def main(argv: Sequence[str] | None = None) -> int:
 
     if args.command == "paths":
         print(json.dumps(runtime_paths(settings.database_url), sort_keys=True))
+        return 0
+
+    if args.command == "schema-check":
+        try:
+            status = runtime_schema_gate(settings.database_url, command_name=args.command)
+        except RuntimeSchemaError as exc:
+            print(f"error: {exc}", file=sys.stderr)
+            return 2
+        print(json.dumps(status.as_dict(), sort_keys=True))
         return 0
 
     if args.command in {"doctor", "repair-search-index"}:
