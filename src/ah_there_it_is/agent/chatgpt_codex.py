@@ -1,6 +1,6 @@
-"""Standalone Responses adapter for a Codex-maintained ChatGPT login.
+"""Responses adapter for a ChatGPT login maintained by Codex.
 
-This experimental adapter deliberately is not registered by ``agent.factory``.
+The application selects this adapter only through its explicit provider setting.
 It reconstructs each request from the complete generic message history supplied
 by the caller and does not use remote conversation state.
 """
@@ -39,6 +39,25 @@ _MAX_RETRY_AFTER_SECONDS = 2.0
 
 
 @dataclass(frozen=True)
+class ChatGPTCodexCapabilities:
+    """Small, conservative request capability set for known Codex models."""
+
+    parallel_tool_calls: bool = False
+
+
+_DEFAULT_CAPABILITIES = ChatGPTCodexCapabilities()
+_MODEL_CAPABILITIES = {
+    # This is the only model with live evidence for the adapter's native tool
+    # path. Unknown and untested models keep the conservative default.
+    "gpt-6-luna": ChatGPTCodexCapabilities(parallel_tool_calls=True),
+}
+
+
+def codex_capabilities_for_model(model: str) -> ChatGPTCodexCapabilities:
+    return _MODEL_CAPABILITIES.get(model, _DEFAULT_CAPABILITIES)
+
+
+@dataclass(frozen=True)
 class ChatGPTCodexConfig:
     model: str
     codex_client_version: str = "0.156.1"
@@ -46,6 +65,7 @@ class ChatGPTCodexConfig:
     max_retries: int = 1
     retry_backoff_seconds: float = 0.25
     max_response_bytes: int = 2 * 1024 * 1024
+    capabilities: ChatGPTCodexCapabilities | None = None
 
 
 class ChatGPTCodexLLMClient:
@@ -70,6 +90,9 @@ class ChatGPTCodexLLMClient:
         if config.max_response_bytes < 1:
             raise ValueError("max_response_bytes must be > 0")
         self.config = config
+        self._capabilities = config.capabilities or codex_capabilities_for_model(
+            config.model
+        )
         self._credential_source = credential_source or CodexAuthFileCredentialSource()
         self._owns_client = client is None
         self._client = client or httpx.Client(
@@ -97,6 +120,7 @@ class ChatGPTCodexLLMClient:
                 "codex_client_version": self.config.codex_client_version,
                 "timeout_seconds": self.config.timeout_seconds,
                 "max_response_bytes": self.config.max_response_bytes,
+                "parallel_tool_calls": self._capabilities.parallel_tool_calls,
             },
         )
 
@@ -294,7 +318,7 @@ class ChatGPTCodexLLMClient:
             "instructions": system_text,
             "input": input_items,
             "tool_choice": "auto",
-            "parallel_tool_calls": True,
+            "parallel_tool_calls": self._capabilities.parallel_tool_calls,
             "store": False,
             "stream": True,
             "include": [],

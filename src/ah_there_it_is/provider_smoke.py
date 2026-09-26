@@ -12,13 +12,18 @@ def main() -> None:
     if settings.llm_provider == "heuristic":
         raise SystemExit("live provider smoke requires a non-heuristic AH_THERE_IT_IS_LLM_PROVIDER")
     client = build_llm_factory(settings)()
-    response = client.complete(
-        [
-            AgentMessage(role="system", content="Reply briefly and do not call tools."),
-            AgentMessage(role="user", content="Return the word OK."),
-        ],
-        [],
-    )
+    try:
+        response = client.complete(
+            [
+                AgentMessage(role="system", content="Reply briefly and do not call tools."),
+                AgentMessage(role="user", content="Return the word OK."),
+            ],
+            [],
+        )
+    finally:
+        close = getattr(client, "close", None)
+        if callable(close):
+            close()
     if not response.content.strip():
         raise SystemExit("provider returned no text")
     print(response.content.strip())
