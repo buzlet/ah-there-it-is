@@ -99,7 +99,16 @@ def verify_effective_units(unit_dir: Path = UNIT_DIR) -> None:
         if "runtime.env" not in environment:
             raise RuntimeError(f"systemd has no common environment for {name}")
         if name.endswith("web.service"):
-            if "telegram.env" in environment or "AH_THERE_IT_IS_TELEGRAM_BOT_TOKEN" not in state.get("UnsetEnvironment", ""):
+            command = state.get("ExecStart", "")
+            unset = state.get("UnsetEnvironment", "")
+            if any(value not in command for value in (
+                "serve", "--host 0.0.0.0", "--port 8000", "--allow-nonlocal",
+            )):
+                raise RuntimeError("web unit does not use the reviewed trusted-LAN command")
+            if "telegram.env" in environment or any(value not in unset for value in (
+                "AH_THERE_IT_IS_TELEGRAM_BOT_TOKEN",
+                "AH_THERE_IT_IS_TELEGRAM_ALLOWED_USER_ID",
+            )):
                 raise RuntimeError("web unit can inherit Telegram credentials")
         elif "telegram.env" not in environment:
             raise RuntimeError("Telegram unit has no isolated secret file")

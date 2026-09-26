@@ -18,6 +18,58 @@ def test_telegram_secret_is_only_loaded_by_telegram_unit() -> None:
     assert "UnsetEnvironment=AH_THERE_IT_IS_TELEGRAM_BOT_TOKEN" in web
 
 
+def test_shipped_web_unit_requests_trusted_lan_bind_with_explicit_ack() -> None:
+    web = (ROOT / "deploy/systemd/ah-there-it-is-web.service").read_text()
+    assert "serve --host 0.0.0.0 --port 8000 --allow-nonlocal" in web
+    assert "schema-check --require-production" in web
+
+
+def test_installer_accepts_reviewed_web_command_and_rejects_loopback(tmp_path, monkeypatch) -> None:
+    import pytest
+
+    from deploy import install_user_units
+
+    unit_dir = tmp_path / "units"
+    unit_dir.mkdir()
+    for name in install_user_units.UNIT_NAMES:
+        (unit_dir / name).write_text("stable copied unit")
+
+    web_state = {
+        "FragmentPath": str(unit_dir / install_user_units.UNIT_NAMES[0]),
+        "NeedDaemonReload": "no",
+        "ExecStartPre": "ah-there-it-is schema-check --require-production",
+        "ExecStart": (
+            "/current/.venv/bin/ah-there-it-is serve --host 0.0.0.0 "
+            "--port 8000 --allow-nonlocal"
+        ),
+        "EnvironmentFiles": "runtime.env",
+        "UnsetEnvironment": (
+            "AH_THERE_IT_IS_TELEGRAM_BOT_TOKEN "
+            "AH_THERE_IT_IS_TELEGRAM_ALLOWED_USER_ID"
+        ),
+    }
+    telegram_state = {
+        "FragmentPath": str(unit_dir / install_user_units.UNIT_NAMES[1]),
+        "NeedDaemonReload": "no",
+        "ExecStartPre": "ah-there-it-is schema-check --require-production",
+        "ExecStart": "/current/.venv/bin/ah-there-it-is",
+        "EnvironmentFiles": "runtime.env telegram.env",
+    }
+    states = iter((web_state, telegram_state))
+    monkeypatch.setattr(install_user_units, "_properties", lambda _name: next(states))
+    monkeypatch.setattr("builtins.print", lambda *_args, **_kwargs: None)
+
+    install_user_units.verify_effective_units(unit_dir)
+
+    states = iter((
+        {**web_state, "ExecStart": web_state["ExecStart"].replace("0.0.0.0", "127.0.0.1")},
+        telegram_state,
+    ))
+    monkeypatch.setattr(install_user_units, "_properties", lambda _name: next(states))
+    with pytest.raises(RuntimeError, match="trusted-LAN command"):
+        install_user_units.verify_effective_units(unit_dir)
+
+
 def test_release_switch_retains_stable_unit_files_after_old_checkout_deleted(
     tmp_path: Path,
 ) -> None:

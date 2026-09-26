@@ -1,8 +1,12 @@
 # U24 single-user deployment
 
-Run these commands as `rdu01`, without `sudo`. The web UI has no authentication;
-the unit binds only `127.0.0.1:8000`. The Telegram unit must stay disabled until
-the real token and allowed user ID are installed out of band.
+Run these commands as `rdu01`, without `sudo`. This deployment profile assumes a
+trusted private development network: the web UI has no application authentication
+and the stable web unit listens on all interfaces at `0.0.0.0:8000`. Keep this
+machine and network trusted. The CLI itself still defaults to loopback, and any
+non-loopback CLI bind requires the explicit `--allow-nonlocal` acknowledgement.
+The Telegram unit must stay disabled until the real token and allowed user ID are
+installed out of band.
 
 ## Durable layout
 
@@ -74,6 +78,10 @@ fi
 systemctl --user enable --now ah-there-it-is-web.service
 curl --fail http://127.0.0.1:8000/health
 ```
+
+From another device on the trusted private network, open the host's LAN address
+on port `8000`. No login is required, so do not forward this port or use this
+profile on an untrusted network.
 
 Expected: matching `database_heads` and `packaged_heads`, web `active`, health
 `status: ok`. Runtime
@@ -286,7 +294,9 @@ but its checkpoint did not commit.
 ## Host observations
 
 Verified: Python 3.12 venv installation succeeded; user `systemd` is running
-with `Linger=yes`; web unit is enabled and active on loopback; migration head is
+with `Linger=yes`; the installed host web unit is enabled and active on loopback
+(the checked-in stable unit now requests the trusted-LAN bind and has not been
+activated on the host by this spike); migration head is
 `2b8d5f1a4c20`; the new active DB is empty; web stop/start/restart and the
 schema/data signature check succeeded; backup, validation, and scratch restore
 rehearsal succeeded; the Telegram singleton and restart/upgrade probes
