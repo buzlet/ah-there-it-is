@@ -17,9 +17,13 @@ def test_extended_ci_is_explicit_and_runs_complete_plan() -> None:
     assert "workflow_dispatch:" in workflow
     assert "pull_request:" not in workflow
     assert "push:" not in workflow
+    assert "target_sha:" in workflow
+    assert "required: true" in workflow
+    assert "ref: ${{ inputs.target_sha }}" in workflow
+    assert 'test "$(git rev-parse HEAD)" = "${{ inputs.target_sha }}"' in workflow
+    assert 'extended verification SHA: ${{ inputs.target_sha }}' in workflow
     assert "test-extended-coverage" in workflow
     assert "make PYTHON=python scenario-eval" in workflow
-    assert 'test "$(git rev-parse HEAD)" = "$GITHUB_SHA"' in workflow
 
 
 def test_sandbox_bundle_includes_v9_executor_profiles() -> None:

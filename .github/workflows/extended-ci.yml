@@ -5,6 +5,11 @@ permissions:
 
 'on':
   workflow_dispatch:
+    inputs:
+      target_sha:
+        description: Exact commit SHA to verify
+        required: true
+        type: string
 
 jobs:
   verify-extended:
@@ -12,13 +17,13 @@ jobs:
     steps:
       - uses: actions/checkout@v4
         with:
-          ref: ${{ github.sha }}
-      - name: Bind run to exact dispatch SHA
+          ref: ${{ inputs.target_sha }}
+      - name: Bind run to exact target SHA
         shell: bash
         run: |
           set -euo pipefail
-          test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
-          echo "extended verification SHA: $GITHUB_SHA"
+          test "$(git rev-parse HEAD)" = "${{ inputs.target_sha }}"
+          echo "extended verification SHA: ${{ inputs.target_sha }}"
       - uses: actions/setup-python@v5
         with:
           python-version: '3.12'
@@ -42,7 +47,7 @@ jobs:
       - uses: actions/upload-artifact@v4
         if: always()
         with:
-          name: extended-evaluation-reports-${{ github.sha }}
+          name: extended-evaluation-reports-${{ inputs.target_sha }}
           path: |
             scenario-eval.json
             retrieval-eval.json
