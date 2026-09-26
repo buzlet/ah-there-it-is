@@ -27,7 +27,7 @@ SOURCE ?=
 
 export PYTHONPATH := src
 
-.PHONY: help test test-fast test-profile test-extended test-fast-coverage test-extended-coverage test-agent test-web test-provider compile check migrate migration-check \
+.PHONY: help test test-fast test-fast-parallel test-profile test-extended test-fast-coverage test-extended-coverage test-agent test-web test-provider compile check migrate migration-check \
 	eval-export experiment-replay provider-smoke migration serve corpus-check live-eval \
 	live-compare scenario-check scenario-eval retrieval-eval model-probe provider-contract \
 	storage-test db-backup db-validate db-restore db-restore-rehearsal portable-export \
@@ -38,6 +38,7 @@ help:
 	@printf '%s\n' \
 	  'make test' \
 	  'make test-fast' \
+	  'make test-fast-parallel' \
 	  'make test-profile' \
 	  'make test-extended' \
 	  'make compile' \
@@ -55,6 +56,10 @@ test:
 
 test-fast:
 	$(PYTHON) -m pytest -m "not extended"
+
+TEST_WORKERS ?= 4
+test-fast-parallel:
+	$(PYTHON) -m pytest -m "not extended" -n "$(TEST_WORKERS)" --dist=worksteal
 
 test-profile:
 	$(PYTHON) -m pytest -m "not extended" --durations=30
