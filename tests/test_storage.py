@@ -701,6 +701,7 @@ def test_portable_export_stream_is_lazy_and_preserves_destination_on_failure(
     assert list(tmp_path.glob(".inventory.json.json.*.tmp")) == []
 
 
+@pytest.mark.extended
 def test_portable_export_stream_result_and_target_scale_are_complete(
     tmp_path: Path,
 ) -> None:
@@ -1177,6 +1178,7 @@ def test_portable_import_round_trip_preserves_domain_and_search(
     assert reexported_evidence == exported_evidence
 
 
+@pytest.mark.extended
 def test_portable_roundtrip_target_scale_preserves_semantics(tmp_path: Path) -> None:
     active = tmp_path / "scale-active.db"
     exported = tmp_path / "scale-export.json"
@@ -1368,6 +1370,7 @@ def test_portable_import_refuses_existing_active_and_invalid_targets(
     assert not absent.exists()
 
 
+@pytest.mark.extended
 def test_portable_import_batches_target_scale_and_rolls_back_before_publication(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
