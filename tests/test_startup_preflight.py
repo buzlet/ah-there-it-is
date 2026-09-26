@@ -15,9 +15,14 @@ from ah_there_it_is.db.migrations import upgrade_database
 
 
 def _run(
-    command: list[str], *, mode: str, database: Path | None = None,
+    command: list[str], *, mode: str | None, database: Path | None = None,
+    cwd: Path | None = None,
 ) -> subprocess.CompletedProcess[str]:
-    env = {**os.environ, "AH_THERE_IT_IS_ENV": mode}
+    env = dict(os.environ)
+    if mode is None:
+        env.pop("AH_THERE_IT_IS_ENV", None)
+    else:
+        env["AH_THERE_IT_IS_ENV"] = mode
     env.pop("AH_THERE_IT_IS_DATABASE_URL", None)
     if database is not None:
         env["AH_THERE_IT_IS_DATABASE_URL"] = f"sqlite:///{database}"
@@ -27,6 +32,7 @@ def _run(
         text=True,
         capture_output=True,
         timeout=20,
+        cwd=cwd,
     )
 
 
@@ -36,6 +42,7 @@ def _run(
     ["-m", "ah_there_it_is.runtime_cli", "serve"],
     ["-m", "ah_there_it_is.runtime_cli", "telegram-bot"],
     ["-m", "ah_there_it_is.storage_cli", "migration-check"],
+    ["-m", "ah_there_it_is.runtime_cli", "schema-check", "--require-production"],
 ])
 def test_malformed_environment_rejected_by_real_entrypoints(
     mode: str, command: list[str],
@@ -66,6 +73,57 @@ def test_production_without_database_fails_without_secret_echo() -> None:
     assert result.returncode == 2
     assert "Traceback" not in result.stderr
     assert "invalid AH_THERE_IT_IS configuration" in result.stderr
+
+
+def test_production_systemd_preflight_rejects_unset_mode_without_echo() -> None:
+    result = _run(
+        ["-m", "ah_there_it_is.runtime_cli", "schema-check", "--require-production"],
+        mode=None,
+    )
+    assert result.returncode == 2
+    assert "explicit production configuration" in result.stderr
+    assert "Traceback" not in result.stderr
+
+
+def test_unset_mode_rejects_prepared_relative_database(tmp_path: Path) -> None:
+    database = tmp_path / "relative.db"
+    upgrade_database(f"sqlite:///{database}")
+    result = _run(
+        ["-m", "ah_there_it_is.runtime_cli", "schema-check", "--require-production"],
+        mode=None,
+        database=Path("relative.db"),
+        cwd=tmp_path,
+    )
+    assert result.returncode == 2
+    assert "explicit production configuration" in result.stderr
+    assert "relative.db" not in result.stderr
+
+
+def test_development_default_is_allowed_outside_production_preflight(
+    tmp_path: Path,
+) -> None:
+    database = tmp_path / "development.db"
+    upgrade_database(f"sqlite:///{database}")
+    ordinary = _run(
+        ["-m", "ah_there_it_is.runtime_cli", "schema-check"],
+        mode="development", database=database,
+    )
+    required = _run(
+        ["-m", "ah_there_it_is.runtime_cli", "schema-check", "--require-production"],
+        mode="development", database=database,
+    )
+    assert ordinary.returncode == 0
+    assert required.returncode == 2
+
+
+def test_production_preflight_accepts_absolute_prepared_database(tmp_path: Path) -> None:
+    database = tmp_path / "production.db"
+    upgrade_database(f"sqlite:///{database}")
+    result = _run(
+        ["-m", "ah_there_it_is.runtime_cli", "schema-check", "--require-production"],
+        mode="production", database=database,
+    )
+    assert result.returncode == 0
 
 
 def _snapshot(directory: Path) -> dict[str, bytes]:
@@ -117,4 +175,6 @@ def test_service_units_use_read_only_preflight() -> None:
         unit = (root / "deploy" / "systemd" / name).read_text()
         preflight = [line for line in unit.splitlines() if line.startswith("ExecStartPre=")]
         assert len(preflight) == 1
-        assert preflight[0].endswith("/ah-there-it-is schema-check")
+        assert preflight[0].endswith(
+            "/ah-there-it-is schema-check --require-production"
+        )

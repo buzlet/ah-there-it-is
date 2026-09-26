@@ -140,7 +140,14 @@ def build_parser() -> argparse.ArgumentParser:
     subparsers = parser.add_subparsers(dest="command", required=True)
 
     subparsers.add_parser("paths", help="show resolved local data paths")
-    subparsers.add_parser("schema-check", help="read-only service startup schema preflight")
+    schema_check = subparsers.add_parser(
+        "schema-check", help="read-only service startup schema preflight",
+    )
+    schema_check.add_argument(
+        "--require-production",
+        action="store_true",
+        help="fail unless production mode is explicitly configured",
+    )
     subparsers.add_parser("doctor", help="read-only active database health check")
     subparsers.add_parser("repair-search-index", help="explicitly rebuild derived FTS state")
 
@@ -282,6 +289,12 @@ def main(argv: Sequence[str] | None = None) -> int:
         return 0
 
     if args.command == "schema-check":
+        if args.require_production and settings.environment != "production":
+            print(
+                "error: this service requires explicit production configuration",
+                file=sys.stderr,
+            )
+            return 2
         try:
             status = runtime_schema_gate(settings.database_url, command_name=args.command)
         except RuntimeSchemaError as exc:

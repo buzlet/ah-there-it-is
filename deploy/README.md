@@ -65,7 +65,7 @@ AH_THERE_IT_IS_DATABASE_URL=sqlite:////home/rdu01/.local/share/ah-there-it-is/in
   .venv/bin/python -m ah_there_it_is.storage_cli upgrade
 AH_THERE_IT_IS_ENV=production \
 AH_THERE_IT_IS_DATABASE_URL=sqlite:////home/rdu01/.local/share/ah-there-it-is/inventory.db \
-  .venv/bin/ah-there-it-is schema-check
+  .venv/bin/ah-there-it-is schema-check --require-production
 chmod 600 /home/rdu01/.local/share/ah-there-it-is/inventory.db
 if [ ! -e /home/rdu01/.local/state/ah-there-it-is/telegram.env ]; then
   install -m 600 /dev/null /home/rdu01/.local/state/ah-there-it-is/telegram.env
@@ -82,7 +82,10 @@ fail. The read-only preflight examines a private temporary copy because SQLite
 can alter the source `-shm` even with a read-only connection. The installer
 copies unit definitions into the stable user unit directory, runs
 `daemon-reload`, and verifies `FragmentPath`, effective preflight and start
-commands, and environment boundaries.
+commands, and environment boundaries. Both units call
+`schema-check --require-production` before `ExecStart`; missing or development
+mode in `runtime.env` stops startup while ordinary local CLI commands retain
+their development default.
 
 ## Normal stop, restart, and upgrade
 
@@ -107,8 +110,8 @@ The installer refuses to switch while either unit has a live PID. It replaces
 the `current` symlink atomically, reloads systemd and checks effective unit
 settings. The installed definitions remain usable after deleting the old
 checkout. Run the new checkout's explicit `storage_cli upgrade` and read-only
-`schema-check`, then start web and, only with valid real Telegram settings, the
-bot. `systemctl --user restart ah-there-it-is-telegram.service` stops the old
+`schema-check --require-production`, then start web and, only with valid real
+Telegram settings, the bot. `systemctl --user restart ah-there-it-is-telegram.service` stops the old
 unit before starting
 the new one. Kernel locks on both bot identity and database reject a concurrent
 manual poller before its first Telegram call, including when the same bot uses
@@ -137,6 +140,12 @@ It prepares two disposable installed release copies, stops and starts only the
 web unit, switches `current` to each, deletes the old copy, verifies web health
 and effective stable unit paths, then restores the original release. It requires
 the Telegram unit to be stopped.
+
+To repeat the production-mode gate safely, run
+`.venv/bin/python deploy/probes/production_mode_preflight.py`. It uses the
+shipped `ExecStartPre` command in transient user-systemd units with scratch
+configuration and a harmless `ExecStart` marker, then verifies unset,
+development, malformed, missing-DB, relative-DB and valid-production cases.
 
 On a failed upgrade, stop both units. A code-only rollback is safe only if the
 old package accepts the upgraded schema; check it with that package before
