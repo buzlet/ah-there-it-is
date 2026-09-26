@@ -48,3 +48,28 @@ Configuration precedence, when applicable, should be explicit. A candidate model
 `product default -> deployment/operator override -> future user override`
 
 Secrets remain a separate channel, and domain invariants are not overrideable configuration.
+
+
+## U24 agent notification rule
+
+U24 agents use the host-local helper:
+
+`/home/rdu01/.local/bin/notify`
+
+Notifications are best-effort and must be invoked with `|| true`.
+
+Implementation agents notify:
+- START after executor/branch/issuance validation;
+- TASK DONE after each meaningful top-level batch work unit is complete;
+- READY FOR REVIEW at the final implementation stop;
+- STOPPED on an abnormal stop condition when possible.
+
+Reviewers notify:
+- START REVIEW after exact-head/scope validation;
+- REVIEW PASS after one complete independent review pass, reporting CLEAN or a concise finding count/category;
+- CORRECTIONS DONE only if corrections were required, after focused correction verification and before final exact-head verification;
+- REVIEW COMPLETE with CLEAN/CORRECTED, final head, and CI state when known;
+- STOPPED on an abnormal stop condition when possible.
+
+Do not use time-based notification spam as a substitute for semantic milestones.
+Do not include secrets or long logs.
