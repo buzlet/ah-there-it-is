@@ -52,37 +52,34 @@ Secrets remain a separate channel, and domain invariants are not overrideable co
 
 ## U24 agent notification rule
 
-Canonical sender is:
+Canonical sender: `/home/gpt/.local/bin/notify`.
 
-`/home/gpt/.local/bin/notify`
+Editable/test wrapper: `/home/gpt/.local/bin/agent-notify`.
 
-Agents running as `rdu01` use:
+Runtime wrapper for `rdu01`: `/home/rdu01/.local/bin/agent-notify`.
 
-`/home/rdu01/.local/bin/agent-notify`
+The wrapper returns immediately and performs remote usage/ntfy work in a detached
+worker. Network failure must never block agent execution. Dry-run:
+`AGENT_NOTIFY_DRY_RUN=1`.
 
-The wrapper sends through the canonical sender and appends Codex limits to every
-milestone:
+Notification body format is intentionally minimal:
 
-- 5-hour remaining percentage + relative time remaining until reset;
-- weekly remaining percentage + relative time remaining until reset.
+```text
+HH:MM
+MILESTONE
+100-3:51   90-5:2:20
+```
 
-Use relative durations such as `3h 51m` or `6d 17h`, never the absolute reset
-clock time. Usage-reporting failure must not suppress the milestone itself.
+The last line means remaining percentage and relative time to reset:
+5-hour as `percent-hours:minutes`, weekly as
+`percent-days:hours:minutes`. Never show absolute reset time.
 
-Notifications are best-effort and must be invoked with `|| true`.
+Implementation: START, one DONE per meaningful top-level task unit, READY FOR
+REVIEW, and STOPPED on a real stop condition.
 
-Implementation agents notify:
-- START after executor/branch/issuance validation;
-- TASK DONE after each meaningful top-level batch work unit is complete;
-- READY FOR REVIEW at the final implementation stop;
-- STOPPED on an abnormal stop condition when possible.
+Review: START REVIEW, REVIEW PASS after the first complete independent pass,
+CORRECTIONS DONE when applicable, REVIEW COMPLETE, and STOPPED on a real stop
+condition.
 
-Reviewers notify:
-- START REVIEW after exact-head/scope validation;
-- REVIEW PASS after one complete independent review pass, reporting CLEAN or a concise finding count/category;
-- CORRECTIONS DONE only if corrections were required, after focused correction verification and before final exact-head verification;
-- REVIEW COMPLETE with CLEAN/CORRECTED, final head, and CI state when known;
-- STOPPED on an abnormal stop condition when possible.
-
-Do not use time-based notification spam as a substitute for semantic milestones.
-Do not include secrets or long logs.
+Use semantic milestones, not periodic time-based heartbeat spam. Never include
+secrets or long logs.
