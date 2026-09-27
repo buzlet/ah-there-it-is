@@ -343,3 +343,29 @@ def test_progress_worker_stops_after_request_failure_and_shutdown() -> None:
         clock.close()
     assert progress._thread is not None and not progress._thread.is_alive()
     assert len(client.drafts) == 1
+
+
+def test_blocked_advisory_worker_does_not_spawn_more_workers_or_block_shutdown(monkeypatch) -> None:
+    from ah_there_it_is.telegram import progress as module
+
+    entered = Event()
+    release = Event()
+    class BlockedClient:
+        def send_message_draft(self, *args):
+            entered.set()
+            assert release.wait(timeout=2)
+    monkeypatch.setattr(module, "PROGRESS_JOIN_TIMEOUT_SECONDS", 0)
+    progress = TelegramDraftProgress(BlockedClient(), 71, 321, grace_seconds=0)
+    try:
+        with progress:
+            assert entered.wait(timeout=2)
+        assert progress._stop.is_set()
+        for draft_id in range(322, 332):
+            with TelegramDraftProgress(DraftClient(), 71, draft_id) as other:
+                assert other._thread is None
+    finally:
+        release.set()
+        progress._thread.join(timeout=2)
+    assert not progress._thread.is_alive()
+    with TelegramDraftProgress(DraftClient(), 71, 333) as recovered:
+        assert recovered._thread is not None

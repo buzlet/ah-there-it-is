@@ -81,11 +81,12 @@ class TelegramPollingService:
                 update.message.chat.id,
                 draft_id,
                 stop_event=stop_event,
-            ):
+            ) as progress:
                 outcome = self.adapter.process_update(
                     update,
                     request_key=request_key,
                     send_reply=True,
+                    before_reply=progress.stop,
                 )
             # A successful send is the point at which this update can be acked.
             offset = self.adapter.acknowledge_update(update.update_id)

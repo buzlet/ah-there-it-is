@@ -4,13 +4,14 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 import re
-from typing import Any
+from typing import Any, Callable
 
 from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session as OrmSession
 
 from ah_there_it_is.db.models import (
+    AgentRunLog,
     ChatRequestRecord,
     TelegramChatBinding,
     TelegramFailureNotice,
@@ -99,6 +100,7 @@ class TelegramAdapter:
         *,
         request_key: str | None = None,
         send_reply: bool = True,
+        before_reply: Callable[[], None] | None = None,
     ) -> TelegramAdapterResult:
         if isinstance(update, TelegramUpdate) and update.callback_query is not None:
             return self.process_callback_update(update)
@@ -115,6 +117,8 @@ class TelegramAdapter:
             view = TelegramLocationBrowser(self.session).root_page()
             renderer = TelegramLocationRenderer()
             keyboard = renderer.root_keyboard(view)
+            if before_reply is not None:
+                before_reply()
             sent = tuple(
                 self.client.send_message(
                     message.chat.id,
@@ -149,25 +153,25 @@ class TelegramAdapter:
                 conversation_id = prior_request.requested_conversation_id
         if prior_request is not None and prior_request.status in {"processing", "failed"}:
             if prior_request.source_identity != self.source_identity:
-                self._notify_uncertain_failure(update, request_key or "")
+                self._notify_uncertain_failure(update, request_key or "", before_reply=before_reply)
                 raise TelegramRecoveryRequiredError(
                     f"Telegram update {update.update_id} has inconsistent request ownership"
                 )
             if prior_request.message != message.text.strip():
-                self._notify_uncertain_failure(update, request_key or "")
+                self._notify_uncertain_failure(update, request_key or "", before_reply=before_reply)
                 raise TelegramRecoveryRequiredError(
                     f"Telegram update {update.update_id} differs from its durable request"
                 )
             try:
                 recovered = self._completed_recovery(prior_request, update.update_id)
             except TelegramRecoveryError:
-                self._notify_uncertain_failure(update, request_key or "")
+                self._notify_uncertain_failure(update, request_key or "", before_reply=before_reply)
                 raise TelegramRecoveryRequiredError(
                     f"Telegram update {update.update_id} needs safe recovery"
                 ) from None
             if recovered is None:
                 if self._proven_no_mutation_failure(
-                    request_key, message.text.strip()
+                    request_key, message.text.strip(), update.update_id
                 ):
                     sent = self._notify_failure(
                         update.update_id,
@@ -175,6 +179,7 @@ class TelegramAdapter:
                         "no_mutation",
                         NO_MUTATION_FAILURE_TEXT,
                         message.chat.id,
+                        before_reply=before_reply,
                     )
                     return TelegramAdapterResult(
                         accepted=True,
@@ -186,7 +191,7 @@ class TelegramAdapter:
                         sent_messages=sent,
                         handled_failure=True,
                     )
-                self._notify_uncertain_failure(update, request_key or "")
+                self._notify_uncertain_failure(update, request_key or "", before_reply=before_reply)
                 raise TelegramRecoveryRequiredError(
                     f"Telegram update {update.update_id} has a {prior_request.status} "
                     "request; stop the poller and use telegram-recover"
@@ -202,7 +207,7 @@ class TelegramAdapter:
                 )
             except Exception:
                 if self._proven_no_mutation_failure(
-                    request_key, message.text.strip()
+                    request_key, message.text.strip(), update.update_id
                 ):
                     sent = self._notify_failure(
                         update.update_id,
@@ -210,6 +215,7 @@ class TelegramAdapter:
                         "no_mutation",
                         NO_MUTATION_FAILURE_TEXT,
                         message.chat.id,
+                        before_reply=before_reply,
                     )
                     return TelegramAdapterResult(
                         accepted=True,
@@ -221,7 +227,7 @@ class TelegramAdapter:
                         sent_messages=sent,
                         handled_failure=True,
                     )
-                self._notify_uncertain_failure(update, request_key or "")
+                self._notify_uncertain_failure(update, request_key or "", before_reply=before_reply)
                 raise TelegramRecoveryRequiredError(
                     f"Telegram update {update.update_id} needs safe recovery"
                 ) from None
@@ -240,16 +246,53 @@ class TelegramAdapter:
                 if binding is None:
                     raise
         sent: tuple[TelegramMessage, ...] = ()
+        content = result.content
+        options: dict[str, Any] = {}
+        structured = self._location_reply(result)
+        if structured is not None:
+            content, keyboard = structured
+            options = {"reply_markup": keyboard, "parse_mode": "HTML"}
         if send_reply:
-            sent = tuple(self.client.send_message(message.chat.id, result.content))
+            if before_reply is not None:
+                before_reply()
+            sent = tuple(self.client.send_message(message.chat.id, content, **options))
         return TelegramAdapterResult(
             accepted=True,
             invoked=True,
             chat_id=message.chat.id,
             conversation_id=result.conversation_id,
-            content=result.content,
+            content=content,
             sent_messages=sent,
         )
+
+    def _location_reply(self, result: Any) -> tuple[str, dict[str, object]] | None:
+        """Select a Telegram view from committed tool evidence, never model prose."""
+        run_id = getattr(result, "run_id", None)
+        if type(run_id) is not int:
+            return None
+        run = self.session.get(AgentRunLog, run_id)
+        if run is None or run.status != "completed" or run.mutation_receipts:
+            return None
+        listings = [
+            entry
+            for round_ in run.tool_trace
+            for entry in round_.get("tool_results", [])
+            if entry.get("tool_name") == "list_location"
+            and entry.get("result", {}).get("ok") is True
+        ]
+        location_ids = {entry.get("arguments", {}).get("location_id") for entry in listings}
+        if len(location_ids) != 1:
+            return None
+        location_id = location_ids.pop()
+        if type(location_id) is not int:
+            return None
+        try:
+            return self._render_navigation_action(
+                TelegramNavigationAction("location", location_id=location_id),
+                TelegramLocationRenderer(),
+            )
+        except ValueError:
+            return None
 
     def process_callback_update(self, update: TelegramUpdate) -> TelegramAdapterResult:
         """Answer every callback promptly; authorized navigation is read-only."""
@@ -369,7 +412,7 @@ class TelegramAdapter:
         return None
 
     def _proven_no_mutation_failure(
-        self, request_key: str | None, message: str
+        self, request_key: str | None, message: str, update_id: int
     ) -> bool:
         """Trust only a durable terminal request with no attached successful run."""
         if not isinstance(request_key, str) or not request_key:
@@ -381,18 +424,23 @@ class TelegramAdapter:
                         ChatRequestRecord.request_key == request_key
                     )
                 )
+                if record is None:
+                    return False
+                lineage = self._recovery_lineage(record, update_id, session=durable)
+                # Every attempt belongs to this logical request. A failed
+                # source cannot establish the outcome of an interrupted retry.
                 return bool(
-                    record is not None
-                    and record.status == "failed"
-                    and record.agent_run_id is None
-                    and record.message == message
+                    record.message == message
                     and record.source_identity == self.source_identity
+                    and all(attempt.status == "failed" and attempt.agent_run_id is None
+                            for attempt in lineage)
                 )
         except Exception:
             return False
 
     def _notify_uncertain_failure(
-        self, update: TelegramUpdate, request_key: str
+        self, update: TelegramUpdate, request_key: str,
+        *, before_reply: Callable[[], None] | None = None,
     ) -> tuple[TelegramMessage, ...]:
         if update.message is None:
             return ()
@@ -402,6 +450,7 @@ class TelegramAdapter:
             "uncertain",
             UNCERTAIN_FAILURE_TEXT,
             update.message.chat.id,
+            before_reply=before_reply,
         )
 
     def _notify_failure(
@@ -411,6 +460,7 @@ class TelegramAdapter:
         notice_kind: str,
         content: str,
         chat_id: int,
+        *, before_reply: Callable[[], None] | None = None,
     ) -> tuple[TelegramMessage, ...]:
         existing = self._failure_notice(update_id)
         if existing is not None:
@@ -420,6 +470,8 @@ class TelegramAdapter:
                 )
             return ()
 
+        if before_reply is not None:
+            before_reply()
         sent = tuple(self.client.send_message(chat_id, content))
         try:
             with OrmSession(bind=self.session.get_bind()) as durable:
@@ -510,11 +562,13 @@ class TelegramAdapter:
         return source
 
     def _recovery_lineage(
-        self, source: ChatRequestRecord, update_id: int
+        self, source: ChatRequestRecord, update_id: int,
+        *, session: OrmSession | None = None,
     ) -> list[ChatRequestRecord]:
+        active_session = session if session is not None else self.session
         lineage = [source]
         while True:
-            children = list(self.session.scalars(
+            children = list(active_session.scalars(
                 select(ChatRequestRecord)
                 .where(ChatRequestRecord.recovered_from_id == lineage[-1].id)
                 .order_by(ChatRequestRecord.id)

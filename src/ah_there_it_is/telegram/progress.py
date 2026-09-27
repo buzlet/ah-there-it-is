@@ -91,6 +91,12 @@ class TelegramDraftProgress:
         return self
 
     def __exit__(self, *_exc: object) -> None:
+        self.stop()
+
+    def stop(self) -> None:
+        """Stop advisory updates before the ordinary final reply is sent."""
+        if self._stop.is_set():
+            return
         self._stop.set()
         if self._thread is not None:
             # Client draft/typing calls use a one-second timeout and zero

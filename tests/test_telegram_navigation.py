@@ -270,7 +270,7 @@ def test_child_locations_page_independently_and_deep_back_uses_parent(session) -
         for row in keyboard["inline_keyboard"]
         for button in row
     ]
-    assert "t1:c:1:2" in child_page_controls
+    assert "t1:c:1:2:1" in child_page_controls
     second_page = browser.location_contents(1, child_page=2)
     assert second_page is not None
     assert second_page.child_page == 2
@@ -322,3 +322,79 @@ def test_invalid_callback_payloads_are_bounded_and_never_become_actions() -> Non
         "t1:remove:1",
     ):
         assert parse_navigation_callback(value) is None
+
+
+def test_natural_location_query_uses_structured_view_on_delivery_and_replay(session) -> None:
+    from ah_there_it_is.agent import LLMResponse, ScriptedLLMClient, ToolCall
+    from ah_there_it_is.services.chat_application import ChatApplicationService
+
+    _location(session, 1, "Ванна & шкаф")
+    _item(session, "Бумага", location_id=1, quantity=5, quantity_mode="approximate")
+    session.commit()
+    llm = ScriptedLLMClient([
+        LLMResponse(tool_calls=(ToolCall(id="s", name="search_locations", arguments={"query": "Ванна"}),)),
+        LLMResponse(tool_calls=(ToolCall(id="l", name="list_location", arguments={"location_id": 1}),)),
+        LLMResponse(content="**Ванна**: в инвентаре указано неверное количество 99"),
+    ])
+    client = _Client()
+    adapter = TelegramAdapter(session, ChatApplicationService(session, lambda: llm), client, allowed_user_id=7)
+    update = _message_update(60, "Что в Ванне?")
+    for _ in range(2):
+        result = adapter.process_update(update, request_key="telegram:60")
+        assert "• Бумага — ~5" in result.content
+        assert "**" not in result.content
+        assert "99" not in result.content
+        assert "Ванна &amp; шкаф" in result.content
+        assert client.sent_options[-1]["parse_mode"] == "HTML"
+        assert client.sent_options[-1]["reply_markup"]
+    assert llm.remaining == 0
+
+
+def test_paging_preserves_root_return_context(session) -> None:
+    _location(session, 1, "Дом")
+    for index in range(9):
+        _location(session, index + 2, f"Ящик {index}", parent_id=1)
+        _item(session, f"Вещь {index}", location_id=1, quantity=1, quantity_mode="exact")
+    session.commit()
+    client = _Client()
+    adapter = TelegramAdapter(session, _Application(), client, allowed_user_id=7)
+    adapter.process_callback_update(_callback_update(80, "t1:l:1:2"))
+    keyboard = client.edited[-1][3]["reply_markup"]["inline_keyboard"]
+    for label in ("Места ›", "Вещи ›"):
+        payload = next(b["callback_data"] for row in keyboard for b in row if b["text"] == label)
+        adapter.process_callback_update(_callback_update(81, payload))
+        rows = client.edited[-1][3]["reply_markup"]["inline_keyboard"]
+        assert rows[-1][0]["callback_data"] == "t1:r:2"
+
+
+def test_cycle_in_stale_hierarchy_fails_safely_without_writes(session) -> None:
+    _location(session, 1, "Дом")
+    _location(session, 2, "Ящик", parent_id=1)
+    session.flush()
+    session.get(Location, 1).parent_id = 2
+    session.commit()
+    client = _Client()
+    app = _Application()
+    adapter = TelegramAdapter(session, app, client, allowed_user_id=7)
+    result = adapter.process_callback_update(_callback_update(90, "t1:l:2:1"))
+    assert result.content.startswith("Эта кнопка устарела.")
+    assert app.calls == []
+    assert session.scalar(select(func.count(ChatRequestRecord.id))) == 0
+
+
+def test_item_pages_clamp_and_escape_extreme_names(session) -> None:
+    from ah_there_it_is.telegram.navigation import ITEM_PAGE_SIZE
+
+    _location(session, 1, "<&>" * 200)
+    for index in range(ITEM_PAGE_SIZE + 1):
+        _item(session, f"{index} <&>" * 100, location_id=1, quantity=1, quantity_mode="exact")
+    session.commit()
+    browser = TelegramLocationBrowser(session)
+    first = browser.location_contents(1)
+    last = browser.location_contents(1, item_page=999999999)
+    assert len(first.items) == ITEM_PAGE_SIZE
+    assert last.item_page == 2
+    assert len(last.items) == 1
+    text = TelegramLocationRenderer().render_location(first)
+    assert "<&>" not in text
+    assert len(text) < 4096

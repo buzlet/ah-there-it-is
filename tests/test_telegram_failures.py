@@ -203,8 +203,11 @@ def test_progress_transport_failure_cannot_fail_or_mutate_request(
             self.progress._send("Обрабатываю запрос.")
             return self
 
-        def __exit__(self, *_args) -> None:
+        def stop(self) -> None:
             pass
+
+        def __exit__(self, *_args) -> None:
+            self.stop()
 
     # Exercise the actual draft failure handler immediately, without wall time.
     monkeypatch.setattr(polling_module, "TelegramDraftProgress", ImmediateProgress)
@@ -217,3 +220,58 @@ def test_progress_transport_failure_cannot_fail_or_mutate_request(
     assert app.calls == ["continue"]
     assert app.mutations == 1
     assert client.sent == [(7, "Ответ готов.")]
+
+
+@pytest.mark.parametrize("recovery_status", ["processing", "failed"])
+def test_failed_source_with_interrupted_recovery_stays_unacked(session, recovery_status) -> None:
+    source = ChatRequestRecord(
+        request_key="telegram:50", message="Повтори запрос",
+        source_identity="telegram:7", status="failed",
+    )
+    session.add(source)
+    session.flush()
+    session.add(ChatRequestRecord(
+        request_key="telegram-recovery:50:1", message=source.message,
+        source_identity=source.source_identity, status=recovery_status,
+        recovered_from_id=source.id,
+    ))
+    session.commit()
+    client = _Client([_update(50, source.message)])
+    app = _FailThenSuccess(session)
+    adapter = TelegramAdapter(session, app, client, allowed_user_id=7)
+    if recovery_status == "processing":
+        with pytest.raises(TelegramRecoveryRequiredError):
+            TelegramPollingService(adapter, client).run_once()
+        assert adapter.next_offset() == 0
+        assert client.sent == [(7, UNCERTAIN_FAILURE_TEXT)]
+    else:
+        assert TelegramPollingService(adapter, client).run_once().next_offset == 51
+        assert client.sent == [(7, NO_MUTATION_FAILURE_TEXT)]
+    assert app.calls == []
+
+
+@pytest.mark.parametrize("text", ["continue", "fail safely"])
+def test_progress_is_stopped_before_final_success_or_failure_send(session, monkeypatch, text) -> None:
+    from ah_there_it_is.telegram import polling as polling_module
+
+    active = [False]
+    class Progress:
+        def __init__(self, *args, **kwargs):
+            pass
+        def __enter__(self):
+            active[0] = True
+            return self
+        def stop(self):
+            active[0] = False
+        def __exit__(self, *args):
+            self.stop()
+    class Client(_Client):
+        def send_message(self, chat_id, content):
+            assert not active[0], "progress must stop before final delivery"
+            return super().send_message(chat_id, content)
+    monkeypatch.setattr(polling_module, "TelegramDraftProgress", Progress)
+    session.add(Conversation(id=41))
+    session.commit()
+    client = Client([_update(70, text)])
+    adapter = TelegramAdapter(session, _FailThenSuccess(session), client, allowed_user_id=7)
+    assert TelegramPollingService(adapter, client).run_once().next_offset == 71

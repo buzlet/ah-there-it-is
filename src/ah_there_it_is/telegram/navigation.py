@@ -257,22 +257,22 @@ class TelegramLocationRenderer:
             navigation = []
             if view.child_page > 1:
                 navigation.append(
-                    self._button("‹ Места", f"t1:c:{view.location_id}:{view.child_page - 1}")
+                    self._button("‹ Места", f"t1:c:{view.location_id}:{view.child_page - 1}:{view.root_page}")
                 )
             if view.child_page < view.child_page_count:
                 navigation.append(
-                    self._button("Места ›", f"t1:c:{view.location_id}:{view.child_page + 1}")
+                    self._button("Места ›", f"t1:c:{view.location_id}:{view.child_page + 1}:{view.root_page}")
                 )
             rows.append(navigation)
         if view.item_page_count > 1:
             navigation = []
             if view.item_page > 1:
                 navigation.append(
-                    self._button("‹ Вещи", f"t1:i:{view.location_id}:{view.item_page - 1}")
+                    self._button("‹ Вещи", f"t1:i:{view.location_id}:{view.item_page - 1}:{view.root_page}")
                 )
             if view.item_page < view.item_page_count:
                 navigation.append(
-                    self._button("Вещи ›", f"t1:i:{view.location_id}:{view.item_page + 1}")
+                    self._button("Вещи ›", f"t1:i:{view.location_id}:{view.item_page + 1}:{view.root_page}")
                 )
             rows.append(navigation)
         if view.parent_id is None:
@@ -319,15 +319,17 @@ def parse_navigation_callback(data: str | None) -> TelegramNavigationAction | No
             location_id=location_id,
             root_page=root_page,
         )
-    if len(parts) == 4 and parts[0] == "t1" and parts[1] in {"c", "i"}:
+    if len(parts) in {4, 5} and parts[0] == "t1" and parts[1] in {"c", "i"}:
         location_id = _positive_decimal(parts[2], max_digits=19)
         page = _positive_decimal(parts[3], max_digits=9)
-        if location_id is None or location_id >= 2**63 or page is None:
+        root_page = _positive_decimal(parts[4], max_digits=9) if len(parts) == 5 else 1
+        if location_id is None or location_id >= 2**63 or page is None or root_page is None:
             return None
         return TelegramNavigationAction(
             "children" if parts[1] == "c" else "items",
             location_id=location_id,
             page=page,
+            root_page=root_page,
         )
     return None
 
