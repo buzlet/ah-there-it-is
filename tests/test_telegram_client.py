@@ -55,6 +55,29 @@ def test_get_updates_uses_offset_and_parses_only_adapter_fields() -> None:
     assert updates[0].message.text == "hello"
 
 
+def test_get_updates_read_timeout_exceeds_server_long_poll_timeout() -> None:
+    seen: list[dict[str, float]] = []
+
+    def respond(request: httpx.Request) -> httpx.Response:
+        seen.append(request.extensions["timeout"])
+        return httpx.Response(200, json={"ok": True, "result": []})
+
+    with TelegramBotClient(
+        "secret",
+        base_url="https://telegram.test",
+        timeout_seconds=30,
+        max_retries=0,
+        transport=httpx.MockTransport(respond),
+    ) as client:
+        assert client.get_updates(timeout=30) == []
+
+    assert len(seen) == 1
+    assert seen[0]["connect"] == 30
+    assert seen[0]["read"] == 35
+    assert seen[0]["write"] == 30
+    assert seen[0]["pool"] == 30
+
+
 def test_send_message_splits_at_one_isolated_limit() -> None:
     bodies: list[dict] = []
 
