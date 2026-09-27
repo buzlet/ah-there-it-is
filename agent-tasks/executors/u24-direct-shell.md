@@ -87,41 +87,48 @@ Canonical host sender:
 
 `/home/gpt/.local/bin/notify`
 
-U24 agents running as `rdu01` use the wrapper:
+Editable/test copy of the agent wrapper:
+
+`/home/gpt/.local/bin/agent-notify`
+
+Runtime copy for agents running as `rdu01`:
 
 `/home/rdu01/.local/bin/agent-notify`
 
 Tracked source: `tools/agent/u24_agent_notify.sh`.
 
-The wrapper sends through the canonical sender and automatically appends current
-Codex usage limits from `/home/rdu01/.local/bin/codex-usage`.
+The wrapper is deliberately non-blocking. A normal invocation detaches a worker
+and returns control immediately; notification/usage network failure must never
+delay or fail the agent task. `AGENT_NOTIFY_DRY_RUN=1` runs the worker in the
+foreground and prints the exact message body without sending, for format tests.
 
-Every notification must include:
+Usage retrieval is implemented directly inside the wrapper. It does not call a
+separate usage helper.
 
-- 5-hour **remaining percentage**;
-- time **remaining until the 5-hour reset**;
-- weekly **remaining percentage**;
-- time **remaining until the weekly reset**.
+Every notification body is exactly three logical parts:
 
-Show relative time-to-reset, not the absolute reset clock time.
+1. first line: send time in Europe/Kyiv, `HH:MM`;
+2. middle: one compact milestone message;
+3. last line: 5-hour and weekly remaining limits.
 
-Example suffix:
+Compact limit format:
 
 ```text
-Limits: 5h 100% · 3h 51m; week 90% · 6d 17h
+100-3:51   90-5:2:20
 ```
+
+Meaning:
+
+- `100-3:51` = 100% of the 5-hour limit remains; 3h51m until reset;
+- `90-5:2:20` = 90% of the weekly limit remains; 5d2h20m until reset.
+
+Use remaining percentages only. Never include absolute reset timestamps.
 
 Always invoke notifications as best-effort:
 
 ```bash
-/home/rdu01/.local/bin/agent-notify "MESSAGE" "TITLE" default || true
+/home/rdu01/.local/bin/agent-notify "MESSAGE" "u24" default || true
 ```
-
-If usage retrieval/parsing fails, the milestone notification should still be
-sent; usage reporting is advisory.
-
-Notifications are operational UX only. They must never change task outcome,
-transaction semantics, Git state, verification, or stop conditions.
 
 Never include secrets, tokens, auth material, private payloads, or long logs.
 
@@ -142,44 +149,23 @@ Send:
 3. **READY FOR REVIEW** — once, when implementation has reached its final stop
    condition. Include the batch id, final head SHA, and PR/CI state when known.
 
-Suggested compact messages:
-
-```text
-START 0098 implementation — configuration boundary audit
-DONE 0098 2/6 — candidate inventory + classification
-READY FOR REVIEW 0098 — head abc1234 — CI green
-```
-
 ### Reviewer milestones
 
 Send:
 
 1. **START REVIEW** — after the exact implementation head and review scope are
    verified, before substantive inspection.
-2. **REVIEW PASS** — mandatory midpoint notification after the reviewer has
-   completed one full independent pass over the relevant diff/code/tests and has
-   classified the result:
-   - `CLEAN`, or
-   - number/short categories of findings and that correction is starting.
+2. **REVIEW PASS** — mandatory midpoint notification after one full independent
+   pass over the relevant diff/code/tests. Report `CLEAN` or a concise
+   finding count/category and that correction is starting.
 3. **CORRECTIONS DONE** — only when corrections were required; send after all
-   reviewer corrections plus their focused verification are complete and before
-   final exact-head verification/CI.
+   reviewer corrections plus focused verification and before final exact-head
+   verification/CI.
 4. **REVIEW COMPLETE** — final notification with `CLEAN` or `CORRECTED`,
    final head SHA, and CI state when known.
 
-Suggested compact messages:
-
-```text
-START REVIEW 0098 — head abc1234
-REVIEW PASS 0098 — 2 findings — correcting
-CORRECTIONS DONE 0098 — head def5678 — final verification
-REVIEW COMPLETE 0098 — CORRECTED — head def5678 — CI green
-```
-
-The midpoint criterion is semantic, not time-based: completing the first full
-review pass is the reliable point at which the reviewer knows whether the work is
-clean or what must be corrected. Do not send periodic heartbeat spam merely
-because review is taking time.
+The midpoint criterion is semantic, not time-based. Do not send periodic
+heartbeat spam merely because work is taking time.
 
 ### Failure / interruption notification
 
