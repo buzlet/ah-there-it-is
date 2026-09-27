@@ -149,6 +149,7 @@ def build_router(templates: Jinja2Templates) -> APIRouter:
                 max_rounds=settings.agent_max_rounds,
                 system_prompt=request.app.state.system_prompt,
                 prompt_version=settings.prompt_version,
+                location_containment_policy=settings.location_containment_policy,
             ).execute_chat(
                 payload.message,
                 conversation_id=payload.conversation_id,
@@ -304,6 +305,7 @@ def build_router(templates: Jinja2Templates) -> APIRouter:
                 max_rounds=settings.agent_max_rounds,
                 system_prompt=request.app.state.system_prompt,
                 prompt_version=settings.prompt_version,
+                location_containment_policy=settings.location_containment_policy,
             ).recover_chat(
                 source_request_key=source_request_key,
                 new_request_key=payload.new_request_key,

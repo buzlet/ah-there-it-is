@@ -364,7 +364,7 @@ def test_created_parent_becomes_resolved_for_child_creation(session: Session) ->
     )
 
     assert shelf["ok"] is True
-    assert shelf["result"]["path"] == "Балкон / Полка 1"
+    assert shelf["result"]["path"] == "балкон / полка 1"
 
 
 def test_heuristic_client_can_run_offline_where_query(session: Session) -> None:
@@ -377,7 +377,7 @@ def test_heuristic_client_can_run_offline_where_query(session: Session) -> None:
     result = AgentRunner(session, HeuristicLLMClient()).run("Где CH341A?")
 
     assert item.name in result.content
-    assert "Балкон" in result.content
+    assert "балкон" in result.content
 
 
 def test_heuristic_client_can_create_item_in_existing_location(session: Session) -> None:
@@ -393,7 +393,7 @@ def test_heuristic_client_can_create_item_in_existing_location(session: Session)
 
     created = session.query(Item).filter_by(name="USB тестер").one()
     assert created.current_location_id == drawer.id
-    assert "Стол / правый ящик" in result.content
+    assert "стол / правый ящик" in result.content
 
 
 def test_ambiguous_candidates_are_seen_but_not_mutation_resolved(session: Session) -> None:

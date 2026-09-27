@@ -24,6 +24,7 @@ class MutationReceipt(BaseModel):
     after_ids: dict[str, int | None] = Field(default_factory=dict)
     event_ids: tuple[int, ...] = ()
     affected_item_ids: tuple[int, ...] = ()
+    created_location_ids: tuple[int, ...] = ()
     before: dict[str, Any] = Field(default_factory=dict)
     after: dict[str, Any] = Field(default_factory=dict)
     split: dict[str, Any] | None = None

@@ -173,6 +173,7 @@ def build_telegram_runtime(
             max_rounds=settings.agent_max_rounds,
             system_prompt=_load_system_prompt(settings),
             prompt_version=settings.prompt_version,
+            location_containment_policy=settings.location_containment_policy,
         )
         adapter = TelegramAdapter(
             session,
