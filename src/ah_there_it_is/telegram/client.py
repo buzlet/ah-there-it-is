@@ -14,6 +14,7 @@ import httpx
 DEFAULT_TELEGRAM_BASE_URL = "https://api.telegram.org"
 MAX_TELEGRAM_TEXT_LENGTH = 4096
 ADVISORY_TIMEOUT_SECONDS = 1.0
+LONG_POLL_TIMEOUT_MARGIN_SECONDS = 5.0
 MAX_CALLBACK_QUERY_ID_LENGTH = 256
 
 
@@ -131,7 +132,16 @@ class TelegramBotClient:
         }
         if offset is not None:
             payload["offset"] = offset
-        result = self._call("getUpdates", payload)
+        poll_timeout = httpx.Timeout(
+            connect=self.timeout.connect,
+            read=max(
+                float(timeout) + LONG_POLL_TIMEOUT_MARGIN_SECONDS,
+                float(self.timeout.read or 0.0),
+            ),
+            write=self.timeout.write,
+            pool=self.timeout.pool,
+        )
+        result = self._call("getUpdates", payload, timeout=poll_timeout)
         if not isinstance(result, list):
             raise TelegramResponseError("Telegram getUpdates result was malformed")
         return [self._parse_update(value) for value in result]
