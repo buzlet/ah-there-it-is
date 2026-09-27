@@ -18,6 +18,8 @@ from ah_there_it_is.services.chat_application import ChatApplicationService
 from ah_there_it_is.services.chat_requests import ChatRequestService
 from ah_there_it_is.services.evaluation import EvaluationService
 from ah_there_it_is.telegram.adapter import (
+    NO_MUTATION_FAILURE_TEXT,
+    UNCERTAIN_FAILURE_TEXT,
     TelegramAdapter, TelegramRecoveryError, TelegramRecoveryRequiredError,
 )
 from ah_there_it_is.telegram.client import TelegramChat, TelegramMessage, TelegramUpdate, TelegramUser
@@ -112,7 +114,7 @@ def test_sigkill_reservation_operator_recovery_replays_then_unblocks_next_update
             with pytest.raises(TelegramRecoveryRequiredError, match="101"):
                 TelegramPollingService(adapter, client).run_once()
             assert adapter.next_offset() == 0
-            assert client.sent == []
+            assert client.sent == [UNCERTAIN_FAILURE_TEXT]
             recovered = adapter.recover_update(101, attempt=1)
             assert recovered.replayed is False
             with pytest.raises(TelegramRecoveryError, match="completed recovery"):
@@ -127,7 +129,11 @@ def test_sigkill_reservation_operator_recovery_replays_then_unblocks_next_update
             result = TelegramPollingService(adapter, client).run_once()
             assert result.next_offset == 103
             assert result.processed == 2
-            assert client.sent == ["Сохранено: Первая гайка", "Сохранено: Вторая гайка"]
+            assert client.sent == [
+                UNCERTAIN_FAILURE_TEXT,
+                "Сохранено: Первая гайка",
+                "Сохранено: Вторая гайка",
+            ]
             assert session.scalar(select(func.count(Item.id))) == 2
             source = ChatRequestService(session).get("telegram:101")
             recovery = ChatRequestService(session).get("telegram-recovery:101:1")
@@ -194,17 +200,19 @@ def test_failed_request_requires_controlled_recovery(tmp_path: Path) -> None:
                 session, ChatApplicationService(session, lambda: llm), client,
                 allowed_user_id=7,
             )
-            with pytest.raises(TelegramRecoveryRequiredError, match="101"):
-                TelegramPollingService(adapter, client).run_once()
+            result = TelegramPollingService(adapter, client).run_once()
+            assert result.next_offset == 102
+            assert client.sent == [NO_MUTATION_FAILURE_TEXT]
             adapter.recover_update(101, attempt=1)
         with factory() as session:
             adapter = TelegramAdapter(
                 session, ChatApplicationService(session, lambda: pytest.fail("LLM reran")),
                 client, allowed_user_id=7,
             )
+            adapter.set_next_offset(101)
             assert TelegramPollingService(adapter, client).run_once().next_offset == 102
             assert session.scalar(select(func.count(Item.id))) == 1
-            assert len(client.sent) == 1
+            assert client.sent == [NO_MUTATION_FAILURE_TEXT, "Сохранено: Резервная шайба"]
             assert llm.remaining == 0
     finally:
         engine.dispose()
@@ -257,8 +265,9 @@ def test_value_error_trace_failure_stays_recoverable_and_is_not_a_json_crash(
                 client,
                 allowed_user_id=7,
             )
-            with pytest.raises(ValueError, match="unknown quantity requires a null value"):
-                TelegramPollingService(adapter, client).run_once()
+            result = TelegramPollingService(adapter, client).run_once()
+            assert result.next_offset == 118
+            assert client.sent == [NO_MUTATION_FAILURE_TEXT]
 
             source = ChatRequestService(session).get("telegram:117")
             assert source is not None
@@ -270,7 +279,7 @@ def test_value_error_trace_failure_stays_recoverable_and_is_not_a_json_crash(
                 "request_has_run": False,
                 "attempts": [],
             }
-            assert adapter.next_offset() == 0
+            assert adapter.next_offset() == 118
             logged = EvaluationService(session).recent_runs(limit=1)[0]
             assert logged.status == "failed"
             assert logged.tool_trace[0]["assistant"]["metadata"]["tool_diagnostic"] == {
@@ -282,7 +291,6 @@ def test_value_error_trace_failure_stays_recoverable_and_is_not_a_json_crash(
 
 
 def test_real_quantity_validation_failure_persists_and_recovers_once(tmp_path: Path) -> None:
-    from ah_there_it_is.agent.errors import AgentTurnFailedError
     from ah_there_it_is.agent.tools import ToolDispatcher
 
     database_url = f"sqlite:///{tmp_path / 'quantity-error.db'}"
@@ -304,8 +312,9 @@ def test_real_quantity_validation_failure_persists_and_recovers_once(tmp_path: P
                 session, ChatApplicationService(session, lambda: bad_llm), client,
                 allowed_user_id=7,
             )
-            with pytest.raises(AgentTurnFailedError, match="invalid_arguments"):
-                TelegramPollingService(adapter, client).run_once()
+            result = TelegramPollingService(adapter, client).run_once()
+            assert result.next_offset == 119
+            assert client.sent == [NO_MUTATION_FAILURE_TEXT]
             logged = EvaluationService(session).recent_runs(limit=1)[0]
             error = logged.tool_trace[0]["tool_results"][0]["result"]["error"]
             assert error["detail"][0]["ctx"]["error"] == {
@@ -313,7 +322,7 @@ def test_real_quantity_validation_failure_persists_and_recovers_once(tmp_path: P
                 "message": "unknown quantity requires a null value",
             }
             assert adapter.recovery_status(118)["request_has_run"] is False
-            assert adapter.next_offset() == 0
+            assert adapter.next_offset() == 119
             assert session.scalar(select(func.count(Item.id))) == 0
         # Reopen the database and verify the durable failure gate before recovery.
         with factory() as session:
@@ -322,14 +331,14 @@ def test_real_quantity_validation_failure_persists_and_recovers_once(tmp_path: P
                 session, ChatApplicationService(session, lambda: good_llm), client,
                 allowed_user_id=7,
             )
-            with pytest.raises(TelegramRecoveryRequiredError):
-                TelegramPollingService(adapter, client).run_once()
+            assert TelegramPollingService(adapter, client).run_once().next_offset == 119
             assert good_llm.remaining == 3
             adapter.recover_update(118, attempt=1)
+            adapter.set_next_offset(118)
             TelegramPollingService(adapter, client).run_once()
             TelegramPollingService(adapter, client).run_once()
             assert session.scalar(select(func.count(Item.id))) == 1
-            assert len(client.sent) == 1
+            assert client.sent == [NO_MUTATION_FAILURE_TEXT, "Сохранено: Болты"]
             assert adapter.next_offset() == 119
     finally:
         engine.dispose()

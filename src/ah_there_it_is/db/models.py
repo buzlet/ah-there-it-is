@@ -306,6 +306,26 @@ class TelegramPollingState(Base):
     )
 
 
+class TelegramFailureNotice(Base):
+    """A durable marker preventing repeated notices for one blocked update."""
+
+    __tablename__ = "telegram_failure_notices"
+    __table_args__ = (
+        CheckConstraint(
+            "notice_kind IN ('no_mutation', 'uncertain')",
+            name="ck_telegram_failure_notices_kind",
+        ),
+        UniqueConstraint("request_key", name="uq_telegram_failure_notices_request_key"),
+    )
+
+    update_id: Mapped[int] = mapped_column(BigInteger, primary_key=True)
+    request_key: Mapped[str] = mapped_column(String(128), nullable=False)
+    notice_kind: Mapped[str] = mapped_column(String(20), nullable=False)
+    sent_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=utc_now, nullable=False
+    )
+
+
 class Message(Base):
     __tablename__ = "messages"
 

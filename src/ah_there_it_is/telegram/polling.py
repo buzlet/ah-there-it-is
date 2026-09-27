@@ -7,7 +7,7 @@ from threading import Event
 from typing import Any
 
 from ah_there_it_is.telegram.adapter import TelegramAdapter, TelegramAdapterResult
-from ah_there_it_is.telegram.progress import TelegramTyping
+from ah_there_it_is.telegram.progress import TelegramDraftProgress
 
 
 @dataclass(frozen=True)
@@ -55,6 +55,15 @@ class TelegramPollingService:
         for update in ordered:
             if update.update_id < offset:
                 continue
+            if update.callback_query is not None:
+                outcome = self.adapter.process_callback_update(update)
+                offset = self.adapter.acknowledge_update(update.update_id)
+                outcomes.append(outcome)
+                if outcome.accepted:
+                    processed += 1
+                else:
+                    discarded += 1
+                continue
             request_key = f"telegram:{update.update_id}"
             if not self.adapter.accepts(update):
                 outcome = self.adapter.process_update(
@@ -66,15 +75,18 @@ class TelegramPollingService:
                 continue
 
             assert update.message is not None
-            with TelegramTyping(
+            draft_id = (update.update_id % 2_147_483_647) + 1
+            with TelegramDraftProgress(
                 self.client,
                 update.message.chat.id,
+                draft_id,
                 stop_event=stop_event,
-            ):
+            ) as progress:
                 outcome = self.adapter.process_update(
                     update,
                     request_key=request_key,
                     send_reply=True,
+                    before_reply=progress.stop,
                 )
             # A successful send is the point at which this update can be acked.
             offset = self.adapter.acknowledge_update(update.update_id)

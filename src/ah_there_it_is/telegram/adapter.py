@@ -3,22 +3,45 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Any
+import re
+from typing import Any, Callable
 
 from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session as OrmSession
 
 from ah_there_it_is.db.models import (
+    AgentRunLog,
     ChatRequestRecord,
     TelegramChatBinding,
+    TelegramFailureNotice,
     TelegramPollingState,
     utc_now,
 )
 from ah_there_it_is.services.chat_requests import ChatRequestService, IdempotentExecution
 from ah_there_it_is.telegram.client import (
-    TelegramChat, TelegramMessage, TelegramUpdate, TelegramUser,
+    TelegramCallbackQuery, TelegramChat, TelegramMessage, TelegramUpdate, TelegramUser,
 )
+from ah_there_it_is.telegram.navigation import (
+    TelegramLocationBrowser,
+    TelegramLocationRenderer,
+    TelegramNavigationAction,
+    parse_navigation_callback,
+)
+
+
+NO_MUTATION_FAILURE_TEXT = (
+    "Не получилось завершить этот запрос. Я ничего не менял. "
+    "Попробуйте сформулировать его немного иначе или повторить позже."
+)
+UNCERTAIN_FAILURE_TEXT = (
+    "Не получилось завершить запрос. Я остановился, чтобы не внести данные дважды. "
+    "Запрос сохранён для безопасного восстановления."
+)
+STALE_NAVIGATION_TEXT = (
+    "Эта кнопка устарела. Откройте /locations, чтобы продолжить."
+)
+_LOCATIONS_COMMAND = re.compile(r"^/locations(?:@[a-zA-Z0-9_]+)?(?:\s|$)", re.IGNORECASE)
 
 
 @dataclass(frozen=True)
@@ -30,6 +53,7 @@ class TelegramAdapterResult:
     content: str | None = None
     reason: str | None = None
     sent_messages: tuple[TelegramMessage, ...] = ()
+    handled_failure: bool = False
 
 
 class TelegramRecoveryRequiredError(RuntimeError):
@@ -47,7 +71,7 @@ class TelegramAdapter:
 
     def __init__(
         self,
-        session: Session,
+        session: OrmSession,
         chat_service: Any,
         client: Any,
         *,
@@ -66,6 +90,8 @@ class TelegramAdapter:
         self.source_identity = label or f"telegram:{allowed_user_id}"
 
     def accepts(self, update: TelegramUpdate) -> bool:
+        if isinstance(update, TelegramUpdate) and update.callback_query is not None:
+            return self._callback_rejection_reason(update.callback_query) is None
         return self._rejection_reason(update) is None
 
     def process_update(
@@ -74,7 +100,10 @@ class TelegramAdapter:
         *,
         request_key: str | None = None,
         send_reply: bool = True,
+        before_reply: Callable[[], None] | None = None,
     ) -> TelegramAdapterResult:
+        if isinstance(update, TelegramUpdate) and update.callback_query is not None:
+            return self.process_callback_update(update)
         rejection = self._rejection_reason(update)
         if rejection is not None:
             return TelegramAdapterResult(
@@ -84,6 +113,27 @@ class TelegramAdapter:
             )
         assert update.message is not None
         message = update.message
+        if _LOCATIONS_COMMAND.match(message.text or ""):
+            view = TelegramLocationBrowser(self.session).root_page()
+            renderer = TelegramLocationRenderer()
+            keyboard = renderer.root_keyboard(view)
+            if before_reply is not None:
+                before_reply()
+            sent = tuple(
+                self.client.send_message(
+                    message.chat.id,
+                    renderer.render_root(view),
+                    reply_markup=keyboard,
+                    parse_mode="HTML",
+                )
+            )
+            return TelegramAdapterResult(
+                accepted=True,
+                invoked=False,
+                chat_id=message.chat.id,
+                content=renderer.render_root(view),
+                sent_messages=sent,
+            )
         binding = self.session.get(TelegramChatBinding, message.chat.id)
         conversation_id = binding.conversation_id if binding is not None else None
         # A first delivery reserves the request before the chat binding is
@@ -103,23 +153,84 @@ class TelegramAdapter:
                 conversation_id = prior_request.requested_conversation_id
         if prior_request is not None and prior_request.status in {"processing", "failed"}:
             if prior_request.source_identity != self.source_identity:
-                raise TelegramRecoveryError("Telegram request source identity changed")
+                self._notify_uncertain_failure(update, request_key or "", before_reply=before_reply)
+                raise TelegramRecoveryRequiredError(
+                    f"Telegram update {update.update_id} has inconsistent request ownership"
+                )
             if prior_request.message != message.text.strip():
-                raise TelegramRecoveryError("Telegram update text differs from reserved request")
-            recovered = self._completed_recovery(prior_request, update.update_id)
+                self._notify_uncertain_failure(update, request_key or "", before_reply=before_reply)
+                raise TelegramRecoveryRequiredError(
+                    f"Telegram update {update.update_id} differs from its durable request"
+                )
+            try:
+                recovered = self._completed_recovery(prior_request, update.update_id)
+            except TelegramRecoveryError:
+                self._notify_uncertain_failure(update, request_key or "", before_reply=before_reply)
+                raise TelegramRecoveryRequiredError(
+                    f"Telegram update {update.update_id} needs safe recovery"
+                ) from None
             if recovered is None:
+                if self._proven_no_mutation_failure(
+                    request_key, message.text.strip(), update.update_id
+                ):
+                    sent = self._notify_failure(
+                        update.update_id,
+                        request_key or f"telegram:{update.update_id}",
+                        "no_mutation",
+                        NO_MUTATION_FAILURE_TEXT,
+                        message.chat.id,
+                        before_reply=before_reply,
+                    )
+                    return TelegramAdapterResult(
+                        accepted=True,
+                        invoked=True,
+                        chat_id=message.chat.id,
+                        conversation_id=conversation_id,
+                        content=NO_MUTATION_FAILURE_TEXT,
+                        reason="handled application failure",
+                        sent_messages=sent,
+                        handled_failure=True,
+                    )
+                self._notify_uncertain_failure(update, request_key or "", before_reply=before_reply)
                 raise TelegramRecoveryRequiredError(
                     f"Telegram update {update.update_id} has a {prior_request.status} "
                     "request; stop the poller and use telegram-recover"
                 )
             result = ChatRequestService(self.session).completed_result(recovered)
         else:
-            execution = self.chat_service.execute_chat(
-                message.text.strip(),
-                conversation_id=conversation_id,
-                request_key=request_key,
-                source_identity=self.source_identity,
-            )
+            try:
+                execution = self.chat_service.execute_chat(
+                    message.text.strip(),
+                    conversation_id=conversation_id,
+                    request_key=request_key,
+                    source_identity=self.source_identity,
+                )
+            except Exception:
+                if self._proven_no_mutation_failure(
+                    request_key, message.text.strip(), update.update_id
+                ):
+                    sent = self._notify_failure(
+                        update.update_id,
+                        request_key or f"telegram:{update.update_id}",
+                        "no_mutation",
+                        NO_MUTATION_FAILURE_TEXT,
+                        message.chat.id,
+                        before_reply=before_reply,
+                    )
+                    return TelegramAdapterResult(
+                        accepted=True,
+                        invoked=True,
+                        chat_id=message.chat.id,
+                        conversation_id=conversation_id,
+                        content=NO_MUTATION_FAILURE_TEXT,
+                        reason="handled application failure",
+                        sent_messages=sent,
+                        handled_failure=True,
+                    )
+                self._notify_uncertain_failure(update, request_key or "", before_reply=before_reply)
+                raise TelegramRecoveryRequiredError(
+                    f"Telegram update {update.update_id} needs safe recovery"
+                ) from None
             result = execution.result
         if binding is None:
             binding = TelegramChatBinding(
@@ -135,16 +246,274 @@ class TelegramAdapter:
                 if binding is None:
                     raise
         sent: tuple[TelegramMessage, ...] = ()
+        content = result.content
+        options: dict[str, Any] = {}
+        structured = self._location_reply(result)
+        if structured is not None:
+            content, keyboard = structured
+            options = {"reply_markup": keyboard, "parse_mode": "HTML"}
         if send_reply:
-            sent = tuple(self.client.send_message(message.chat.id, result.content))
+            if before_reply is not None:
+                before_reply()
+            sent = tuple(self.client.send_message(message.chat.id, content, **options))
         return TelegramAdapterResult(
             accepted=True,
             invoked=True,
             chat_id=message.chat.id,
             conversation_id=result.conversation_id,
-            content=result.content,
+            content=content,
             sent_messages=sent,
         )
+
+    def _location_reply(self, result: Any) -> tuple[str, dict[str, object]] | None:
+        """Select a Telegram view from committed tool evidence, never model prose."""
+        run_id = getattr(result, "run_id", None)
+        if type(run_id) is not int:
+            return None
+        run = self.session.get(AgentRunLog, run_id)
+        if run is None or run.status != "completed" or run.mutation_receipts:
+            return None
+        listings = [
+            entry
+            for round_ in run.tool_trace
+            for entry in round_.get("tool_results", [])
+            if entry.get("tool_name") == "list_location"
+            and entry.get("result", {}).get("ok") is True
+        ]
+        location_ids = {entry.get("arguments", {}).get("location_id") for entry in listings}
+        if len(location_ids) != 1:
+            return None
+        location_id = location_ids.pop()
+        if type(location_id) is not int:
+            return None
+        try:
+            return self._render_navigation_action(
+                TelegramNavigationAction("location", location_id=location_id),
+                TelegramLocationRenderer(),
+            )
+        except ValueError:
+            return None
+
+    def process_callback_update(self, update: TelegramUpdate) -> TelegramAdapterResult:
+        """Answer every callback promptly; authorized navigation is read-only."""
+        callback = update.callback_query
+        if callback is None:
+            return TelegramAdapterResult(
+                accepted=False, invoked=False, reason="update has no callback query"
+            )
+        answer = getattr(self.client, "answer_callback_query", None)
+        if callable(answer) and isinstance(callback.id, str) and callback.id:
+            try:
+                answer(callback.id)
+            except Exception:
+                # The query answer is advisory; it must not affect inventory or
+                # stop a read-only navigation update.
+                pass
+        rejection = self._callback_rejection_reason(callback)
+        if rejection is not None:
+            return TelegramAdapterResult(
+                accepted=False, invoked=False, reason=rejection
+            )
+        assert callback.message is not None
+        message = callback.message
+        action = parse_navigation_callback(callback.data)
+        renderer = TelegramLocationRenderer()
+        try:
+            rendered = self._render_navigation_action(action, renderer)
+        except (ValueError, TelegramRecoveryError):
+            rendered = None
+        if rendered is None:
+            text = STALE_NAVIGATION_TEXT
+            keyboard: dict[str, object] = {"inline_keyboard": []}
+        else:
+            text, keyboard = rendered
+        edit = getattr(self.client, "edit_message_text", None)
+        if callable(edit):
+            try:
+                edit(
+                    message.chat.id,
+                    message.message_id,
+                    text,
+                    reply_markup=keyboard,
+                    parse_mode="HTML",
+                )
+            except Exception:
+                # A stale/uneditable navigation message is a transport UX issue,
+                # never a reason to enter the inventory mutation path.
+                pass
+        return TelegramAdapterResult(
+            accepted=True,
+            invoked=False,
+            chat_id=message.chat.id,
+            content=text,
+            reason=None if rendered is not None else "malformed or stale navigation callback",
+        )
+
+    def _render_navigation_action(
+        self,
+        action: TelegramNavigationAction | None,
+        renderer: TelegramLocationRenderer,
+    ) -> tuple[str, dict[str, object]] | None:
+        if action is None:
+            return None
+        browser = TelegramLocationBrowser(self.session)
+        if action.kind == "root":
+            view = browser.root_page(action.page)
+            return renderer.render_root(view), (
+                renderer.root_keyboard(view) or {"inline_keyboard": []}
+            )
+        assert action.location_id is not None
+        view = browser.location_contents(
+            action.location_id,
+            root_page=action.root_page,
+            item_page=action.page if action.kind == "items" else 1,
+            child_page=action.page if action.kind == "children" else 1,
+        )
+        if view is None:
+            return None
+        if action.kind == "back":
+            if view.parent_id is None:
+                root = browser.root_page(action.root_page)
+                return renderer.render_root(root), (
+                    renderer.root_keyboard(root) or {"inline_keyboard": []}
+                )
+            view = browser.location_contents(view.parent_id, root_page=action.root_page)
+            if view is None:
+                return None
+        return (
+            renderer.render_location(view),
+            renderer.location_keyboard(view),
+        )
+
+    def _callback_rejection_reason(
+        self, callback: TelegramCallbackQuery
+    ) -> str | None:
+        if (
+            not isinstance(callback.from_user, TelegramUser)
+            or type(callback.from_user.id) is not int
+            or callback.from_user.id != self.allowed_user_id
+        ):
+            return "callback sender is not allowed"
+        message = callback.message
+        if (
+            message is None
+            or callback.inline_message_id is not None
+            or not isinstance(message, TelegramMessage)
+            or type(message.message_id) is not int
+            or message.message_id <= 0
+            or not isinstance(message.chat, TelegramChat)
+            or message.chat.type != "private"
+            or type(message.chat.id) is not int
+            or message.chat.id != self.allowed_user_id
+            or not isinstance(message.from_user, TelegramUser)
+            or message.from_user.is_bot is not True
+        ):
+            return "callback context is not an authorized private bot message"
+        return None
+
+    def _proven_no_mutation_failure(
+        self, request_key: str | None, message: str, update_id: int
+    ) -> bool:
+        """Trust only a durable terminal request with no attached successful run."""
+        if not isinstance(request_key, str) or not request_key:
+            return False
+        try:
+            with OrmSession(bind=self.session.get_bind()) as durable:
+                record = durable.scalar(
+                    select(ChatRequestRecord).where(
+                        ChatRequestRecord.request_key == request_key
+                    )
+                )
+                if record is None:
+                    return False
+                lineage = self._recovery_lineage(record, update_id, session=durable)
+                # Every attempt belongs to this logical request. A failed
+                # source cannot establish the outcome of an interrupted retry.
+                return bool(
+                    record.message == message
+                    and record.source_identity == self.source_identity
+                    and all(attempt.status == "failed" and attempt.agent_run_id is None
+                            for attempt in lineage)
+                )
+        except Exception:
+            return False
+
+    def _notify_uncertain_failure(
+        self, update: TelegramUpdate, request_key: str,
+        *, before_reply: Callable[[], None] | None = None,
+    ) -> tuple[TelegramMessage, ...]:
+        if update.message is None:
+            return ()
+        return self._notify_failure(
+            update.update_id,
+            request_key or f"telegram:{update.update_id}",
+            "uncertain",
+            UNCERTAIN_FAILURE_TEXT,
+            update.message.chat.id,
+            before_reply=before_reply,
+        )
+
+    def _notify_failure(
+        self,
+        update_id: int,
+        request_key: str,
+        notice_kind: str,
+        content: str,
+        chat_id: int,
+        *, before_reply: Callable[[], None] | None = None,
+    ) -> tuple[TelegramMessage, ...]:
+        existing = self._failure_notice(update_id)
+        if existing is not None:
+            if existing.request_key != request_key:
+                raise TelegramRecoveryError(
+                    "Telegram failure notice belongs to a different request"
+                )
+            return ()
+
+        if before_reply is not None:
+            before_reply()
+        sent = tuple(self.client.send_message(chat_id, content))
+        try:
+            with OrmSession(bind=self.session.get_bind()) as durable:
+                existing = durable.get(TelegramFailureNotice, update_id)
+                if existing is None:
+                    durable.add(
+                        TelegramFailureNotice(
+                            update_id=update_id,
+                            request_key=request_key,
+                            notice_kind=notice_kind,
+                            sent_at=utc_now(),
+                        )
+                    )
+                    durable.commit()
+                elif existing.request_key != request_key:
+                    raise TelegramRecoveryError(
+                        "Telegram failure notice belongs to a different request"
+                    )
+        except Exception:
+            # A commit error may have happened after SQLite committed. Reconcile
+            # through a fresh Session before allowing a later poll to resend.
+            if self._failure_notice(update_id, request_key=request_key) is None:
+                raise
+        return sent
+
+    def _failure_notice(
+        self, update_id: int, *, request_key: str | None = None
+    ) -> TelegramFailureNotice | None:
+        try:
+            with OrmSession(bind=self.session.get_bind()) as durable:
+                notice = durable.get(TelegramFailureNotice, update_id)
+                if notice is not None and request_key is not None:
+                    if notice.request_key != request_key:
+                        raise TelegramRecoveryError(
+                            "Telegram failure notice belongs to a different request"
+                        )
+                    return notice
+                return notice
+        except TelegramRecoveryError:
+            raise
+        except Exception:
+            return None
 
     def recovery_status(self, update_id: int) -> dict[str, object]:
         source = self._recovery_source(update_id)
@@ -193,11 +562,13 @@ class TelegramAdapter:
         return source
 
     def _recovery_lineage(
-        self, source: ChatRequestRecord, update_id: int
+        self, source: ChatRequestRecord, update_id: int,
+        *, session: OrmSession | None = None,
     ) -> list[ChatRequestRecord]:
+        active_session = session if session is not None else self.session
         lineage = [source]
         while True:
-            children = list(self.session.scalars(
+            children = list(active_session.scalars(
                 select(ChatRequestRecord)
                 .where(ChatRequestRecord.recovered_from_id == lineage[-1].id)
                 .order_by(ChatRequestRecord.id)
