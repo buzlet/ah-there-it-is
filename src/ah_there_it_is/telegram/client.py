@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from collections.abc import Callable, Iterable, Mapping
 from dataclasses import dataclass
+import secrets
 import time
 from typing import Any
 
@@ -12,6 +13,8 @@ import httpx
 
 DEFAULT_TELEGRAM_BASE_URL = "https://api.telegram.org"
 MAX_TELEGRAM_TEXT_LENGTH = 4096
+ADVISORY_TIMEOUT_SECONDS = 1.0
+MAX_CALLBACK_QUERY_ID_LENGTH = 256
 
 
 class TelegramClientError(RuntimeError):
@@ -45,6 +48,7 @@ class TelegramResponseError(TelegramClientError):
 @dataclass(frozen=True)
 class TelegramUser:
     id: int
+    is_bot: bool = False
 
 
 @dataclass(frozen=True)
@@ -65,6 +69,16 @@ class TelegramMessage:
 class TelegramUpdate:
     update_id: int
     message: TelegramMessage | None
+    callback_query: TelegramCallbackQuery | None = None
+
+
+@dataclass(frozen=True)
+class TelegramCallbackQuery:
+    id: str
+    from_user: TelegramUser
+    message: TelegramMessage | None
+    data: str | None
+    inline_message_id: str | None = None
 
 
 class TelegramBotClient:
@@ -110,7 +124,11 @@ class TelegramBotClient:
             raise ValueError("timeout must be between 0 and 50")
         if limit < 1 or limit > 100:
             raise ValueError("limit must be between 1 and 100")
-        payload: dict[str, Any] = {"timeout": timeout, "limit": limit}
+        payload: dict[str, Any] = {
+            "timeout": timeout,
+            "limit": limit,
+            "allowed_updates": ["message", "callback_query"],
+        }
         if offset is not None:
             payload["offset"] = offset
         result = self._call("getUpdates", payload)
@@ -118,34 +136,127 @@ class TelegramBotClient:
             raise TelegramResponseError("Telegram getUpdates result was malformed")
         return [self._parse_update(value) for value in result]
 
-    def send_message(self, chat_id: int, text: str) -> tuple[TelegramMessage, ...]:
+    def send_message(
+        self,
+        chat_id: int,
+        text: str,
+        *,
+        reply_markup: Mapping[str, Any] | None = None,
+        parse_mode: str | None = None,
+    ) -> tuple[TelegramMessage, ...]:
         """Send plain text, splitting deterministically at the isolated limit."""
         if isinstance(chat_id, bool) or not isinstance(chat_id, int):
             raise ValueError("chat_id must be an integer")
         if not isinstance(text, str) or not text:
             raise ValueError("text must not be empty")
+        if parse_mode not in {None, "HTML"}:
+            raise ValueError("unsupported Telegram parse mode")
         chunks = tuple(
             text[index : index + MAX_TELEGRAM_TEXT_LENGTH]
             for index in range(0, len(text), MAX_TELEGRAM_TEXT_LENGTH)
         )
         messages: list[TelegramMessage] = []
-        for chunk in chunks:
+        for index, chunk in enumerate(chunks):
+            payload: dict[str, Any] = {"chat_id": chat_id, "text": chunk}
+            if parse_mode is not None:
+                payload["parse_mode"] = parse_mode
+            if reply_markup is not None and index == len(chunks) - 1:
+                payload["reply_markup"] = dict(reply_markup)
             result = self._call(
                 "sendMessage",
-                {"chat_id": chat_id, "text": chunk},
+                payload,
             )
             messages.append(self._parse_message(result))
         return tuple(messages)
 
+    def send_message_draft(self, chat_id: int, draft_id: int, text: str) -> None:
+        """Send one bounded, ephemeral Bot API draft update."""
+        self._validate_chat_id(chat_id)
+        if type(draft_id) is not int or not 1 <= draft_id <= 2_147_483_647:
+            raise ValueError("draft_id must be a non-zero 32-bit integer")
+        if not isinstance(text, str) or not text or len(text) > MAX_TELEGRAM_TEXT_LENGTH:
+            raise ValueError("draft text has an invalid length")
+        try:
+            result = self._call(
+                "sendMessageDraft",
+                {"chat_id": chat_id, "draft_id": draft_id, "text": text},
+                timeout=httpx.Timeout(ADVISORY_TIMEOUT_SECONDS),
+                max_retries=0,
+            )
+        except TelegramClientError:
+            raise TelegramClientError("Telegram draft request failed") from None
+        if result is not True:
+            raise TelegramResponseError("Telegram draft result was malformed")
+
+    def answer_callback_query(self, callback_query_id: str) -> None:
+        if (
+            not isinstance(callback_query_id, str)
+            or not callback_query_id
+            or len(callback_query_id) > MAX_CALLBACK_QUERY_ID_LENGTH
+        ):
+            raise ValueError("callback query id is malformed")
+        try:
+            result = self._call(
+                "answerCallbackQuery",
+                {"callback_query_id": callback_query_id},
+                timeout=httpx.Timeout(ADVISORY_TIMEOUT_SECONDS),
+                max_retries=0,
+            )
+        except TelegramClientError:
+            raise TelegramClientError("Telegram callback answer failed") from None
+        if result is not True:
+            raise TelegramResponseError("Telegram callback answer result was malformed")
+
+    def edit_message_text(
+        self,
+        chat_id: int,
+        message_id: int,
+        text: str,
+        *,
+        reply_markup: Mapping[str, Any] | None = None,
+        parse_mode: str | None = None,
+    ) -> None:
+        self._validate_chat_id(chat_id)
+        if type(message_id) is not int or message_id <= 0:
+            raise ValueError("message_id must be positive")
+        if not isinstance(text, str) or not text or len(text) > MAX_TELEGRAM_TEXT_LENGTH:
+            raise ValueError("edited text has an invalid length")
+        if parse_mode not in {None, "HTML"}:
+            raise ValueError("unsupported Telegram parse mode")
+        payload: dict[str, Any] = {
+            "chat_id": chat_id,
+            "message_id": message_id,
+            "text": text,
+        }
+        if parse_mode is not None:
+            payload["parse_mode"] = parse_mode
+        if reply_markup is not None:
+            payload["reply_markup"] = dict(reply_markup)
+        try:
+            result = self._call(
+                "editMessageText",
+                payload,
+                timeout=httpx.Timeout(ADVISORY_TIMEOUT_SECONDS),
+                max_retries=0,
+            )
+        except TelegramClientError:
+            raise TelegramClientError("Telegram message edit failed") from None
+        if result is not True and not isinstance(result, dict):
+            raise TelegramResponseError("Telegram message edit result was malformed")
+
+    @staticmethod
+    def new_draft_id() -> int:
+        """Return a non-zero API-safe ID, generated once for one in-flight request."""
+        return secrets.randbelow(2_147_483_647) + 1
+
     def send_chat_action(self, chat_id: int, action: str = "typing") -> None:
-        if isinstance(chat_id, bool) or not isinstance(chat_id, int):
-            raise ValueError("chat_id must be an integer")
+        self._validate_chat_id(chat_id)
         if action != "typing":
             raise ValueError("unsupported chat action")
         try:
             result = self._call(
                 "sendChatAction", {"chat_id": chat_id, "action": action},
-                timeout=httpx.Timeout(min(1.0, self.timeout.connect or 1.0)),
+                timeout=httpx.Timeout(ADVISORY_TIMEOUT_SECONDS),
                 max_retries=0,
             )
         except TelegramClientError:
@@ -209,7 +320,7 @@ class TelegramBotClient:
                 raise TelegramResponseError("Telegram response envelope was malformed")
             if body["ok"] is not True:
                 code = body.get("error_code")
-                description = self._safe_description(body.get("description"))
+                description = self._safe_description(body.get("description"), payload)
                 # API error codes are integers. Never interpolate an arbitrary
                 # response field into an exception: it may contain the bot token.
                 safe_code = code if type(code) is int else None
@@ -242,10 +353,27 @@ class TelegramBotClient:
                 pass
         self._sleep(min(delay, 30.0))
 
-    def _safe_description(self, value: object) -> str:
+    def _safe_description(
+        self, value: object, payload: Mapping[str, Any] | None = None
+    ) -> str:
         if not isinstance(value, str):
             return ""
-        return value.replace(self._token, "[redacted]")[:500]
+        safe = value.replace(self._token, "[redacted]")
+        for key in (
+            "chat_id",
+            "message_id",
+            "callback_query_id",
+            "user_id",
+        ):
+            identity = payload.get(key) if payload is not None else None
+            if isinstance(identity, (str, int)) and not isinstance(identity, bool):
+                safe = safe.replace(str(identity), "[redacted]")
+        return safe[:500]
+
+    @staticmethod
+    def _validate_chat_id(chat_id: int) -> None:
+        if isinstance(chat_id, bool) or not isinstance(chat_id, int) or chat_id == 0:
+            raise ValueError("chat_id must be a non-zero integer")
 
     @classmethod
     def _parse_update(cls, value: object) -> TelegramUpdate:
@@ -254,13 +382,48 @@ class TelegramBotClient:
         if not 0 <= value["update_id"] < 2**63 - 1:
             raise TelegramResponseError("Telegram update was malformed")
         message_value = value.get("message")
+        callback_value = value.get("callback_query")
         return TelegramUpdate(
             update_id=value["update_id"],
             message=(cls._parse_message(message_value) if message_value is not None else None),
+            callback_query=(
+                cls._parse_callback_query(callback_value)
+                if callback_value is not None
+                else None
+            ),
         )
 
-    @staticmethod
-    def _parse_message(value: object) -> TelegramMessage:
+    @classmethod
+    def _parse_callback_query(cls, value: object) -> TelegramCallbackQuery:
+        if not isinstance(value, dict):
+            raise TelegramResponseError("Telegram callback query was malformed")
+        query_id = value.get("id")
+        user_value = value.get("from")
+        if (
+            not isinstance(query_id, str)
+            or not query_id
+            or len(query_id) > MAX_CALLBACK_QUERY_ID_LENGTH
+            or not isinstance(user_value, dict)
+        ):
+            raise TelegramResponseError("Telegram callback query was malformed")
+        user = cls._parse_user(user_value)
+        message_value = value.get("message")
+        inline_message_id = value.get("inline_message_id")
+        data = value.get("data")
+        if inline_message_id is not None and not isinstance(inline_message_id, str):
+            raise TelegramResponseError("Telegram callback message was malformed")
+        if data is not None and not isinstance(data, str):
+            raise TelegramResponseError("Telegram callback data was malformed")
+        return TelegramCallbackQuery(
+            id=query_id,
+            from_user=user,
+            message=cls._parse_message(message_value) if message_value is not None else None,
+            data=data,
+            inline_message_id=inline_message_id,
+        )
+
+    @classmethod
+    def _parse_message(cls, value: object) -> TelegramMessage:
         if not isinstance(value, dict):
             raise TelegramResponseError("Telegram message was malformed")
         message_id = value.get("message_id")
@@ -272,11 +435,7 @@ class TelegramBotClient:
         if type(chat_id) is not int or not isinstance(chat_type, str):
             raise TelegramResponseError("Telegram chat was malformed")
         user_value = value.get("from")
-        user = None
-        if user_value is not None:
-            if not isinstance(user_value, dict) or type(user_value.get("id")) is not int:
-                raise TelegramResponseError("Telegram sender was malformed")
-            user = TelegramUser(id=user_value["id"])
+        user = cls._parse_user(user_value) if user_value is not None else None
         text = value.get("text")
         if text is not None and not isinstance(text, str):
             raise TelegramResponseError("Telegram message text was malformed")
@@ -286,6 +445,15 @@ class TelegramBotClient:
             from_user=user,
             text=text,
         )
+
+    @staticmethod
+    def _parse_user(value: object) -> TelegramUser:
+        if not isinstance(value, dict) or type(value.get("id")) is not int:
+            raise TelegramResponseError("Telegram sender was malformed")
+        is_bot = value.get("is_bot", False)
+        if type(is_bot) is not bool:
+            raise TelegramResponseError("Telegram sender was malformed")
+        return TelegramUser(id=value["id"], is_bot=is_bot)
 
 
 TelegramClient = TelegramBotClient

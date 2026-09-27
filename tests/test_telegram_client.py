@@ -34,6 +34,7 @@ def test_get_updates_uses_offset_and_parses_only_adapter_fields() -> None:
             "offset": 11,
             "timeout": 5,
             "limit": 2,
+            "allowed_updates": ["message", "callback_query"],
         }
         return httpx.Response(
             200,
@@ -87,6 +88,77 @@ def test_send_chat_action_maps_typing_request() -> None:
         client.send_chat_action(99)
 
     assert seen == [("/botsecret/sendChatAction", {"chat_id": 99, "action": "typing"})]
+
+
+def test_callback_update_parsing_keeps_only_authorization_and_navigation_fields() -> None:
+    update = TelegramBotClient._parse_update({
+        "update_id": 12,
+        "callback_query": {
+            "id": "callback-1",
+            "from": {"id": 7, "is_bot": False},
+            "message": {
+                "message_id": 42,
+                "chat": {"id": 7, "type": "private"},
+                "from": {"id": 99, "is_bot": True},
+                "text": "Места хранения",
+            },
+            "data": "t1:l:25:2",
+            "chat_instance": "ignored",
+        },
+    })
+
+    assert update.message is None
+    assert update.callback_query is not None
+    assert update.callback_query.id == "callback-1"
+    assert update.callback_query.from_user.id == 7
+    assert update.callback_query.from_user.is_bot is False
+    assert update.callback_query.message is not None
+    assert update.callback_query.message.from_user is not None
+    assert update.callback_query.message.from_user.is_bot is True
+    assert update.callback_query.data == "t1:l:25:2"
+
+
+def test_draft_callback_answer_and_edit_use_official_bounded_api_shapes() -> None:
+    requests = []
+    sleeps = []
+
+    def respond(request: httpx.Request) -> httpx.Response:
+        requests.append((request.url.path, json.loads(request.content), request.extensions["timeout"]))
+        result = {"message_id": 42} if request.url.path.endswith("editMessageText") else True
+        return httpx.Response(200, json={"ok": True, "result": result})
+
+    with TelegramBotClient(
+        "secret", base_url="https://telegram.test", timeout_seconds=300,
+        max_retries=5, sleep=sleeps.append, transport=httpx.MockTransport(respond),
+    ) as client:
+        client.send_message_draft(7, 123, "Обрабатываю запрос.")
+        client.answer_callback_query("callback-1")
+        client.edit_message_text(
+            7,
+            42,
+            "<b>Места</b>",
+            parse_mode="HTML",
+            reply_markup={"inline_keyboard": [[{"text": "Ванна", "callback_data": "t1:l:1:1"}]]},
+        )
+
+    assert [path for path, _, _ in requests] == [
+        "/botsecret/sendMessageDraft",
+        "/botsecret/answerCallbackQuery",
+        "/botsecret/editMessageText",
+    ]
+    assert requests[0][1] == {
+        "chat_id": 7, "draft_id": 123, "text": "Обрабатываю запрос."
+    }
+    assert requests[1][1] == {"callback_query_id": "callback-1"}
+    assert requests[2][1] == {
+        "chat_id": 7,
+        "message_id": 42,
+        "text": "<b>Места</b>",
+        "parse_mode": "HTML",
+        "reply_markup": {"inline_keyboard": [[{"text": "Ванна", "callback_data": "t1:l:1:1"}]]},
+    }
+    assert all(value <= 1 for _, _, timeout in requests for value in timeout.values())
+    assert sleeps == []
 
 
 def test_typing_has_a_short_timeout_and_no_transport_retries() -> None:

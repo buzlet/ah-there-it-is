@@ -300,7 +300,7 @@ def test_polling_orders_updates_discards_unauthorized_and_advances_offset(sessio
         "telegram:12",
     ]
     assert [call["message"] for call in application.calls] == ["first", "later"]
-    assert client.actions == [(100, "typing"), (100, "typing")]
+    assert client.actions == []
     assert client.poll_calls == [{"offset": 0, "timeout": 17, "limit": 25}]
     assert adapter.next_offset() == 13
 

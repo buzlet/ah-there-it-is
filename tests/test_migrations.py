@@ -39,6 +39,7 @@ def test_initial_migration_round_trip(tmp_path: Path) -> None:
             "chat_requests",
             "telegram_chat_bindings",
             "telegram_polling_state",
+            "telegram_failure_notices",
         } <= tables
         inspector = inspect(engine)
         chat_columns = {column["name"] for column in inspector.get_columns("chat_requests")}
@@ -59,6 +60,10 @@ def test_initial_migration_round_trip(tmp_path: Path) -> None:
             column["name"] for column in inspector.get_columns("telegram_polling_state")
         }
         assert {"id", "next_offset", "updated_at"} <= checkpoint_columns
+        failure_notice_columns = {
+            column["name"] for column in inspector.get_columns("telegram_failure_notices")
+        }
+        assert {"update_id", "request_key", "notice_kind", "sent_at"} <= failure_notice_columns
         with engine.connect() as connection:
             assert connection.scalar(text("PRAGMA foreign_keys")) == 1
             assert connection.scalar(
