@@ -99,7 +99,7 @@ def test_chat_api_mutates_inventory_and_persists_evaluation_log() -> None:
         body = response.json()
         assert body["conversation_id"] > 0
         assert body["run_id"] > 0
-        assert "Стол / правый ящик" in body["content"]
+        assert "стол / правый ящик" in body["content"]
         assert body["changes_applied"] is True
         assert body["receipts"][0]["operation"] == "create_item"
         assert body["receipts"][0]["changed"] is True

@@ -167,7 +167,7 @@ def test_backup_restore_round_trip_preserves_application_state(tmp_path: Path) -
             search = SearchService(session)
             ch341a = search.search_items("SPI flash")[0]
             assert ch341a.id == ids["ch341a"]
-            assert ch341a.location_path.endswith("Стол / Правый ящик")
+            assert ch341a.location_path.endswith("стол / правый ящик")
             assert search.search_items("программатор BIOS")[0].id == ids["ch341a"]
 
             messages = list(
