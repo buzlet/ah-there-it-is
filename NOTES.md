@@ -58,8 +58,11 @@ Editable/test wrapper: `/home/gpt/.local/bin/agent-notify`.
 
 Runtime wrapper for `rdu01`: `/home/rdu01/.local/bin/agent-notify`.
 
-The wrapper returns immediately and performs remote usage/ntfy work in a detached
-worker. Network failure must never block agent execution. Dry-run:
+The wrapper returns immediately by submitting a transient `systemd --user`
+unit. Do not use ordinary `nohup ... &` from a Codex shell tool for this:
+tool-runner cleanup may kill that child when the shell call returns. The transient
+worker performs remote usage/ntfy work outside the shell-tool lifecycle and has a
+short runtime bound. Network failure must never block agent execution. Dry-run:
 `AGENT_NOTIFY_DRY_RUN=1`.
 
 Notification body format is intentionally minimal:
