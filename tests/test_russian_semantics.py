@@ -264,3 +264,55 @@ def test_location_containment_setting_defaults_validates_and_reads_environment(m
             get_settings()
     finally:
         get_settings.cache_clear()
+
+
+@pytest.mark.parametrize(('raw', 'expected'), [
+    ('светло-синюю коробку', 'светло-синяя коробка'),
+    ('USB-синюю коробку', 'USB-синяя коробка'),
+    ('красных коробок', 'красная коробка'),
+    ('платы питания', 'плата питания'),
+    ('щётку для зубов', 'щётка для зубов'),
+    ('ящике письменного стола', 'ящик письменного стола'),
+])
+def test_canonical_phrases_preserve_specificity_grammar_and_idempotence(raw, expected):
+    canonical = canonicalize_name(raw)
+    assert canonical.display_name == expected
+    assert canonicalize_name(canonical.display_name) == canonical
+
+
+def test_compound_adjective_cannot_authorize_different_item(session: Session):
+    item = InventoryService(session).create_item('синяя коробка')
+    dispatcher = ToolDispatcher(session)
+    dispatcher.execute('search_items', {'query': 'светло-синюю коробку'})
+    result = dispatcher.execute('update_item', {'item_id': item.id, 'description': 'wrong'})
+    assert result['ok'] is False
+    assert item.description is None
+
+
+@pytest.mark.parametrize('phrase', [
+    ' в '.join(f'коробка {number}' for number in range(9)),
+    'тумбочка в ванна / квартира',
+])
+def test_unsupported_relation_never_persists_flat_name(session: Session, phrase: str):
+    inventory = InventoryService(session)
+    with pytest.raises(ValueError):
+        inventory.create_location(phrase)
+    with pytest.raises(ValueError):
+        inventory.create_location_path([phrase])
+    assert session.scalar(select(func.count(Location.id))) == 0
+
+
+def test_plural_phrase_has_stable_persistence_and_write_identity(session: Session):
+    inventory = InventoryService(session)
+    item = inventory.create_item('красных коробок')
+    dispatcher = ToolDispatcher(session)
+    dispatcher.execute('search_items', {'query': 'красная коробка'})
+    changed = dispatcher.execute('update_item', {'item_id': item.id, 'name': 'красных коробок'})
+    assert changed['ok'] is True
+    assert item.name == item.normalized_name == 'красная коробка'
+
+
+def test_structured_path_rejects_relational_node_atomically(session: Session):
+    with pytest.raises(ValueError, match='structured path'):
+        InventoryService(session).create_location_path(['квартира', 'тумбочка в ванной'])
+    assert session.scalar(select(func.count(Location.id))) == 0

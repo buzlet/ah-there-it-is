@@ -148,6 +148,8 @@ class InventoryService:
         """
         if not names_outer_to_inner:
             raise ValueError("location path must contain at least one name")
+        if any(parse_location_phrase(name) is not None for name in names_outer_to_inner):
+            raise ValueError("relational location phrases must be written as a structured path")
         canonical_names = [canonicalize_location_name(name) for name in names_outer_to_inner]
         if any(not name.display_name for name in canonical_names):
             raise ValueError("location name must not be blank")

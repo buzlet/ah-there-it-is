@@ -117,11 +117,26 @@ def _canonical_display(value: str, *, strip_location_prefix: bool) -> str:
             chunks.append(("separator", token))
 
     parsed: list[tuple[str, str | None, object | None]] = []
+    head_seen = False
+    dependent_tail = False
     for kind, token in chunks:
         if kind != "word":
             parsed.append((kind, token, None))
+            if kind == "separator":
+                head_seen = dependent_tail = False
             continue
         canonical, morphology_parse = _canonical_word(token)
+        # Complements retain their grammatical case ("плата питания",
+        # "щётка для зубов"). Only the head phrase takes dictionary form.
+        if head_seen and morphology_parse is not None and (
+            "gent" in morphology_parse.tag or morphology_parse.tag.POS == "PREP"
+        ):
+            dependent_tail = True
+        if dependent_tail:
+            canonical = token if _LATIN_RE.search(token) else token.casefold()
+            morphology_parse = None
+        elif morphology_parse is not None and morphology_parse.tag.POS == "NOUN":
+            head_seen = True
         parsed.append(("word", canonical, morphology_parse))
 
     # Lemmatizing an adjective in isolation produces its masculine citation
@@ -138,13 +153,16 @@ def _canonical_display(value: str, *, strip_location_prefix: bool) -> str:
                 continue
             if getattr(next_parse.tag, "POS", None) == "NOUN":
                 grammemes = {"nomn"}
-                noun_tag = next_parse.tag
+                # Agreement follows the canonical noun, not its original plural
+                # or oblique form; otherwise another pass changes the identity.
+                noun_tag = next_parse.normalized.tag
                 for grammeme in ("femn", "masc", "neut", "plur", "sing"):
                     if grammeme in noun_tag:
                         grammemes.add(grammeme)
                 inflected = parse.inflect(grammemes)
                 if inflected is not None:
-                    parsed[index] = (kind, inflected.word, parse)
+                    prefix = word.rsplit("-", 1)[0] + "-" if "-" in word else ""
+                    parsed[index] = (kind, prefix + inflected.word, parse)
                 break
 
     display = "".join(token for _kind, token, _parse in parsed)
@@ -192,7 +210,7 @@ def parse_location_phrase(value: str) -> LocationPhrase | None:
         "‘": "'", "’": "'", "“": '"', "”": '"', "«": '"', "»": '"',
     }))
     text = _SPACE_RE.sub(" ", text).strip(" \t\r\n\"'`.,;:!?")
-    if not text or "/" in text:
+    if not text:
         return None
     text = _LOCATION_PREFIX_RE.sub("", text).strip()
     if not text:
@@ -200,6 +218,8 @@ def parse_location_phrase(value: str) -> LocationPhrase | None:
     pieces = _LOCATION_SPLIT_RE.split(text)
     if len(pieces) < 3 or len(pieces) % 2 == 0:
         return None
+    if "/" in text or len(pieces) > 15:
+        raise ValueError("location relation needs clarification: unsupported structured path")
     names: list[str] = []
     relations: list[str] = []
     for index, piece in enumerate(pieces):
