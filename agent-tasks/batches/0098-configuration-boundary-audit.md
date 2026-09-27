@@ -210,3 +210,30 @@ Use the selected U24 executor notification protocol. Every milestone notificatio
 must include the wrapper-provided 5-hour and weekly remaining percentages plus
 relative time remaining until each reset. Notifications are best-effort
 operational UX and do not change acceptance criteria.
+
+
+## Independent review emphasis
+
+The independent reviewer must reconstruct the configuration-boundary decision
+from the issued task and repository evidence rather than relying on the
+implementer's conclusions.
+
+Review adversarially for:
+
+- values incorrectly classified as user preference when they are correctness or
+  safety invariants;
+- values incorrectly frozen in code despite legitimate per-deployment or future
+  per-user variability;
+- secret/non-secret layering mistakes;
+- precedence that would allow a user preference to override a domain invariant;
+- recommendations that accidentally require multi-user implementation now;
+- missing inventory of hard-coded Telegram/provider/runtime tuning values;
+- containment-plausibility policy from #97 being omitted or treated as an
+  irreversible invariant;
+- migration recommendations that are more complex than the current single-host
+  product needs.
+
+If findings require correction, append the narrowest documentation/design
+corrections to the same branch, verify them, and finish with
+`REVIEW COMPLETE — CORRECTED`. Otherwise finish with
+`REVIEW COMPLETE — CLEAN`.
