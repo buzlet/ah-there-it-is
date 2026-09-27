@@ -11,7 +11,9 @@ from pydantic import BaseModel, ValidationError
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
-from ah_there_it_is.agent.errors import ToolExecutionError, ToolPreconditionError
+from ah_there_it_is.agent.errors import (
+    ToolClarificationRequiredError, ToolExecutionError, ToolPreconditionError,
+)
 from ah_there_it_is.agent.protocol import ToolDefinition
 from ah_there_it_is.agent.receipts import MutationReceipt
 from ah_there_it_is.agent.write_resolution import WriteResolver
@@ -40,6 +42,10 @@ from ah_there_it_is.agent.schemas import (
 from ah_there_it_is.db.models import Category, Event, Item, ItemMedia, Location
 from ah_there_it_is.domain.exceptions import InventoryError
 from ah_there_it_is.domain.names import normalize_search_text
+from ah_there_it_is.domain.russian_semantics import (
+    MORPHOLOGY_ENGINE, assess_location_relation, canonicalize_location_name,
+    canonicalize_name, parse_location_phrase,
+)
 from ah_there_it_is.services.inventory import InventoryService
 from ah_there_it_is.services.location_suggestions import LocationSuggestionService
 from ah_there_it_is.services.search import SearchService
@@ -124,6 +130,7 @@ class ToolDispatcher:
         state: ToolRunState | None = None,
         autocommit: bool = True,
         conversation_id: int | None = None,
+        location_containment_policy: str = "physical",
     ) -> None:
         self.inventory = InventoryService(session, autocommit=autocommit)
         self.location_suggestions = LocationSuggestionService(session)
@@ -131,6 +138,10 @@ class ToolDispatcher:
         self.write_resolver = WriteResolver(session)
         self.original_text = original_text
         self.conversation_id = conversation_id
+        if location_containment_policy not in {"physical", "permissive"}:
+            raise ValueError("location_containment_policy must be physical or permissive")
+        self.location_containment_policy = location_containment_policy
+        self._last_semantic_evidence: dict[str, Any] | None = None
         self.state = state or ToolRunState()
         self._round_seen: dict[str, set[int]] | None = None
         self._round_resolved: dict[str, set[int]] | None = None
@@ -234,7 +245,12 @@ class ToolDispatcher:
             return [cls._compact_schema(item) for item in value]
         return value
 
+    def trace_evidence(self) -> dict[str, Any] | None:
+        """Return safe canonical identity evidence for the immediately prior tool call."""
+        return dict(self._last_semantic_evidence) if self._last_semantic_evidence else None
+
     def execute(self, name: str, arguments: dict[str, Any]) -> dict[str, Any]:
+        self._last_semantic_evidence = None
         spec = self._specs.get(name)
         if spec is None:
             return self._error("unknown_tool", f"unknown tool: {name}")
@@ -363,6 +379,8 @@ class ToolDispatcher:
             bool(event_ids)
             if name in self.ITEM_MUTATION_TOOLS | self.MEDIA_MUTATION_TOOLS
             and name not in {"create_item"}
+            else bool(result.get("created_location_ids"))
+            if name == "create_location"
             else True
         )
         affected_item_ids: tuple[int, ...] = ()
@@ -415,6 +433,8 @@ class ToolDispatcher:
             after_ids=after_ids,
             event_ids=event_ids,
             affected_item_ids=affected_item_ids,
+            created_location_ids=tuple(result.get("created_location_ids", ()))
+            if name == "create_location" else (),
             before=receipt_before,
             after=receipt_after,
             split=split,
@@ -731,12 +751,91 @@ class ToolDispatcher:
         self._require_prior_search("location", args.name)
         if args.parent_id is not None:
             self._require_resolved("location", args.parent_id)
-        location = self._validated_write(
-            [("location", args.parent_id)] if args.parent_id is not None else [],
-            lambda: self.inventory.create_location(**args.model_dump()),
+        relation = parse_location_phrase(args.name)
+        names = relation.outer_to_inner if relation is not None else (
+            canonicalize_location_name(args.name).display_name,
         )
-        self._remember_created("location", location.id)
-        return self._location_dict(location)
+        relations = relation.outer_to_inner_relations if relation is not None else ()
+
+        def create_path():
+            self._validate_location_path_policy(names, relations, args.parent_id)
+            try:
+                path_result = self.inventory.create_location_path(
+                    names,
+                    parent_id=args.parent_id,
+                    reuse_unique_outer=relation is not None and args.parent_id is None,
+                    description=args.description,
+                )
+            except ValueError as exc:
+                if "multiple locations" in str(exc) or "multiple child locations" in str(exc):
+                    raise ToolClarificationRequiredError(str(exc)) from exc
+                raise
+            if not path_result.created_ids:
+                raise ToolPreconditionError(
+                    "that canonical location path already exists; use the searched location"
+                )
+            location = path_result.location
+            for index, location_id in enumerate(path_result.path_ids):
+                if location_id in path_result.created_ids:
+                    self._remember_created("location", location_id)
+                else:
+                    self.state.seen["location"].add(location_id)
+                    self.state.resolved["location"].add(location_id)
+                    matched = self.inventory.get_location(location_id)
+                    self.state.evidence["location"].setdefault(location_id, set()).add(
+                        self._path(matched) or matched.name
+                    )
+            self._last_semantic_evidence = {
+                "normalization": {
+                    "canonical_name": location.name,
+                    "comparison_key": location.normalized_name,
+                    "morphology": MORPHOLOGY_ENGINE,
+                },
+                "identity": {
+                    "decision": "created_new_path",
+                    "evidence": "parsed_relational_path" if relation is not None else "empty_exact_search",
+                    "created_location_ids": list(path_result.created_ids),
+                },
+                "containment_policy": self.location_containment_policy,
+            }
+            result = self._location_dict(location)
+            result["created_location_ids"] = list(path_result.created_ids)
+            return result
+
+        references = [("location", args.parent_id)] if args.parent_id is not None else []
+        return self._validated_write(references, create_path, force_lock=True)
+
+    def _validate_location_path_policy(
+        self,
+        names_outer_to_inner: tuple[str, ...],
+        relations_outer_to_inner: tuple[str, ...],
+        parent_id: int | None,
+    ) -> None:
+        if len({canonicalize_location_name(name).comparison_key for name in names_outer_to_inner}) != len(names_outer_to_inner):
+            raise ToolClarificationRequiredError(
+                "location path repeats an entity; clarify the intended hierarchy"
+            )
+        if self.location_containment_policy == "permissive":
+            return
+
+        edges: list[tuple[str, str, str]] = []
+        if parent_id is not None:
+            explicit_parent = self.inventory.get_location(parent_id)
+            edges.append((names_outer_to_inner[0], explicit_parent.name, "inside"))
+        for index, child in enumerate(names_outer_to_inner[1:]):
+            relation = (
+                relations_outer_to_inner[index]
+                if index < len(relations_outer_to_inner)
+                else "inside"
+            )
+            edges.append((child, names_outer_to_inner[index], relation))
+        for child, parent, relation in edges:
+            assessment = assess_location_relation(child, parent, relation)
+            if assessment.decision != "plausible":
+                raise ToolClarificationRequiredError(
+                    "physical location relation needs clarification "
+                    f"({assessment.rule}: {child!r} {relation} {parent!r})"
+                )
 
     def _create_item(self, raw: BaseModel) -> dict[str, Any]:
         args = self._cast(CreateItemInput, raw)
@@ -756,6 +855,19 @@ class ToolDispatcher:
             references, lambda: self.inventory.create_item(**kwargs)
         )
         self._remember_created("item", item.id)
+        self._last_semantic_evidence = {
+            "normalization": {
+                "canonical_name": item.name,
+                "comparison_key": item.normalized_name,
+                "morphology": MORPHOLOGY_ENGINE,
+            },
+            "identity": {
+                "decision": "created_new_entity",
+                "evidence": "empty_exact_search",
+                "entity_type": "item",
+                "entity_id": item.id,
+            },
+        }
         return self._item_dict(item)
 
     def _update_item(self, raw: BaseModel) -> dict[str, Any]:
@@ -877,14 +989,18 @@ class ToolDispatcher:
             )
 
     def _require_prior_search(self, entity_type: str, name: str) -> None:
-        key = normalize_search_text(name)
+        key = self._semantic_search_key(entity_type, name)
         visible = self._round_searches or self.state.searches
         prior = visible[entity_type]
         if key in prior:
             return
-        signature = self._search_name_signature(key)
+        if entity_type == "location" and key.startswith("path:"):
+            raise ToolPreconditionError(
+                f"search_locations must be called for the same structured path {name!r} before creation"
+            )
+        signature = self._search_name_signature(normalize_search_text(key))
         if signature and any(
-            self._search_name_signature(candidate) == signature
+            self._search_name_signature(normalize_search_text(candidate)) == signature
             for candidate in prior
         ):
             return
@@ -896,8 +1012,17 @@ class ToolDispatcher:
     def _search_name_signature(value: str) -> tuple[str, ...]:
         return tuple(sorted(value.split()))
 
+    @staticmethod
+    def _semantic_search_key(entity_type: str, value: str) -> str:
+        if entity_type == "location":
+            relation = parse_location_phrase(value)
+            if relation is not None:
+                return "path:" + relation.path_key
+            return canonicalize_location_name(value).comparison_key
+        return canonicalize_name(value).comparison_key
+
     def _remember_search(self, entity_type: str, query: str) -> None:
-        key = normalize_search_text(query)
+        key = self._semantic_search_key(entity_type, query)
         if key:
             self.state.searches[entity_type].add(key)
 
@@ -917,22 +1042,52 @@ class ToolDispatcher:
     ) -> None:
         ids = [candidate.id for candidate in candidates]
         self._remember_seen(entity_type, ids)
-        if not candidates:
-            key = normalize_search_text(query)
-            if key:
-                self.state.empty_searches[entity_type].add(key)
-            return
-        if entity_type not in self.state.evidence:
-            return
-        resolved_id = self.write_resolver.resolve(entity_type, query)
-        if resolved_id in ids:
+        key = self._semantic_search_key(entity_type, query)
+        resolution = self.write_resolver.resolve_with_evidence(entity_type, query)
+        resolved_id = resolution["entity_id"]
+        if resolved_id is not None and resolved_id in ids:
             self.state.resolved[entity_type].add(resolved_id)
             self.state.evidence[entity_type].setdefault(resolved_id, set()).add(query)
+            decision = "authorized_exact_identity"
+            evidence = resolution["evidence"]
+        elif resolution["status"] == "ambiguous":
+            decision = "ambiguous_exact_identity"
+            evidence = None
+        elif resolved_id is not None:
+            decision = "exact_identity_not_returned"
+            evidence = resolution["evidence"]
+        else:
+            decision = "weak_retrieval_only" if candidates else "no_exact_match"
+            evidence = None
+            if key:
+                self.state.empty_searches[entity_type].add(key)
+        self._last_semantic_evidence = {
+            "normalization": {
+                "canonical_name": (
+                    " / ".join(parse_location_phrase(query).outer_to_inner)
+                    if entity_type == "location" and parse_location_phrase(query) is not None
+                    else canonicalize_location_name(query).display_name
+                    if entity_type == "location"
+                    else canonicalize_name(query).display_name
+                ),
+                "comparison_key": key,
+                "morphology": MORPHOLOGY_ENGINE,
+            },
+            "identity": {
+                "decision": decision,
+                "evidence": evidence,
+                "entity_type": entity_type,
+                "entity_id": resolved_id if decision == "authorized_exact_identity" else None,
+                "retrieval_candidate_count": len(ids),
+            },
+        }
 
     def _validated_write(
         self,
         references: list[tuple[str, int]],
         operation: Callable[[], Any],
+        *,
+        force_lock: bool = False,
     ) -> Any:
         visible_evidence = self._round_evidence or self.state.evidence
         visible_created = self._round_created or self.state.created
@@ -941,7 +1096,7 @@ class ToolDispatcher:
             if entity_id not in visible_created[entity_type] and not visible_evidence[entity_type].get(entity_id):
                 raise ToolPreconditionError(f"{entity_type} id={entity_id} has no write resolution evidence")
 
-        if references:
+        if references or force_lock:
             session = self.inventory.session
             session.flush()
             # Acquire SQLite's write lock before checking the complete matching

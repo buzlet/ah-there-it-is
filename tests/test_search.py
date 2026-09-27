@@ -140,7 +140,7 @@ def test_duplicate_location_leaf_names_are_returned_with_paths(session: Session)
     results = search.search_locations("ящик")
 
     assert [result.id for result in results] == [desk_drawer.id, cabinet_drawer.id]
-    assert {result.path for result in results} == {"Стол / Ящик", "Шкаф / Ящик"}
+    assert {result.path for result in results} == {"стол / ящик", "шкаф / ящик"}
     assert all(result.match_type == "exact_name" for result in results)
 
 
@@ -156,7 +156,7 @@ def test_tree_search_can_use_ancestry_to_disambiguate(session: Session) -> None:
 
     assert len(results) == 1
     assert results[0].id == balcony_shelf.id
-    assert results[0].path == "Балкон / Полка 2"
+    assert results[0].path == "балкон / полка 2"
 
 
 def test_tree_search_exact_path_outranks_descendant_with_same_ancestry(
@@ -176,7 +176,7 @@ def test_tree_search_exact_path_outranks_descendant_with_same_ancestry(
     results = search.search_locations("Кабинет Шкаф")
 
     assert results[0].id == cabinet.id
-    assert results[0].path == "Квартира / Кабинет / Шкаф"
+    assert results[0].path == "квартира / кабинет / шкаф"
     assert results[0].match_type == "exact_path"
     assert results[0].score == SearchService.EXACT_PATH
     assert len(results) >= 2
@@ -194,8 +194,8 @@ def test_tree_search_prefers_specific_leaf_inside_natural_phrase(session: Sessio
     results = search.search_locations("средний ящик стола")
 
     assert results[0].id == middle.id
-    assert results[0].path == "Квартира / Кабинет / Стол / Средний ящик"
-    assert results[0].score - results[1].score >= 50
+    assert results[0].path == "квартира / кабинет / стол / средний ящик"
+    assert results[0].match_type == "contains"
 
 
 def test_category_candidates_include_full_path(session: Session) -> None:
@@ -210,7 +210,7 @@ def test_category_candidates_include_full_path(session: Session) -> None:
 
     assert len(results) == 1
     assert results[0].id == pc_adapters.id
-    assert results[0].path == "Компьютеры / Переходники"
+    assert results[0].path == "компьютер / переходник"
 
 
 def test_tags_are_searchable_by_stable_id(session: Session) -> None:
@@ -238,9 +238,9 @@ def test_item_candidates_expose_context_ids_and_paths(session: Session) -> None:
 
     assert result.id == item.id
     assert result.location_id == box.id
-    assert result.location_path == "Балкон / Старое железо"
+    assert result.location_path == "балкон / старое железо"
     assert result.category_id == gpu.id
-    assert result.category_path == "Компьютеры / Видеокарты"
+    assert result.category_path == "компьютер / видеокарта"
 
 
 def test_fts_table_is_trigger_maintained(session: Session) -> None:

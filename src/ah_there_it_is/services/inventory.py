@@ -23,6 +23,9 @@ from ah_there_it_is.db.models import (
 )
 from ah_there_it_is.domain.exceptions import DuplicateEntityError, EntityNotFoundError
 from ah_there_it_is.domain.names import normalize_name
+from ah_there_it_is.domain.russian_semantics import (
+    canonicalize_location_name, canonicalize_name, parse_location_phrase,
+)
 from ah_there_it_is.domain.quantity import (
     MAX_SQLITE_INTEGER, Portion, QuantityValue, ReasonSource, validated_reason,
 )
@@ -30,6 +33,13 @@ from ah_there_it_is.domain.states import ItemState, LocationStatus, QuantityMode
 
 
 _Row = TypeVar("_Row")
+
+
+@dataclass(frozen=True)
+class CreatedLocationPath:
+    location: Location
+    path_ids: tuple[int, ...]
+    created_ids: tuple[int, ...]
 
 
 @dataclass(frozen=True)
@@ -84,12 +94,13 @@ class InventoryService:
         parent_id: int | None = None,
         description: str | None = None,
     ) -> Category:
-        normalized = self._normalized_nonblank(name)
+        canonical = canonicalize_name(name)
+        normalized = self._normalized_nonblank(canonical.display_name)
         parent = self._get_optional_parent(Category, parent_id, "category")
         self._ensure_tree_name_available(Category, normalized, parent_id, "category")
 
         category = Category(
-            name=name.strip(),
+            name=canonical.display_name,
             normalized_name=normalized,
             parent=parent,
             description=description,
@@ -105,12 +116,15 @@ class InventoryService:
         parent_id: int | None = None,
         description: str | None = None,
     ) -> Location:
-        normalized = self._normalized_nonblank(name)
+        if parse_location_phrase(name) is not None:
+            raise ValueError("relational location phrases must be written as a structured path")
+        canonical = canonicalize_location_name(name)
+        normalized = self._normalized_nonblank(canonical.display_name)
         parent = self._get_optional_parent(Location, parent_id, "location")
         self._ensure_tree_name_available(Location, normalized, parent_id, "location")
 
         location = Location(
-            name=name.strip(),
+            name=canonical.display_name,
             normalized_name=normalized,
             parent=parent,
             description=description,
@@ -118,6 +132,94 @@ class InventoryService:
         self.session.add(location)
         self._commit(location)
         return location
+
+    def create_location_path(
+        self,
+        names_outer_to_inner: Sequence[str],
+        *,
+        parent_id: int | None = None,
+        reuse_unique_outer: bool = False,
+        description: str | None = None,
+    ) -> CreatedLocationPath:
+        """Create/reuse one checked canonical Location path in one transaction.
+
+        Relation parsing and containment policy stay in the agent boundary. This
+        service owns canonical persistence and the atomic sequence of node writes.
+        """
+        if not names_outer_to_inner:
+            raise ValueError("location path must contain at least one name")
+        if any(parse_location_phrase(name) is not None for name in names_outer_to_inner):
+            raise ValueError("relational location phrases must be written as a structured path")
+        canonical_names = [canonicalize_location_name(name) for name in names_outer_to_inner]
+        if any(not name.display_name for name in canonical_names):
+            raise ValueError("location name must not be blank")
+        keys = [name.comparison_key for name in canonical_names]
+        if len(set(keys)) != len(keys):
+            raise ValueError("location path cannot repeat a canonical name")
+
+        current = self._get_optional_parent(Location, parent_id, "location")
+        pending: list[Location] = []
+        path_nodes: list[Location] = []
+        for index, canonical in enumerate(canonical_names):
+            if index == 0 and current is None and reuse_unique_outer:
+                matches = list(self.session.scalars(
+                    select(Location).where(Location.normalized_name == canonical.comparison_key)
+                    .order_by(Location.id)
+                ))
+                if len(matches) > 1:
+                    raise ValueError(
+                        f"multiple locations named {canonical.display_name!r}; clarify the parent path"
+                    )
+                if matches:
+                    current = matches[0]
+                    path_nodes.append(current)
+                    continue
+            if current is None and index == 0:
+                # A plain standalone create remains a create operation; only a
+                # parsed relation may reuse its uniquely named outer parent.
+                self._ensure_tree_name_available(
+                    Location, canonical.comparison_key, None, "location"
+                )
+            elif current is not None and current.id is not None:
+                matches = list(self.session.scalars(
+                    select(Location).where(
+                        Location.normalized_name == canonical.comparison_key,
+                        Location.parent_id == current.id,
+                    ).order_by(Location.id)
+                ))
+                if len(matches) > 1:
+                    raise ValueError(
+                        f"multiple child locations named {canonical.display_name!r}; clarify the path"
+                    )
+                if matches:
+                    current = matches[0]
+                    path_nodes.append(current)
+                    continue
+            node = Location(
+                name=canonical.display_name,
+                normalized_name=canonical.comparison_key,
+                parent=current,
+                description=(description if index == len(canonical_names) - 1 else None),
+            )
+            pending.append(node)
+            path_nodes.append(node)
+            current = node
+
+        assert current is not None
+        if pending:
+            try:
+                self.session.add_all(pending)
+                self.session.flush()
+                self._commit(current)
+            except Exception:
+                if self.autocommit:
+                    self.session.rollback()
+                raise
+        return CreatedLocationPath(
+            location=current,
+            path_ids=tuple(node.id for node in path_nodes),
+            created_ids=tuple(node.id for node in pending),
+        )
 
     def update_category(
         self,
@@ -156,8 +258,24 @@ class InventoryService:
         parent_id: int | None | _Unset,
     ) -> Category | Location:
         # Resolve every reference and conflict before changing the persistent node.
-        target_name = name.strip() if name is not None else node.name
-        normalized = self._normalized_nonblank(target_name)
+        target_name = (
+            canonicalize_location_name(name).display_name
+            if name is not None and model is Location
+            else canonicalize_name(name).display_name
+            if name is not None
+            else node.name
+        )
+        if model is Location and name is not None and parse_location_phrase(name) is not None:
+            raise ValueError("relational location phrases must be written as a structured path")
+        normalized = (
+            self._normalized_nonblank(
+                canonicalize_location_name(target_name).display_name
+                if model is Location
+                else canonicalize_name(target_name).display_name
+            )
+            if name is not None
+            else node.normalized_name
+        )
         target_description = node.description if isinstance(description, _Unset) else description
         target_parent_id = node.parent_id if isinstance(parent_id, _Unset) else parent_id
         parent = self._get_optional(model, target_parent_id, label)
@@ -205,7 +323,8 @@ class InventoryService:
     ) -> Item:
         quantity_value = QuantityValue.coerce(quantity_mode, quantity)
 
-        normalized = self._normalized_nonblank(name)
+        canonical = canonicalize_name(name)
+        normalized = self._normalized_nonblank(canonical.display_name)
         category = self._get_optional(Category, category_id, "category")
         location = self._get_optional(Location, location_id, "location")
         if not allow_duplicate:
@@ -223,7 +342,7 @@ class InventoryService:
         else:
             location_status = LocationStatus.UNKNOWN
         item = Item(
-            name=name.strip(),
+            name=canonical.display_name,
             normalized_name=normalized,
             description=description,
             state=item_state,
@@ -275,8 +394,12 @@ class InventoryService:
         item = self.get_item(item_id)
 
         # Validate the full requested patch before mutating the persistent object.
-        target_name = name.strip() if name is not None else item.name
-        target_normalized_name = self._normalized_nonblank(target_name)
+        target_name = canonicalize_name(name).display_name if name is not None else item.name
+        target_normalized_name = (
+            self._normalized_nonblank(canonicalize_name(target_name).display_name)
+            if name is not None
+            else item.normalized_name
+        )
         target_category_id = (
             item.category_id if isinstance(category_id, _Unset) else category_id
         )
@@ -341,7 +464,10 @@ class InventoryService:
             item.attributes = dict(attributes)
         if aliases is not None:
             current_aliases = {alias.normalized_name for alias in item.aliases}
-            new_aliases = {normalize_name(value) for value in aliases if normalize_name(value)}
+            new_aliases = {
+                canonicalize_name(value).comparison_key
+                for value in aliases if canonicalize_name(value).comparison_key
+            }
             if current_aliases != new_aliases:
                 changes["aliases"] = list(aliases)
                 self._replace_aliases(item, aliases)
@@ -962,23 +1088,25 @@ class InventoryService:
         item.aliases.clear()
         seen: set[str] = set()
         for value in aliases:
-            normalized = normalize_name(value)
+            canonical = canonicalize_name(value)
+            normalized = canonical.comparison_key
             if not normalized or normalized in seen:
                 continue
             seen.add(normalized)
-            item.aliases.append(Alias(name=value.strip(), normalized_name=normalized))
+            item.aliases.append(Alias(name=canonical.display_name, normalized_name=normalized))
 
     def _replace_tags(self, item: Item, tags: Sequence[str]) -> None:
         item.tag_links.clear()
         seen: set[str] = set()
         for value in tags:
-            normalized = normalize_name(value)
+            canonical = canonicalize_name(value)
+            normalized = canonical.comparison_key
             if not normalized or normalized in seen:
                 continue
             seen.add(normalized)
             tag = self.session.scalar(select(Tag).where(Tag.normalized_name == normalized))
             if tag is None:
-                tag = Tag(name=value.strip(), normalized_name=normalized)
+                tag = Tag(name=canonical.display_name, normalized_name=normalized)
                 self.session.add(tag)
                 self.session.flush()
             item.tag_links.append(tag_link := self._new_item_tag(tag))

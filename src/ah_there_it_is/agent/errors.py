@@ -13,6 +13,10 @@ class ToolPreconditionError(ToolExecutionError):
     pass
 
 
+class ToolClarificationRequiredError(ToolPreconditionError):
+    """A safe write needs a user clarification before it can be attempted."""
+
+
 class AgentLoopLimitError(AgentError):
     pass
 

@@ -26,10 +26,12 @@ class ChatApplicationService:
         max_rounds: int = 8,
         system_prompt: str | None = None,
         prompt_version: str | None = None,
+        location_containment_policy: str = "physical",
     ) -> None:
         self.session = session
         self.llm_factory = llm_factory
         self.max_rounds = max_rounds
+        self.location_containment_policy = location_containment_policy
         if system_prompt is None or prompt_version is None:
             from ah_there_it_is.agent.runner import SYSTEM_PROMPT, SYSTEM_PROMPT_VERSION
 
@@ -58,6 +60,7 @@ class ChatApplicationService:
                     max_rounds=self.max_rounds,
                     system_prompt=self.system_prompt,
                     prompt_version=self.prompt_version,
+                    location_containment_policy=self.location_containment_policy,
                 ).run(
                     message,
                     conversation_id=conversation_id,
@@ -107,6 +110,7 @@ class ChatApplicationService:
                     max_rounds=self.max_rounds,
                     system_prompt=self.system_prompt,
                     prompt_version=self.prompt_version,
+                    location_containment_policy=self.location_containment_policy,
                 ).run(
                     source.message,
                     conversation_id=source.requested_conversation_id,

@@ -8,7 +8,9 @@ from typing import Any
 
 from sqlalchemy.orm import Session
 
-from ah_there_it_is.agent.errors import AgentLoopLimitError, AgentTurnFailedError
+from ah_there_it_is.agent.errors import (
+    AgentLoopLimitError, AgentTurnFailedError, ToolClarificationRequiredError,
+)
 from ah_there_it_is.agent.receipts import MutationReceipt
 from ah_there_it_is.agent.protocol import AgentMessage, LLMClient
 from ah_there_it_is.agent.tools import ToolDispatcher
@@ -57,6 +59,7 @@ class AgentRunner:
         max_rounds: int = 8,
         system_prompt: str = SYSTEM_PROMPT,
         prompt_version: str = SYSTEM_PROMPT_VERSION,
+        location_containment_policy: str = "physical",
     ) -> None:
         if max_rounds < 1:
             raise ValueError("max_rounds must be >= 1")
@@ -65,6 +68,7 @@ class AgentRunner:
         self.max_rounds = max_rounds
         self.system_prompt = system_prompt
         self.prompt_version = prompt_version
+        self.location_containment_policy = location_containment_policy
         self.conversations = ConversationService(session)
         self.evaluation = EvaluationService(session)
 
@@ -96,6 +100,7 @@ class AgentRunner:
             original_text=text,
             autocommit=False,
             conversation_id=conversation_id,
+            location_containment_policy=self.location_containment_policy,
         )
         rounds = 0
         changed_seen = False
@@ -171,14 +176,16 @@ class AgentRunner:
                 try:
                     for call in response.tool_calls:
                         result = dispatcher.execute(call.name, call.arguments)
-                        round_trace["tool_results"].append(
-                            {
-                                "tool_call_id": call.id,
-                                "tool_name": call.name,
-                                "arguments": call.arguments,
-                                "result": result,
-                            }
-                        )
+                        trace_result = {
+                            "tool_call_id": call.id,
+                            "tool_name": call.name,
+                            "arguments": call.arguments,
+                            "result": result,
+                        }
+                        semantic_evidence = dispatcher.trace_evidence()
+                        if semantic_evidence is not None:
+                            trace_result["semantic_evidence"] = semantic_evidence
+                        round_trace["tool_results"].append(trace_result)
                         messages.append(
                             AgentMessage(
                                 role="tool",
@@ -187,8 +194,16 @@ class AgentRunner:
                                 tool_name=call.name,
                             )
                         )
+                        clarification_only = (
+                            result.get("error", {}).get("type")
+                            == ToolClarificationRequiredError.__name__
+                        )
                         if not result["ok"] and (
-                            changed_seen or call.name in ToolDispatcher.MUTATION_TOOLS
+                            changed_seen
+                            or (
+                                call.name in ToolDispatcher.MUTATION_TOOLS
+                                and not clarification_only
+                            )
                         ):
                             raise AgentTurnFailedError(
                                 f"tool {call.name} failed: {result['error']['type']}"

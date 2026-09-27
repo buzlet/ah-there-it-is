@@ -9,7 +9,10 @@ from sqlalchemy import select, text
 from sqlalchemy.orm import Session, selectinload
 
 from ah_there_it_is.db.models import Alias, Category, Item, ItemTag, Location, Tag
-from ah_there_it_is.domain.names import normalize_name, normalize_search_text
+from ah_there_it_is.domain.names import normalize_search_text
+from ah_there_it_is.domain.russian_semantics import (
+    canonicalize_location_name, canonicalize_name, parse_location_phrase,
+)
 from ah_there_it_is.domain.search import ItemSearchCandidate, SearchCandidate
 from ah_there_it_is.domain.states import ItemState, LocationStatus
 
@@ -51,18 +54,30 @@ class SearchService:
             raise ValueError("lifecycle must be active, terminal, or all")
         if location_status not in {"all", "unknown"}:
             raise ValueError("location_status must be all or unknown")
-        query = query.strip()
-        if not query or limit < 1:
+        raw_query = query.strip()
+        if not raw_query or limit < 1:
             return []
 
-        identity = normalize_name(query)
-        search_key = normalize_search_text(query)
+        canonical = canonicalize_name(raw_query)
+        identity = canonical.comparison_key
+        raw_search_key = normalize_search_text(raw_query)
+        search_key = normalize_search_text(canonical.display_name)
         candidate_limit = max(limit * 4, 20)
         fts_scan_limit = self._fts_scan_limit(candidate_limit)
 
-        fts_rows = self._fts_item_ids(query, limit=fts_scan_limit)
-        fts_by_id = dict(fts_rows)
-        candidate_ids = {item_id for item_id, _ in fts_rows}
+        retrieval_queries = [raw_query]
+        if raw_search_key != search_key:
+            retrieval_queries.append(canonical.display_name)
+        per_query_limit = max(1, fts_scan_limit // len(retrieval_queries))
+        fts_by_id: dict[int, float] = {}
+        for retrieval_query in retrieval_queries:
+            for item_id, rank in self._fts_item_ids(
+                retrieval_query, limit=per_query_limit
+            ):
+                prior_rank = fts_by_id.get(item_id)
+                if prior_rank is None or rank < prior_rank:
+                    fts_by_id[item_id] = rank
+        candidate_ids = set(fts_by_id)
         candidate_ids.update(
             self.session.scalars(
                 select(Item.id)
@@ -145,7 +160,9 @@ class SearchService:
                 ranked[item_id] = candidate
 
             fts_rank = fts_by_id.get(item_id)
-            if fts_rank is None or not self._fts_overlap_ok(item, search_key):
+            if fts_rank is None or not self._fts_overlap_ok(
+                item, raw_search_key, search_key
+            ):
                 continue
             proposed = _Ranked(self.FTS, "fts", fts_rank)
             current = ranked.get(item_id)
@@ -201,12 +218,14 @@ class SearchService:
         query = query.strip()
         if not query or limit < 1:
             return []
-        identity = normalize_name(query)
-        search_key = normalize_search_text(query)
+        canonical = canonicalize_name(query)
+        identity = canonical.comparison_key
+        search_key = normalize_search_text(canonical.display_name)
         candidates: list[SearchCandidate] = []
         for tag in self.session.scalars(select(Tag).order_by(Tag.id)):
-            tag_search = normalize_search_text(tag.name)
-            if tag.normalized_name == identity:
+            tag_canonical = canonicalize_name(tag.name)
+            tag_search = normalize_search_text(tag_canonical.display_name)
+            if tag_canonical.comparison_key == identity:
                 score, match = self.EXACT_NAME, "exact_name"
             elif tag_search == search_key:
                 score, match = self.NORMALIZED_NAME, "normalized_name"
@@ -260,9 +279,15 @@ class SearchService:
             return _Ranked(self.CONTAINS, "contains")
         return None
 
-    def _fts_overlap_ok(self, item: Item, search_key: str) -> bool:
-        query_tokens = set(search_key.split())
-        if len(query_tokens) < 2:
+    def _fts_overlap_ok(
+        self, item: Item, raw_search_key: str, canonical_search_key: str
+    ) -> bool:
+        raw_tokens = set(raw_search_key.split())
+        canonical_tokens = set(canonical_search_key.split())
+        query_token_sets = [raw_tokens]
+        if canonical_tokens != raw_tokens:
+            query_token_sets.append(canonical_tokens)
+        if all(len(tokens) < 2 for tokens in query_token_sets):
             return True
         searchable_parts = [
             normalize_search_text(item.name),
@@ -272,7 +297,10 @@ class SearchService:
             *self._attribute_values(item.attributes),
         ]
         candidate_tokens = set(" ".join(searchable_parts).split())
-        return len(query_tokens.intersection(candidate_tokens)) >= 2
+        return any(
+            len(query_tokens.intersection(candidate_tokens)) >= 2
+            for query_tokens in query_token_sets
+        )
 
     def _exact_attribute_item_ids(
         self,
@@ -338,8 +366,18 @@ class SearchService:
         query = query.strip()
         if not query or limit < 1:
             return []
-        identity = normalize_name(query)
-        search_key = normalize_search_text(query)
+        canonical = (
+            canonicalize_location_name(query)
+            if entity_type == "location"
+            else canonicalize_name(query)
+        )
+        relation = parse_location_phrase(query) if entity_type == "location" else None
+        identity = canonical.comparison_key
+        search_key = (
+            normalize_search_text(" ".join(relation.outer_to_inner))
+            if relation is not None
+            else normalize_search_text(canonical.display_name)
+        )
         nodes = list(self.session.scalars(select(model).order_by(model.id)))
         candidates: list[SearchCandidate] = []
 
