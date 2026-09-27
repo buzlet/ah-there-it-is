@@ -97,10 +97,17 @@ Runtime copy for agents running as `rdu01`:
 
 Tracked source: `tools/agent/u24_agent_notify.sh`.
 
-The wrapper is deliberately non-blocking. A normal invocation detaches a worker
-and returns control immediately; notification/usage network failure must never
-delay or fail the agent task. `AGENT_NOTIFY_DRY_RUN=1` runs the worker in the
-foreground and prints the exact message body without sending, for format tests.
+The wrapper is deliberately non-blocking. A normal invocation submits a
+transient `systemd --user` unit with `systemd-run --no-block` and returns
+control immediately. This is required because shell-tool process cleanup can
+kill ordinary `nohup ... &` children after the tool call returns.
+
+The transient worker performs usage/ntfy network work outside the caller's shell
+lifecycle and is bounded by a short runtime limit. Notification/usage network
+failure must never delay or fail the agent task.
+
+`AGENT_NOTIFY_DRY_RUN=1` runs the worker in the foreground and prints the exact
+message body without sending, for format tests.
 
 Usage retrieval is implemented directly inside the wrapper. It does not call a
 separate usage helper.
