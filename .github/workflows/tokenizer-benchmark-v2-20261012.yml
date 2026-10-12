@@ -1,6 +1,8 @@
 # tokenizer-benchmark-v2-20261012.yml
 name: Tokenizer benchmark 2026-10-12 v2
 on:
+  pull_request:
+    branches: [main]
   push:
     branches:
       - experiments/tokenizer-compare-20261012
