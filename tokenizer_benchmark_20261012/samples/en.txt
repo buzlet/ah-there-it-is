@@ -1,0 +1,57 @@
+1. Architecture and failure model
+
+Consider an event-processing service that receives JSON messages from a broker, validates them, updates a relational database, and publishes follow-up events. The application runs in multiple worker processes and may be restarted at any point. A successful network acknowledgment does not necessarily mean that the database transaction committed, and a committed transaction does not prove that the broker received a publication. The system must therefore tolerate duplicate delivery, delayed delivery, process termination, and temporary network partitions. Instead of assuming that every operation executes exactly once, design each externally visible state transition to be safe when the same request is repeated. This constraint should influence identifiers, database indexes, retry policies, logging, and acceptance tests.
+
+2. Explicit message contracts
+
+Every message should have an immutable event identifier, a schema version, a creation timestamp, a producer name, and a payload that is validated before any side effects occur. Event identifiers describe logical operations rather than transport attempts: retrying a publish must not allocate a new identifier. Use a discriminated union or another explicit schema mechanism to reject unknown event types. When changing a message format, add fields in a backward-compatible way where practical, and test both the current and previous consumer versions. Schema evolution is an application protocol, not merely a serialization detail. If a field changes meaning, introduce a new version rather than silently reinterpreting archived messages.
+
+3. Transactional inbox
+
+A consumer can protect its state changes with an inbox table keyed by the event identifier. Start a database transaction, insert the identifier into the inbox, apply the business update, and commit both changes atomically. A uniqueness constraint makes duplicate inserts harmless when the application treats a conflict as an already completed operation. Do not put the uniqueness check in a separate SELECT followed by an INSERT: concurrent workers can pass that check simultaneously. The database constraint must be the final arbiter. If processing fails before commit, the inbox row rolls back along with the update; the broker may then deliver the same event again without causing a partial application of its effects.
+
+4. Transactional outbox
+
+When a database change must produce another event, write the intended publication into an outbox table in the same transaction as the domain update. A separate publisher reads pending rows and sends them to the broker. The publisher may crash after the broker accepts an event but before the row is marked complete, so duplicate publications remain possible and downstream consumers still need idempotency. Use stable outbox identifiers, bounded polling batches, and indexes that match the selection predicate. Monitor the age of the oldest unpublished row; queue length alone can hide a stalled producer when traffic is low. Retention and cleanup should never delete entries that have not been acknowledged.
+
+5. Retry classification
+
+Not every error deserves another attempt. A temporary connection failure, an overloaded dependency, or a serialization conflict may recover after a delay. A message with an invalid schema or a permanently missing foreign key usually will not. Classify failures as retryable, non-retryable, or requiring operator intervention, and record the classification with the event identifier. Apply exponential backoff with jitter to avoid synchronized retries across workers. Enforce a maximum retry age as well as an attempt count; a service that sleeps for hours between retries can otherwise keep toxic messages alive indefinitely. Dead-letter queues are diagnostic storage, not a substitute for fixing recurring failures.
+
+6. Bounded concurrency and backpressure
+
+Worker throughput depends on the slowest constrained resource, often a database connection pool rather than available CPU cores. Limit the number of in-flight messages explicitly and ensure that broker prefetch does not grow without bound. When the downstream database is saturated, accepting more work only increases latency and memory pressure. Use a semaphore or bounded queue to propagate backpressure instead of launching an unbounded task for every received event. Measure active workers, queued work, service time, and wait time independently. If a handler mixes blocking database calls with asynchronous networking, move blocking calls to an appropriate execution pool or choose a synchronous worker model consistently.
+
+7. Isolation and ordering
+
+A single ordered broker partition does not guarantee globally ordered updates when several partitions and worker instances operate concurrently. Identify which operations require ordering and choose the ordering key deliberately, such as an account or aggregate identifier. Maintain a monotonic version on each aggregate when stale events must be detected. Optimistic updates can use a predicate that checks the expected version and increases it during the same statement. If the update affects zero rows, distinguish a duplicate event from a genuine conflict before retrying. Global locks often reduce availability without solving message duplication; prefer local invariants and narrow critical sections.
+
+8. Database indexing
+
+Indexes should support actual query patterns rather than every column that looks important. For an outbox publisher, a partial index on unprocessed rows sorted by creation time may be much smaller than a general index over the entire table. For an inbox, the unique event identifier index is usually mandatory, while timestamp indexes depend on cleanup strategy. Verify query plans with realistic row counts, because an index that helps a small development database can perform differently in production. Large delete batches can create lock contention and heavy vacuum work. Prefer incremental retention jobs, partition expiration where justified, and monitoring of table bloat.
+
+9. Observability and diagnosis
+
+Assign a correlation identifier to the business operation and propagate it through logs, tracing spans, and outgoing messages. Emit structured records with event type, event identifier, attempt number, processing outcome, and elapsed time; never log authentication tokens or raw personal records by default. Metrics should distinguish accepted, processed, retried, rejected, and dead-lettered events. A high success percentage can still hide a growing backlog, so alert on end-to-end event age and sustained processing lag. Traces help explain individual slow operations, whereas metrics reveal population-wide changes. Keep identifiers stable enough to connect the two without requiring a search through unstructured log text.
+
+10. Deterministic testing
+
+Unit tests should verify state transitions without starting a real broker, while integration tests should run against the same database engine used in production. Build a small fault-injection layer that can terminate processing immediately before commit, immediately after commit, after publication, and before acknowledgment. Replay the same event repeatedly and assert that the final business state is identical. Test concurrent delivery to separate workers, not just sequential duplicates within one process. Use a fixed random seed and a controllable clock for reproducible delays, but include randomized stress tests to explore unusual schedules. A passing happy-path test says little about crash consistency.
+
+11. Configuration and secrets
+
+Keep environment-specific configuration outside application code and validate it once during startup. Distinguish configuration that may be reloaded safely from settings that require recreating a connection pool or restarting a worker. Provide explicit defaults only when they are safe for production; an unlimited retry count or disabled TLS verification should never be a silent fallback. Secret rotation must account for long-running processes that cache credentials. Use narrowly scoped database accounts and broker permissions, and reject startup if mandatory secrets are missing.
+
+12. Rolling deployments
+
+A rolling deployment may leave old and new worker versions processing messages at the same time. Treat this overlap as a supported operating mode, not an exceptional accident. Deploy database changes using an expand-and-contract sequence: first add compatible structures, then migrate application reads and writes, and only later remove obsolete columns. Producers should not emit messages that old consumers cannot parse until the old consumers are drained. If a release fails, a rollback must consider messages already published under the new schema and data already written in the new format. Test upgrades and downgrades using representative stored events rather than only fresh synthetic input.
+
+13. Performance budgets
+
+Define a latency budget for each stage: broker delivery, scheduling, validation, database work, publication, and acknowledgment. Report median latency together with tail percentiles, because a low average can conceal the slowest requests. Benchmark with representative payload sizes, realistic indexes, and concurrent writers. Increase concurrency gradually until throughput stops improving, then inspect the limiting resource rather than adding workers blindly. Keep admission control separate from retry scheduling, since a burst of retries can otherwise starve new traffic.
+
+14. Operational recovery
+
+Write a recovery procedure before an incident occurs. Operators should be able to pause consumers, inspect unprocessed outbox rows, replay a bounded range of events, and resume traffic without directly editing business tables. Make administrative actions auditable and require an explicit reason for replaying or discarding messages. A backup of the database is useful only if restoration has been tested together with broker retention and external dependencies. Periodically simulate the loss of one worker and one database connection while load is present. The goal is not to prevent every interruption, but to make recovery deterministic and to preserve business invariants across failures.
+
+
