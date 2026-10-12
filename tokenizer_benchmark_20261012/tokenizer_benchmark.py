@@ -47,7 +47,7 @@ def count_local(values, output):
     }
     for model, repo in MODELS.items():
         try:
-            path = hf_hub_download(repo_id=repo, filename="tokenizer.json", timeout=120)
+            path = hf_hub_download(repo_id=repo, filename="tokenizer.json")
             tok = Tokenizer.from_file(path)
             result = {
                 "source": repo,
