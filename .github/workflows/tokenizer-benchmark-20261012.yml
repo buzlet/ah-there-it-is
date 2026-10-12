@@ -1,0 +1,33 @@
+# tokenizer-benchmark-20261012.yml
+name: Tokenizer benchmark 2026-10-12
+on:
+  push:
+    branches:
+      - experiments/tokenizer-compare-20261012
+    paths:
+      - '.github/workflows/tokenizer-benchmark-20261012.yml'
+      - 'tokenizer_benchmark_20261012/**'
+jobs:
+  benchmark:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Install tokenizer runtimes
+        run: python -m pip install -q tiktoken tokenizers huggingface_hub requests
+      - name: Run reproducible measurements
+        env:
+          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+        run: python tokenizer_benchmark_20261012/tokenizer_benchmark.py
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: tokenizer-counts-20261012
+          path: tokenizer_benchmark_20261012/token_counts.json
+          if-no-files-found: warn
